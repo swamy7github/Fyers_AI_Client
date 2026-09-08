@@ -282,6 +282,7 @@ def get_fyers_final_session_handle(fy_id,
             return fyres
         print("⚠️ Cached token has expired or is invalid.")
         #return cached_token
+        
         print("Proceeding to request a new access token...")
         print("Requesting new access token...")
         # Step 1: Send Login OTP Request
