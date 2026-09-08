@@ -1,0 +1,4 @@
+{"level":"ERROR","location":"[get_call:174] fyersModel","message":{"API":"/profile","Error":{"s":"error","code":-209,"message":"Please provide the validation parameter"}},"timestamp":"2026-09-07 17:36:15,679+0530","service":"FyersAPI"}
+{"level":"ERROR","location":"[get_call:174] fyersModel","message":{"API":"/profile","Error":{"s":"error","code":-209,"message":"Please provide the validation parameter"}},"timestamp":"2026-09-07 17:57:36,586+0530","service":"FyersAPI"}
+{"level":"ERROR","location":"[get_call:174] fyersModel","message":{"API":"/profile","Error":{"s":"error","code":500,"message":"Looks like you are passing an invalid entry"}},"timestamp":"2026-09-07 18:07:19,522+0530","service":"FyersAPI"}
+{"level":"ERROR","location":"[get_call:174] fyersModel","message":{"API":"/profile","Error":{"s":"error","code":-17,"message":"Could not authenticate the user"}},"timestamp":"2026-09-07 20:27:30,136+0530","service":"FyersAPI"}
