@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, urlparse
 from fyers_apiv3 import fyersModel
 import time
 import hashlib
-
+import os
 
 '''
 ====================================================
@@ -45,6 +45,7 @@ FY_ID = "YY01479"      # Example: 'XY12345'
 TOTP_KEY = "U6DLWH4CW64MFZJV4KOOI6F47WG55U4W" # 32-character base32 secret from Fyers account settings
 PIN = "1436"      # e.g., '1234'
 REDIRECT_URI = "http://127.0.0.1:5000/fyers/ai_callback/" # Example: 'https://trade.fyers.in/api-login/redirect-uri/index.html'
+TOKEN_FILE = "fyers_token.txt"
 
 ## ==========================================
 #          BASE URLS FOR FYERS API V3
@@ -76,9 +77,9 @@ def sha256_hash(appId, appType, appSecret):
     return sha256_hash
 
 
-def validate_authcode(session, auth_code):
+def validate_authcode(session, app_id, app_secret, auth_code):
     try:
-        app_id_hash = sha256_hash(appId=APP_ID, appType=APP_TYPE, appSecret=APP_SECRET)
+        app_id_hash = sha256_hash(appId=app_id, appType=APP_TYPE, appSecret=app_secret)
 
         payload = {
             "grant_type": "authorization_code",
@@ -203,8 +204,65 @@ def get_auth_code(session, fy_id, app_id, redirect_uri, app_type, access_token):
     except Exception as e:
         return [ERROR, str(e)]
     
+    
+def load_cached_token(file_path=TOKEN_FILE):
+    """Reads existing access token from local file if it exists."""
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, "r") as f:
+                token = f.read().strip()
+                return token if token else None
+        except Exception as e:
+            print(f"Error reading token file: {e}")
+            return None
+    return None
+
+
+def save_token_to_file(token, file_path=TOKEN_FILE):
+    """Saves the fresh access token to local file."""
+    try:
+        with open(file_path, "w") as f:
+            f.write(token)
+        print(f"Token saved successfully to '{file_path}'.")
+    except Exception as e:
+        print(f"Failed to save token to file: {e}")
+
+
+def is_token_valid(app_id):
+    """
+    Validates token validity against Fyers API by checking profile.
+    Returns (True, profile_data) if valid, (False, None) otherwise.
+    """
+    token = load_cached_token(file_path=f"{app_id}_{TOKEN_FILE}")
+    if not token:
+        return False, None
+    
+    print("Found existing token in file. Verifying validity...")
+    
+    try:
+        fyers = fyersModel.FyersModel(
+            client_id=f"{app_id}-{APP_TYPE}",
+            is_async=False,
+            token=token,
+            log_path=""
+        )
+        profile = fyers.get_profile()
+        print(f"Profile Response: {json.dumps(profile, indent=2)}")
+        # Fyers API returns s="ok" on valid token, and s="error" on expired/invalid token
+        if profile.get("s") == "ok":
+            return True, fyers
+        return False, None
+    except Exception as e:
+        print(f"Token validation check encountered an error: {e}")
+        return False, None
+       
         
-def get_final_access_token():
+def get_fyers_final_session_handle(fy_id,
+                                   totp_key,
+                                   pin,
+                                   redirect_uri,
+                                   app_id,
+                                   app_secret):
     """Main workflow to generate the final Fyers API V3 Access Token."""
     print("Starting Fyers Auto-Login Process...")
     
@@ -213,9 +271,22 @@ def get_final_access_token():
     session = requests.Session()
     
     try:
+        """
+        Checks if an existing token in fyers_token.txt is still valid.
+        Only triggers auto-login and generates a fresh token if the existing one is missing or expired.
+        """
+        
+        valid, fyres = is_token_valid(app_id)
+        if valid:
+            print(" Existing token is valid! Skipping full login.")
+            return fyres
+        print("⚠️ Cached token has expired or is invalid.")
+        #return cached_token
+        print("Proceeding to request a new access token...")
+        print("Requesting new access token...")
         # Step 1: Send Login OTP Request
         print("Step 1: Sending Login Request...")
-        send_otp_res = verify_client_id(session, FY_ID)
+        send_otp_res = verify_client_id(session, fy_id)
         if send_otp_res[0] != SUCCESS:
             print(f"Failed to send login request: {send_otp_res[1]}")
             return None
@@ -223,7 +294,7 @@ def get_final_access_token():
         
         # Step 2: Verify TOTP
         print("Step 2: Verifying TOTP...")
-        totp = pyotp.TOTP(TOTP_KEY).now()
+        totp = pyotp.TOTP(totp_key).now()
         print(f"Generated TOTP: {totp}")
         verify_totp_res = verify_totp(session, request_key, totp)
         if verify_totp_res[0] != SUCCESS:
@@ -233,7 +304,7 @@ def get_final_access_token():
                 
         # Step 3: Verify PIN
         print("Step 3: Verifying PIN...")
-        verify_pin_res = verify_pin(session, request_key_2, PIN)
+        verify_pin_res = verify_pin(session, request_key_2, pin)
         if verify_pin_res[0] != SUCCESS:
             print(f"Failed to verify PIN: {verify_pin_res[1]}")
             return None
@@ -247,7 +318,7 @@ def get_final_access_token():
         })
         print(f"Session Headers Updated with Bearer Token: {session.headers}")
         
-        auth_code_res = get_auth_code(session, FY_ID, APP_ID, REDIRECT_URI, APP_TYPE, trade_access_token)
+        auth_code_res = get_auth_code(session, fy_id, app_id, redirect_uri, APP_TYPE, trade_access_token)
         if auth_code_res[0] != SUCCESS:
             print(f"Failed to retrieve auth_code: {auth_code_res[1]}")
             return None
@@ -255,7 +326,7 @@ def get_final_access_token():
                 
         # Step 5: Exchange Auth Code for Final API V3 Access Token
         print("Step 5: Generating Final Access Token...")       
-        validate_authcode_res = validate_authcode(session, auth_code)
+        validate_authcode_res = validate_authcode(session, app_id, app_secret, auth_code)
         print(f"Validate Auth Code Response: {validate_authcode_res}")
         if validate_authcode_res[0] != SUCCESS:
             print(f"Failed to validate auth_code: {validate_authcode_res[1]}")
@@ -270,10 +341,10 @@ def get_final_access_token():
             print("-" * 50)
             
             # Optional: Save to file for reuse in your trading bots
-            with open("fyers_token.txt", "w") as f:
-                f.write(final_token)
+            save_token_to_file(final_token, file_path=f"{app_id}_{TOKEN_FILE}")
+            print(f"Token saved to '{app_id}_{TOKEN_FILE}' for future use.")
                 
-            return final_token
+            return fyersModel.FyersModel(client_id=f"{app_id}-{APP_TYPE}", token=final_token, is_async=False, log_path="")
         else:
             print(f"❌ Failed to generate access token: {validate_authcode_res}")
             return None
@@ -284,10 +355,16 @@ def get_final_access_token():
 
 
 if __name__ == "__main__":
-    token = get_final_access_token()
+    fyers = get_fyers_final_session_handle(
+        fy_id=FY_ID,
+        totp_key=TOTP_KEY,
+        pin=PIN,
+        redirect_uri=REDIRECT_URI,
+        app_id=APP_ID,
+        app_secret=APP_SECRET,
+    )
     
-    if token:
+    if fyers:
         print("\nTesting Token with Fyers Profile API...")
-        fyers = fyersModel.FyersModel(client_id=f"{APP_ID}-{APP_TYPE}", token=token, is_async=False, log_path="")
         profile = fyers.get_profile()
         print(json.dumps(profile, indent=2))
