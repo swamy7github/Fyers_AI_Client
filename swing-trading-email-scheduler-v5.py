@@ -217,9 +217,12 @@ def scan_and_research():
     """
     Executes a comprehensive scan across the Nifty LargeMidcap 250 universe.
     """
-    fyers_app_id = os.environ.get("FYERS_APP_ID")
-    fyers_access_token = os.environ.get("FYERS_ACCESS_TOKEN")
-    
+    from fyers_auto_login_v2 import APP_ID, get_fyers_session_handle 
+    fyres = get_fyers_session_handle()
+    #fyers_app_id = os.environ.get("FYERS_APP_ID")
+    #fyers_access_token = os.environ.get("FYERS_ACCESS_TOKEN")
+    fyers_app_id = APP_ID
+    fyers_access_token = fyres.token
     use_fyers = bool(fyers_app_id and fyers_access_token)
     
     if use_fyers:

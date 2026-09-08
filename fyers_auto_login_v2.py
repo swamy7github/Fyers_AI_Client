@@ -355,7 +355,20 @@ def get_fyers_final_session_handle(fy_id,
         return None
 
 
+def get_fyers_session_handle():
+    """Wrapper function to get Fyers session handle using global constants."""
+    return get_fyers_final_session_handle(
+        fy_id=FY_ID,
+        totp_key=TOTP_KEY,
+        pin=PIN,
+        redirect_uri=REDIRECT_URI,
+        app_id=APP_ID,
+        app_secret=APP_SECRET
+    )
+ 
+    
 if __name__ == "__main__":
+    
     fyers = get_fyers_final_session_handle(
         fy_id=FY_ID,
         totp_key=TOTP_KEY,
