@@ -2,3 +2,6 @@
 {"level":"DEBUG","location":"[get_call:168] fyersModel","message":{"Status Code":400,"API":"/profile"},"timestamp":"2026-09-07 17:57:36,585+0530","service":"FyersAPIRequest"}
 {"level":"DEBUG","location":"[get_call:168] fyersModel","message":{"Status Code":500,"API":"/profile"},"timestamp":"2026-09-07 18:07:19,521+0530","service":"FyersAPIRequest"}
 {"level":"DEBUG","location":"[get_call:168] fyersModel","message":{"Status Code":401,"API":"/profile"},"timestamp":"2026-09-07 20:27:30,134+0530","service":"FyersAPIRequest"}
+{"level":"DEBUG","location":"[get_call:168] fyersModel","message":{"Status Code":401,"API":"/profile"},"timestamp":"2026-09-08 12:45:09,995+0530","service":"FyersAPIRequest"}
+{"level":"DEBUG","location":"[get_call:168] fyersModel","message":{"Status Code":200,"API":"/profile"},"timestamp":"2026-09-08 14:36:39,688+0530","service":"FyersAPIRequest"}
+{"level":"DEBUG","location":"[get_call:168] fyersModel","message":{"Status Code":200,"API":"/profile"},"timestamp":"2026-09-08 15:31:22,984+0530","service":"FyersAPIRequest"}
