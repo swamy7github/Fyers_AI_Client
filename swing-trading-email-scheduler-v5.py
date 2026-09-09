@@ -105,6 +105,7 @@ def fetch_data_fyers(symbol, app_id, access_token):
     
     try:
         response = requests.get(url, params=params, headers=headers, timeout=10)
+        print(f"[INFO] Fyers API response for {symbol}: HTTP {response.status_code}")
         if response.status_code == 200:
             res_data = response.json()
             if res_data.get("s") == "ok" and "candles" in res_data:
@@ -246,7 +247,7 @@ def scan_and_research():
             df = None
             if use_fyers:
                 df = fetch_data_fyers(symbol, fyers_app_id, fyers_access_token)
-            
+            print(f"[INFO] Processing {symbol} ({sector}) ...")
             # If Fyers fetch fails or isn't used, try yfinance
             if df is None or df.empty:
                 df = fetch_data_yfinance(symbol)
@@ -269,13 +270,13 @@ def scan_and_research():
             swing_high = latest['Swing_High_20']
             
             # Technical Strategy Screening Rules:
-            if cmp < 50: # Exclude penny stocks
+            if cmp < 50:   # Exclude penny stocks
                 continue
-            if cmp < sma_200: # Stock must be in long-term uptrend
+            if cmp < sma_200:  # Stock must be in long-term uptrend
                 continue
-            if not (35 <= rsi <= 58): # Look for a healthy pullback zone
+            if not (35 <= rsi <= 58):  # Look for a healthy pullback zone
                 continue
-                
+            '''   
             # 3. Pull and Screen Fundamental Metrics
             f_data = fetch_fundamental_data(symbol, fyers_app_id, fyers_access_token, use_fyers)
             
@@ -285,7 +286,7 @@ def scan_and_research():
             # Rule: Protect against hyper-leveraged balance sheets (D/E > 2.0)
             if f_data["de"] > 2.0:
                 continue
-                
+            '''    
             # 4. Calculate Risk-Adjusted Levels
             # Entry: bracketed around current close
             entry_range = f"{round(cmp * 0.99, 2):,} – {round(cmp * 1.01, 2):,}"
@@ -310,12 +311,15 @@ def scan_and_research():
             # Score calculation (Higher score = healthier pullback & stronger fundamentals)
             # Technical score component (prefer RSI closer to 40)
             tech_score = 100 - abs(rsi - 42) * 2
+            fund_score = 0
             
             # Fundamental score component (award low PE, high ROE, low Debt)
+            '''
             fund_score = 50
             if f_data["roe"] > 15: fund_score += 20
             if f_data["de"] < 0.2: fund_score += 20
             if f_data["pe"] < 25: fund_score += 10
+            '''
             
             total_score = tech_score + fund_score
             
@@ -329,10 +333,10 @@ def scan_and_research():
                 "Potential (%)": f"{potential}%",
                 "R:R Ratio": rr_ratio,
                 "RSI": round(rsi, 1),
-                "PE": f_data["pe"],
-                "PB": f_data["pb"],
-                "ROE": f"{f_data['roe']}%",
-                "DE": f_data["de"],
+                #"PE": f_data["pe"],
+                #"PB": f_data["pb"],
+                #"ROE": f"{f_data['roe']}%",
+                #"DE": f_data["de"],
                 "Score": total_score
             })
             
@@ -341,6 +345,23 @@ def scan_and_research():
             continue
             
     # Compile the ultimate top 15 setups across the index based on overall score
+    '''
+    # Sort the list in-place. We use reverse=True to get the highest numbers at the top.
+    candidates.sort(
+        key=lambda x: (
+            # 1st Priority: Potential (Convert "12.5%" to 12.5)
+            float(x["Potential (%)"].replace("%", "")),
+            
+            # 2nd Priority: R:R Ratio (Convert "1:4" to numeric 4.0 by dividing right by left)
+            float(x["R:R Ratio"].split(":")[1]) / float(x["R:R Ratio"].split(":")[0]),
+            
+            # 3rd Priority: Score (e.g., 9)
+            x["Score"]
+        ),
+        reverse=True
+    ) 
+    '''
+    
     final_picks = sorted(candidates, key=lambda x: x["Score"], reverse=True)[:15]
     
     if not final_picks:
@@ -415,6 +436,7 @@ def generate_html_table(data):
                     <tr>
                         <th>Symbol</th>
                         <th>Sector</th>
+                        <th>Score</th>
                         <th>CMP (₹)</th>
                         <th>Entry Range (₹)</th>
                         <th>Stop-Loss (₹)</th>
@@ -437,11 +459,13 @@ def generate_html_table(data):
         cmp_fmt = f"{row['CMP (₹)']:,.2f}" if isinstance(row['CMP (₹)'], (int, float)) else str(row['CMP (₹)'])
         sl_fmt = f"{row['Stop-Loss (₹)']:,.2f}" if isinstance(row['Stop-Loss (₹)'], (int, float)) else str(row['Stop-Loss (₹)'])
         tgt_fmt = f"{row['Target (₹)']:,.2f}" if isinstance(row['Target (₹)'], (int, float)) else str(row['Target (₹)'])
+        score_fmt = f"{row['Score']:.1f}" if isinstance(row['Score'], (int, float)) else str(row['Score'])
         
         html += f"""
                     <tr>
                         <td style="font-weight: bold; color: #1f3c4d;">{row['Symbol']}</td>
                         <td style="color: #64748b; font-size: 11px;">{row['Sector']}</td>
+                        <td style="color: #16a34a; font-weight: 500;">{score_fmt}</td>
                         <td style="font-weight: 600;">{cmp_fmt}</td>
                         <td style="color: #334155;">{row['Entry Range (₹)']}</td>
                         <td style="color: #dc2626; font-weight: 500;">{sl_fmt}</td>
