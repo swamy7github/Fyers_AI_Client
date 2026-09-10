@@ -151,7 +151,7 @@ if __name__ == "__main__":
     if nse_symbols:
         # 3. Update fundamentals in the DB
         # WARNING: We are setting limit=10 for demonstration.
-        update_fundamentals(nse_symbols, limit=1)
+        update_fundamentals(nse_symbols, limit=None)  # Set limit=None to process all symbols, or a number for testing
         
         # 4. Retrieve specific parameters from the JSON database
         print("\n--- Retrieving Data from Database ---")
