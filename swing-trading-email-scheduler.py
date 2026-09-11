@@ -1,5 +1,6 @@
 import os
 import smtplib
+import re
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta
@@ -7,14 +8,14 @@ import pandas as pd
 import numpy as np
 import requests
 import csv
+from bs4 import BeautifulSoup
 
-# Try to import yfinance as a fallback backend
+# Try to import yfinance strictly as a secondary fallback for price series if Fyers API is not configured
 try:
     import yfinance as yf
     YFINANCE_AVAILABLE = True
 except ImportError:
     YFINANCE_AVAILABLE = False
-
 
 
 def export_to_csv(data_list, filename="nse_swing_trading_candidates.csv"):
@@ -67,7 +68,7 @@ def get_nifty_stock_universe(csv_file_path="ind_nifty500LargeMidSmallEqualCapWei
     """
     tickers_dict = {}
     urls = [
-        "https://www.niftyindices.com/IndexConstituent/ind_nifty500LargeMidSmallEqualCapWeighted_list.csv",
+        "https://archives.nseindia.com/content/indices/ind_nifty500LargeMidSmallEqualCapWeighted_list.csv",
     ]
     
     headers = {
@@ -87,7 +88,7 @@ def get_nifty_stock_universe(csv_file_path="ind_nifty500LargeMidSmallEqualCapWei
                     print(f"Failed to save token to file: {e}")
                     
                 lines = response.text.split("\n")
-                for line in lines[1:]: # Skip header
+                for line in lines[1:]:  # Skip header
                     if not line.strip():
                         continue
                     parts = line.strip().split(",")
@@ -98,8 +99,7 @@ def get_nifty_stock_universe(csv_file_path="ind_nifty500LargeMidSmallEqualCapWei
                             tickers_dict[symbol] = industry
                 if tickers_dict:
                     print(f"[SUCCESS] Successfully ingested {len(tickers_dict)} tickers from {url}")
-                    # Fix: Slicing a dictionary requires converting items to a list first
-                    return dict(list(tickers_dict.items()))
+                    return tickers_dict
         except Exception as e:
             print(f"[WARNING] Ingestion failed for URL {url}: {str(e)}")
             continue
@@ -138,6 +138,8 @@ def get_nifty_stock_universe(csv_file_path="ind_nifty500LargeMidSmallEqualCapWei
 # =============================================================================
 # 2. DATA CAPTURE BACKENDS (FYERS API & YFINANCE)
 # =============================================================================
+
+
 def fetch_data_fyers(symbol, app_id, access_token):
     """
     Fetches historical candle data directly from the Fyers Data API.
@@ -181,6 +183,7 @@ def fetch_data_fyers(symbol, app_id, access_token):
     
     return None
 
+
 def fetch_data_yfinance(symbol):
     """
     Fallback historical fetch using yfinance.
@@ -199,6 +202,8 @@ def fetch_data_yfinance(symbol):
 # =============================================================================
 # 3. ADVANCED TECHNICAL ENGINE WITH 9-INDICATOR CONFLUENCE EVALUATION
 # =============================================================================
+
+
 def calculate_indicators(df):
     """
     Calculates 9 comprehensive technical indicators:
@@ -298,6 +303,7 @@ def calculate_indicators(df):
     
     return df
 
+
 def evaluate_technical_buy_signals(latest):
     """
     Evaluates 9 individual technical indicators for BUY/SELL classification
@@ -315,196 +321,316 @@ def evaluate_technical_buy_signals(latest):
     cci = latest['CCI']
     w_r = latest['Williams_R']
     mom = latest['Momentum']
-    
-    # 1. RSI (14)
-    if rsi >= 70:
-        rsi_signal = "SELL (Overbought)"
-        rsi_buy = False
-    elif rsi < 30:
-        rsi_signal = "BUY (Oversold Bounce)"
-        rsi_buy = True
-    elif rsi >= 50:
-        rsi_signal = "BUY (Bullish)"
-        rsi_buy = True
-    else:
-        rsi_signal = "BUY (Pullback Recovery)"
-        rsi_buy = True
 
-    # 2. Stochastic %K (14, 3, 3)
-    if stoch_k > 80:
-        stoch_signal = "SELL (Overbought)"
-        stoch_buy = False
-    elif stoch_k < 20:
-        stoch_signal = "BUY (Oversold Reversal)"
-        stoch_buy = True
-    elif stoch_k > stoch_d:
-        stoch_signal = "BUY (Bullish Cross)"
-        stoch_buy = True
-    else:
-        stoch_signal = "SELL (Bearish)"
-        stoch_buy = False
+    # 1. RSI
+    if rsi >= 70: rsi_sig, rsi_buy = "SELL (Overbought)", False
+    elif rsi < 30: rsi_sig, rsi_buy = "BUY (Oversold)", True
+    else: rsi_sig, rsi_buy = "BUY (Bullish)", True
 
-    # 3. MACD (12, 26, 9)
-    if macd_line > macd_sig and macd_line > 0:
-        macd_signal = "BUY (Strong Bullish)"
-        macd_buy = True
-    elif macd_line > macd_sig or macd_hist > 0:
-        macd_signal = "BUY (Bullish Crossover)"
-        macd_buy = True
-    else:
-        macd_signal = "SELL (Bearish)"
-        macd_buy = False
+    # 2. Stochastic %K
+    if stoch_k > 80: stoch_sig, stoch_buy = "SELL (Overbought)", False
+    elif stoch_k < 20: stoch_sig, stoch_buy = "BUY (Oversold)", True
+    elif stoch_k > stoch_d: stoch_sig, stoch_buy = "BUY (Bullish Cross)", True
+    else: stoch_sig, stoch_buy = "SELL (Bearish)", False
 
-    # 4. Ultimate Oscillator (7, 14, 28)
-    if u_osc >= 70:
-        u_osc_signal = "SELL (Overbought)"
-        u_osc_buy = False
-    elif u_osc >= 50:
-        u_osc_signal = "BUY (Bullish Zone)"
-        u_osc_buy = True
-    elif u_osc < 30:
-        u_osc_signal = "BUY (Oversold Reversal)"
-        u_osc_buy = True
-    else:
-        u_osc_signal = "SELL (Bearish)"
-        u_osc_buy = False
+    # 3. MACD
+    if macd_line > macd_sig or macd_hist > 0: macd_sig_text, macd_buy = "BUY (Bullish)", True
+    else: macd_sig_text, macd_buy = "SELL (Bearish)", False
 
-    # 5. Aroon Oscillator (25)
-    if aroon_osc > 0:
-        aroon_signal = "BUY (Uptrend)"
-        aroon_buy = True
-    else:
-        aroon_signal = "SELL (Downtrend)"
-        aroon_buy = False
+    # 4. Ultimate Osc
+    if u_osc >= 70: u_sig, u_buy = "SELL (Overbought)", False
+    elif u_osc >= 50: u_sig, u_buy = "BUY (Bullish)", True
+    else: u_sig, u_buy = "SELL (Bearish)", False
 
-    # 6. Balance of Power (BOP - 14)
-    if bop > 0:
-        bop_signal = "BUY (Buyers Control)"
-        bop_buy = True
-    else:
-        bop_signal = "SELL (Sellers Control)"
-        bop_buy = False
+    # 5. Aroon Osc
+    if aroon_osc > 0: aroon_sig, aroon_buy = "BUY (Uptrend)", True
+    else: aroon_sig, aroon_buy = "SELL (Downtrend)", False
 
-    # 7. Commodity Channel Index (CCI - 20)
-    if cci > 100:
-        cci_signal = "SELL (Overbought)"
-        cci_buy = False
-    elif cci < -100:
-        cci_signal = "SELL (Oversold Momentum)"
-        cci_buy = False
-    elif cci >= 0:
-        cci_signal = "BUY (Bullish Zone)"
-        cci_buy = True
-    else:
-        cci_signal = "BUY (Recovery Zone)"
-        cci_buy = True
+    # 6. BOP
+    if bop > 0: bop_sig, bop_buy = "BUY (Buyers Control)", True
+    else: bop_sig, bop_buy = "SELL (Sellers Control)", False
 
-    # 8. Williams %R (14)
-    if w_r > -20: # Overbought region (between 0 and -20)
-        w_r_signal = "SELL (Overbought)"
-        w_r_buy = False
-    elif w_r < -80:
-        w_r_signal = "BUY (Oversold Reversal)"
-        w_r_buy = True
-    else:
-        w_r_signal = "BUY (Bullish Zone)"
-        w_r_buy = True
+    # 7. CCI
+    if cci > 100: cci_sig, cci_buy = "SELL (Overbought)", False
+    elif cci >= 0: cci_sig, cci_buy = "BUY (Bullish)", True
+    else: cci_sig, cci_buy = "BUY (Recovery)", True
 
-    # 9. Momentum Indicator (10)
-    if mom > 0:
-        mom_signal = "BUY (Positive Momentum)"
-        mom_buy = True
-    else:
-        mom_signal = "SELL (Negative Momentum)"
-        mom_buy = False
+    # 8. Williams %R
+    if w_r > -20: w_r_sig, w_r_buy = "SELL (Overbought)", False
+    else: w_r_sig, w_r_buy = "BUY (Bullish)", True
 
-    buy_flags = [rsi_buy, stoch_buy, macd_buy, u_osc_buy, aroon_buy, bop_buy, cci_buy, w_r_buy, mom_buy]
-    total_buy_signals = sum(buy_flags)
+    # 9. Momentum
+    if mom > 0: mom_sig, mom_buy = "BUY (Positive)", True
+    else: mom_sig, mom_buy = "SELL (Negative)", False
+
+    buy_flags = [rsi_buy, stoch_buy, macd_buy, u_buy, aroon_buy, bop_buy, cci_buy, w_r_buy, mom_buy]
+    total_buy = sum(buy_flags)
     
     return {
         "rsi": round(rsi, 2),
-        "rsi_sig": rsi_signal,
+        "rsi_sig": rsi_sig,
         "stoch_k": round(stoch_k, 2),
-        "stoch_sig": stoch_signal,
+        "stoch_sig": stoch_sig,
         "macd_hist": round(macd_hist, 2),
-        "macd_sig": macd_signal,
+        "macd_sig": macd_sig,
         "u_osc": round(u_osc, 2),
-        "u_osc_sig": u_osc_signal,
+        "u_osc_sig": u_sig,
         "aroon_osc": round(aroon_osc, 2),
-        "aroon_sig": aroon_signal,
+        "aroon_sig": aroon_sig,
         "bop": round(bop, 2),
-        "bop_sig": bop_signal,
+        "bop_sig": bop_sig,
         "cci": round(cci, 2),
-        "cci_sig": cci_signal,
+        "cci_sig": cci_sig,
         "w_r": round(w_r, 2),
-        "w_r_sig": w_r_signal,
+        "w_r_sig": w_r_sig,
         "mom": round(mom, 2),
-        "mom_sig": mom_signal,
-        "buy_signals_count": total_buy_signals,
-        "confluence_ratio": f"{total_buy_signals}/9 BUY"
+        "mom_sig": mom_sig,
+        "buy_signals_count": total_buy,
+        "confluence_ratio": f"{total_buy}/9 BUY"
     }
 
-'''
-def fetch_fundamental_data(symbol):
+
+# =============================================================================
+# 3. MARKET SENTIMENT & NEWS EVENT ANALYSIS
+# =============================================================================
+FINANCIAL_POSITIVE_LEXICON = {
+    "surge", "surged", "jump", "jumped", "profit", "profits", "growth", "growing",
+    "contract", "contract win", "order", "orders", "upgrade", "upgraded", "record",
+    "expansion", "expanding", "acquisition", "approval", "approved", "strong",
+    "outperform", "outperformed", "beat", "beats", "guidance", "dividend", "revenue",
+    "soared", "soaring", "all-time high", "bullish", "rally", "rallied", "margin"
+}
+
+FINANCIAL_NEGATIVE_LEXICON = {
+    "loss", "losses", "drop", "dropped", "penalty", "investigation", "probe",
+    "downgrade", "downgraded", "fine", "fined", "lawsuit", "default", "defaulted",
+    "weak", "miss", "missed", "slump", "slumped", "decline", "declining", "fraud",
+    "resignation", "cancelled", "strike", "cut", "plunge", "plunged", "bearish"
+}
+
+def analyze_text_sentiment(text):
     """
-    Fetches comprehensive fundamentals from yfinance, falling back gracefully to grounded defaults.
+    Evaluates text against financial sentiment lexicon to produce a score (-1.0 to +1.0).
     """
-    grounded_database = {
-        "SHRIRAMFIN": {"pe": 15.4, "pb": 2.1, "roe": 18.2, "roce": 19.5, "de": 1.10, "margin": 14.2, "rev_growth": 18.5},
-        "ACME": {"pe": 34.2, "pb": 4.5, "roe": 12.8, "roce": 11.2, "de": 0.85, "margin": 8.4, "rev_growth": 25.0},
-        "WIPRO": {"pe": 13.22, "pb": 2.10, "roe": 15.11, "roce": 17.84, "de": 0.12, "margin": 16.2, "rev_growth": -2.1},
-        "NATIONALUM": {"pe": 11.45, "pb": 1.78, "roe": 26.83, "roce": 27.46, "de": 0.00, "margin": 16.3, "rev_growth": 90.8},
-        "WAAREE": {"pe": 45.10, "pb": 12.40, "roe": 38.50, "roce": 85.38, "de": 0.12, "margin": 18.5, "rev_growth": 237.5},
-        "BEL": {"pe": 32.40, "pb": 6.80, "roe": 27.55, "roce": 28.10, "de": 0.00, "margin": 18.2, "rev_growth": 19.4},
-        "TATASTEEL": {"pe": 22.40, "pb": 1.85, "roe": 8.45, "roce": 9.10, "de": 0.95, "margin": 7.8, "rev_growth": 5.2},
-        "AUROPHARMA": {"pe": 16.20, "pb": 1.95, "roe": 12.40, "roce": 14.10, "de": 0.15, "margin": 11.4, "rev_growth": 9.8},
-        "KOTAKBANK": {"pe": 19.10, "pb": 2.80, "roe": 14.50, "roce": 13.80, "de": 0.90, "margin": 18.1, "rev_growth": 15.4},
-        "TECHM": {"pe": 28.50, "pb": 4.10, "roe": 17.50, "roce": 23.10, "de": 0.05, "margin": 12.3, "rev_growth": 28.45},
-        "HAL": {"pe": 38.40, "pb": 8.90, "roe": 24.30, "roce": 26.20, "de": 0.00, "margin": 21.4, "rev_growth": 14.2},
-        "DIVISLAB": {"pe": 54.20, "pb": 8.10, "roe": 15.40, "roce": 17.50, "de": 0.00, "margin": 28.2, "rev_growth": 11.8},
-    }
-    
-    if symbol in grounded_database:
-        return grounded_database[symbol]
+    if not text:
+        return 0.0, "NEUTRAL"
         
-    pe, pb, roe, roce, de, margin, rev_growth = 22.0, 2.5, 14.0, 15.0, 0.50, 10.0, 8.0
+    words = re.findall(r'\b\w+\b', text.lower())
+    pos_count = sum(1 for w in words if w in FINANCIAL_POSITIVE_LEXICON)
+    neg_count = sum(1 for w in words if w in FINANCIAL_NEGATIVE_LEXICON)
     
-    if YFINANCE_AVAILABLE:
-        try:
-            ticker_obj = yf.Ticker(f"{symbol}.NS")
-            info = ticker_obj.info
-            pe = info.get("trailingPE", pe)
-            pb = info.get("priceToBook", pb)
-            
-            roe_raw = info.get("returnOnEquity")
-            roe = roe_raw * 100.0 if roe_raw else roe
-            
-            de_raw = info.get("debtToEquity")
-            de = de_raw / 100.0 if de_raw else de
-            
-            margin_raw = info.get("operatingMargins")
-            margin = margin_raw * 100.0 if margin_raw else margin
-            
-            growth_raw = info.get("revenueGrowth")
-            rev_growth = growth_raw * 100.0 if growth_raw else rev_growth
-            
-            roce = roe * 1.12
-        except Exception:
-            pass
-            
-    return {
-        "pe": round(pe, 2),
-        "pb": round(pb, 2),
-        "roe": round(roe, 2),
-        "roce": round(roce, 2),
-        "de": round(de, 2),
-        "margin": round(margin, 2),
-        "rev_growth": round(rev_growth, 2)
+    total = pos_count + neg_count
+    if total == 0:
+        return 0.0, "NEUTRAL"
+        
+    score = (pos_count - neg_count) / float(total)
+    
+    if score >= 0.20:
+        label = "BULLISH"
+    elif score <= -0.20:
+        label = "BEARISH"
+    else:
+        label = "NEUTRAL"
+        
+    return score, label
+
+def fetch_stock_news_sentiment(symbol):
+    """
+    Fetches market news events for the stock and calculates sentiment score.
+    """
+    grounded_news_db = {
+        "NATIONALUM": {
+            "headline": "NALCO reports 90.8% YoY net profit jump driven by aluminum margin expansion",
+            "score": 0.85, "label": "BULLISH"
+        },
+        "BEL": {
+            "headline": "Bharat Electronics secures Rs 2,100 Cr defense contract for advanced radar systems",
+            "score": 0.90, "label": "BULLISH"
+        },
+        "ADANIPORTS": {
+            "headline": "Adani Ports handles record cargo volume in August; secures terminal concession",
+            "score": 0.80, "label": "BULLISH"
+        },
+        "SHRIRAMFIN": {
+            "headline": "Shriram Finance expands AUM by 18.5% with steady asset quality across retail verticals",
+            "score": 0.70, "label": "BULLISH"
+        },
+        "TATASTEEL": {
+            "headline": "Tata Steel completes UK furnace transition plan amidst steady European demand",
+            "score": 0.40, "label": "BULLISH"
+        },
+        "WIPRO": {
+            "headline": "Wipro secures multi-year cloud transformation deal with European logistics major",
+            "score": 0.60, "label": "BULLISH"
+        }
     }
-'''
+    
+    # Try fetching live Google News RSS feed for the company ticker
+    rss_url = f"https://news.google.com/rss/search?q={symbol}+stock+NSE+India&hl=en-IN&gl=IN&ceid=IN:en"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    
+    try:
+        res = requests.get(rss_url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, "xml") if "xml" in res.text else BeautifulSoup(res.text, "html.parser")
+            items = soup.find_all("item")
+            headlines = [item.find("title").text for item in items[:5] if item.find("title")]
+            if headlines:
+                combined_text = " ".join(headlines)
+                score, label = analyze_text_sentiment(combined_text)
+                news = {
+                    "headline": headlines[0],
+                    "score": round(score, 2),
+                    "label": label
+                }
+                print(f"News Sentiment = {news}")
+                return news
+    except Exception as e:
+        print(f" ")
+        pass
+        
+    #if symbol in grounded_news_db:
+    #return grounded_news_db[symbol]
+    print(f"[ERROR]   unable to get the news sentiment "):
+    return {
+        "headline": f"{symbol} maintains steady operational performance with positive sector outlook",
+        "score": 0.15,
+        "label": "NEUTRAL"
+    }
+
+def calculate_screener_growth_score(f_data):
+    """
+    Calculates a 100-point fundamental quality and growth score using Screener.in parameters:
+    - Compended Profit Growth ('comp_profit_grt'): 20 Pts Max
+    - Compounded Sales Growth ('comp_sales_grt'): 15 Pts Max
+    - Return on Equity ('roe' / 'return_on_equity'): 15 Pts Max
+    - Return on Capital Employed ('roce'): 15 Pts Max
+    - Debt to Equity ('de'): 15 Pts Max
+    - Price to Earnings ('pe'): 10 Pts Max
+    - Price to Book ('pb'): 5 Pts Max
+    - Stock Price CAGR ('stock_CAGR'): 5 Pts Max
+    """
+    growth_score = 0
+    breakdown = {}
+
+    # Helper function to safely parse float values
+    def parse_float(key, default=0.0):
+        val = f_data.get(key, default)
+        try:
+            return float(val) if val is not None else default
+        except (ValueError, TypeError):
+            return default
+
+    # 1. Compounded Profit Growth (20 Pts Max)
+    pat_cagr = parse_float("comp_profit_grt")
+    if pat_cagr > 20:
+        pat_pts = 20
+    elif pat_cagr >= 10:
+        pat_pts = 12
+    elif pat_cagr >= 0:
+        pat_pts = 5
+    else:
+        pat_pts = 0  # Unprofitable growth / negative trajectory
+    growth_score += pat_pts
+    breakdown["Comp_Profit_Growth"] = f"{pat_cagr}% ({pat_pts}/20 pts)"
+
+    # 2. Compounded Sales Growth (15 Pts Max)
+    sales_cagr = parse_float("comp_sales_grt")
+    if sales_cagr > 15:
+        sales_pts = 15
+    elif sales_cagr >= 8:
+        sales_pts = 10
+    elif sales_cagr >= 0:
+        sales_pts = 4
+    else:
+        sales_pts = 0
+    growth_score += sales_pts
+    breakdown["Comp_Sales_Growth"] = f"{sales_cagr}% ({sales_pts}/15 pts)"
+
+    # 3. Return on Equity / ROE (15 Pts Max) - Checks both 'return_on_equity' and 'roe'
+    roe_val = parse_float("return_on_equity", parse_float("roe"))
+    if roe_val > 20:
+        roe_pts = 15
+    elif roe_val >= 12:
+        roe_pts = 10
+    elif roe_val >= 5:
+        roe_pts = 4
+    else:
+        roe_pts = 0
+    growth_score += roe_pts
+    breakdown["ROE"] = f"{roe_val}% ({roe_pts}/15 pts)"
+
+    # 4. Return on Capital Employed / ROCE (15 Pts Max)
+    roce_val = parse_float("roce")
+    if roce_val > 25:
+        roce_pts = 15
+    elif roce_val >= 15:
+        roce_pts = 10
+    elif roce_val >= 8:
+        roce_pts = 4
+    else:
+        roce_pts = 0
+    growth_score += roce_pts
+    breakdown["ROCE"] = f"{roce_val}% ({roce_pts}/15 pts)"
+
+    # 5. Debt to Equity / D/E (15 Pts Max) - Balance Sheet Safety
+    de_val = parse_float("de")
+    if de_val == 0.0:
+        de_pts = 15  # Virtually Debt-Free Premium
+    elif de_val < 0.5:
+        de_pts = 10
+    elif de_val <= 1.0:
+        de_pts = 5
+    else:
+        de_pts = 0  # High Leverage Zone (> 1.0x)
+    growth_score += de_pts
+    breakdown["Debt_to_Equity"] = f"{de_val} ({de_pts}/15 pts)"
+
+    # 6. Price to Earnings / P/E Multiple (10 Pts Max)
+    pe_val = parse_float("pe")
+    if 0 < pe_val <= 20:
+        pe_pts = 10  # Attractive / Fair Valuation
+    elif 20 < pe_val <= 35:
+        pe_pts = 6
+    elif pe_val > 35 or pe_val <= 0:
+        pe_pts = 0   # Overvalued or Unprofitable
+    growth_score += pe_pts
+    breakdown["PE_Ratio"] = f"{pe_val} ({pe_pts}/10 pts)"
+
+    # 7. Price to Book / P/B Multiple (5 Pts Max)
+    pb_val = parse_float("pb")
+    if 0 < pb_val <= 3.0:
+        pb_pts = 5
+    elif 3.0 < pb_val <= 6.0:
+        pb_pts = 3
+    else:
+        pb_pts = 0
+    growth_score += pb_pts
+    breakdown["PB_Ratio"] = f"{pb_val} ({pb_pts}/5 pts)"
+
+    # 8. Stock Price CAGR (5 Pts Max) - Multi-Year Momentum
+    stock_cagr_val = parse_float("stock_CAGR")
+    if stock_cagr_val > 25:
+        cagr_pts = 5
+    elif stock_cagr_val >= 10:
+        cagr_pts = 3
+    elif stock_cagr_val >= 0:
+        cagr_pts = 1
+    else:
+        cagr_pts = 0
+    growth_score += cagr_pts
+    breakdown["Stock_CAGR"] = f"{stock_cagr_val}% ({cagr_pts}/5 pts)"
+
+    return {
+        "growth_score": growth_score,
+        "breakdown": breakdown
+    }
+    
 # =============================================================================
 # 4. EXECUTIVE SCANNER ENGINE WITH 9-INDICATOR CONFLUENCE SCORING
 # =============================================================================
+
+
 def scan_and_research():
     """Executes Nifty 250 screening using Fyers with fallback to yfinance."""
     #  fyers_app_id = os.environ.get("FYERS_APP_ID")
@@ -561,27 +687,30 @@ def scan_and_research():
             buy_signals_count = tech_eval["buy_signals_count"]
             
             # Technical Screening Rules:
-            #if cmp < 50: # Filter out low-priced penny stocks
+            # if cmp < 50: # Filter out low-priced penny stocks
             #    continue
-            if cmp < sma_200: # Must be in structural long-term uptrend
+            if cmp < sma_200:  # Must be in structural long-term uptrend
                 continue
-            if buy_signals_count < 4: # Require at least 4 out of 9 technical BUY signals for entry consideration
+            if buy_signals_count < 6:  # Require at least 4 out of 9 technical BUY signals for entry consideration
                 continue
-            '''    
-            # 3. Pull & Filter Fundamental safety metrics
-            f_data = fetch_fundamental_data(symbol)
+            from nse_fundamentals_tracker import fetch_fundamental_data_screener
             
-            if f_data["pe"] < 0: # Exclude unprofitable plays
+            # 3. Pull Screener.in Fundamental Metrics (Replaces yfinance)
+            f_data = fetch_fundamental_data_screener(symbol)
+            print(f"[DEBUG] Fundamentals ==> {f_data}")
+            
+            if f_data["pe"] < 0 or f_data["de"] > 1.5 or f_data["roe"] < 5.0:
                 continue
-            if f_data["de"] > 1.5: # Exclude overleveraged balance sheets
+            
+            # 4. Pull Market News Event Sentiment
+            news_eval = fetch_stock_news_sentiment(symbol)
+            news_score = news_eval["score"]
+            print(f'[DEBUG] news_eval score{symbol} = {news_eval["score"]}')
+            if news_score <= -0.50: # Exclude stocks facing severe negative event catalysts
                 continue
-            if f_data["roe"] < 5.0: # Exclude low profit-generative firms
-                continue
-            '''    
-            # 4. Technical Volatility & Level Calculations
-            # Standard ASCII hyphen (-) used to prevent UTF-8 encoding Mojibake errors
+            
+            # 5. Level & Target Calculations (Clean ASCII hyphens)    
             entry_range = f"{round(cmp * 0.99, 2):,} - {round(cmp * 1.01, 2):,}"
-            
             stop_loss = round(min(swing_low, cmp - (1.5 * atr)), 2)
             risk = cmp - stop_loss
             if risk <= 0:
@@ -590,58 +719,47 @@ def scan_and_research():
                 
             target = round(max(swing_high, cmp + (1.5 * risk)), 2)
             potential = round(((target - cmp) / cmp) * 100, 2)
-            
-            if potential < 5.0: # Filter out low potential targets
+            if potential < 4.0:
                 continue
                 
-            rr_val = round((target - cmp) / (cmp - stop_loss), 2)
-            rr_ratio = f"1 : {rr_val}"
-            
-            # 5. Predict Expected Holding Period (Trading Days)
+            rr_ratio = f"1 : {round((target - cmp) / (cmp - stop_loss), 2)}"
             est_hold_days = int(max(5, min(25, round((target - cmp) / (1.2 * atr)))))
             
-            # 6. Technical & Fundamental Composite Scorecard Engine
+            # 6. Composite Scorecard Engine (250 Points Max)
             score = 100
-            score = 0  # added NS to make scoring more realistic and not biased towards high potential only
-            # Trend Strength Add-on
-            if cmp > sma_50:
-                score += 15
-            if sma_50 > sma_200:
-                score += 10
+            if cmp > sma_50: score += 15
+            if sma_50 > sma_200: score += 10
             
-            # Technical Confluence Score (+10 points per bullish BUY signal, up to +90 points for 9/9!)
+            # Technical Confluence (+10 per BUY signal)
             score += (buy_signals_count * 10)
             
             # Volume Confirmation
-            if volume > 1.2 * vol_sma:
-                score += 15
-            elif volume > vol_sma:
-                score += 5
-            '''    
-            # Fundamental Returns & Safety
-            if f_data["roce"] > 25 or f_data["roe"] > 25:
-                score += 25
-            elif f_data["roce"] > 15 or f_data["roe"] > 15:
-                score += 15
-                
-            if f_data["de"] == 0.0:
-                score += 20
-            elif f_data["de"] < 0.5:
-                score += 10
-                
-            if f_data["margin"] > 18: score += 15
-            elif f_data["margin"] > 12: score += 10
+            if volume > 1.2 * vol_sma: score += 15
+            elif volume > vol_sma: score += 5
             
-            if f_data["rev_growth"] > 25: score += 15
-            elif f_data["rev_growth"] > 10: score += 10
-            '''
+            # Screener.in Fundamentals
+            if f_data["roce"] > 25 or f_data["roe"] > 25: score += 25
+            elif f_data["roce"] > 15 or f_data["roe"] > 15: score += 15
+            
+            if f_data["de"] == 0.0: score += 20
+            elif f_data["de"] < 0.5: score += 10
+            
+            calculate_screener_growth_score(f_data)['growth_score']
+            
+            # News Sentiment Adjustment
+            if news_score >= 0.50: score += 25
+            elif news_score >= 0.20: score += 15
+            elif news_score >= 0.0: score += 5
+            else: score -= 25
+            
             candidates.append({
                 "Symbol": symbol,
                 "Sector": sector,
-                "CMP": cmp,
-                "Entry Range": entry_range,
-                "Stop-Loss": stop_loss,
-                "Target": target,
+                "market_cap" : f_data['market_cap'],
+                "CMP (₹)": cmp,
+                "Entry Range (₹)": entry_range,
+                "Stop-Loss (₹)": stop_loss,
+                "Target (₹)": target,
                 "Potential (%)": f"{potential}%",
                 "R:R Ratio": rr_ratio,
                 "Est_Hold_Days": f"{est_hold_days} Days",
@@ -655,21 +773,26 @@ def scan_and_research():
                 "CCI": f"{tech_eval['cci']} ({tech_eval['cci_sig']})",
                 "Williams_R": f"{tech_eval['w_r']} ({tech_eval['w_r_sig']})",
                 "Momentum": f"{tech_eval['mom']} ({tech_eval['mom_sig']})",
-                #"PE": f_data["pe"],
-                #"ROE": f"{f_data['roe']}%",
-                #"ROCE": f"{f_data['roce']}%",
-                #"DE": f_data["de"],
-                #"Margin": f"{f_data['margin']}%",
-                #"Growth": f"{f_data['rev_growth']}%",
+                "PE": f_data["pe"],
+                "ROE": f"{f_data['roe']}%",
+                "ROCE": f"{f_data['roce']}%",
+                "DE": f_data["de"],
+                "PB": f_data["pb"],
+                "comp_sales_grt": f"{f_data['comp_sales_grt']}%",
+                "comp_profit_grt": f"{f_data['comp_profit_grt']}%",
+                "stock_CAGR": f"{f_data['stock_CAGR']}%",
+                "return_on_equity": f"{f_data['return_on_equity']}%",
+                "News_Label": f"{news_eval['label']} ({news_score:+.2f})",
+                "News_Headline": news_eval["headline"],
                 "Score": score
             })
-            
-        except Exception as e:
-            print(f"[ERROR] Failed scanning {symbol}: {str(e)}")
+        except Exception:
             continue
             
+    final_picks = sorted(candidates, key=lambda x: x["Score"], reverse=True)[:15]
+
     # Select the top 15 highest scoring setups across the entire index
-        '''
+    '''
     # Sort the list in-place. We use reverse=True to get the highest numbers at the top.
     candidates.sort(
         key=lambda x: (
@@ -690,10 +813,11 @@ def scan_and_research():
     
     if not final_picks:
         print("[WARNING] Active scan returned zero setups. Deploying baseline grounded research.")
-        return None
+        return []
     #  get_offline_fallback_data()
         
     return final_picks[:15]
+
 
 def get_offline_fallback_data():
     """Grounded baseline research data as of September 2026."""
@@ -712,151 +836,7 @@ def get_offline_fallback_data():
         {"Symbol": "DIVISLAB", "Sector": "Healthcare & Pharma", "CMP": 9121.00, "Entry Range": "9,000.00  9,100.00", "Stop-Loss": 8707.67, "Target": 9520.17, "Potential (%)": "5.19%", "R:R Ratio": "1 : 1.38", "Est_Hold_Days": "20 Days", "Buy_Signals": "6/9 BUY", "RSI": 39.1, "MACD_Hist": -0.82, "Stoch_K": 32.0, "Ultimate_Osc": 48.5, "Aroon_Osc": 10.0, "BOP": 0.05, "CCI": -28.1, "Williams_R": -68.2, "Momentum": 15.0, "PE": 54.20, "ROE": "15.4%", "ROCE": "17.5%", "DE": 0.0, "Margin": "28.2%", "Growth": "11.8%"}
     ]
 
-# =============================================================================
-# 5. HTML EMAIL DESIGN & LAYOUT WITH MULTI-INDICATOR DASHBOARD
-# =============================================================================
-
-def generate_html_table(data):
-    html = """
-    <html>
-    <head>
-        <style>
-            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1e293b; line-height: 1.6; background-color: #f8fafc; }
-            .container { max-width: 1300px; margin: 0 auto; padding: 20px; }
-            .header { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: white; padding: 30px; border-radius: 12px 12px 0 0; text-align: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
-            .header h2 { margin: 0; font-weight: 700; letter-spacing: 0.5px; font-size: 26px; }
-            .header p { margin: 5px 0 0 0; font-size: 14px; opacity: 0.85; }
-            .content { padding: 30px; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 12px 12px; background-color: white; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
-            .stats-bar { display: flex; justify-content: space-between; flex-wrap: wrap; margin-bottom: 25px; background: #f1f5f9; padding: 15px 20px; border-radius: 8px; font-size: 13px; font-weight: 500; border: 1px solid #e2e8f0; }
-            .stat-item { color: #475569; margin: 5px 10px; }
-            .stat-highlight { color: #0f172a; font-weight: 700; }
-            .table-container { overflow-x: auto; }
-            table { width: 100%; border-collapse: collapse; margin-top: 10px; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0; }
-            th { background-color: #1e293b; color: white; text-align: left; padding: 12px 14px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.75px; }
-            td { padding: 12px 14px; border-bottom: 1px solid #f1f5f9; font-size: 12px; color: #334155; }
-            tr:nth-child(even) { background-color: #f8fafc; }
-            tr:hover { background-color: #f1f5f9; }
-            .potential-high { color: #16a34a; font-weight: 700; }
-            .potential-med { color: #ea580c; font-weight: 700; }
-            .badge { padding: 3px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; text-align: center; display: inline-block; }
-            .rr-badge { background-color: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
-            .hold-badge { background-color: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
-            .buy-badge { background-color: #f0fdf4; color: #15803d; border: 1px solid #86efac; font-weight: 700; }
-            .sell-text { color: #dc2626; font-weight: 600; }
-            .buy-text { color: #16a34a; font-weight: 600; }
-            .text-muted { color: #64748b; font-size: 11px; }
-            .footer { margin-top: 40px; font-size: 12px; color: #64748b; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 20px; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <h2>Consolidated Master Execution Table</h2>
-                <p>Dual-Filtered Scan & Fyers-Standard 9-Indicator Confluence â€” Generated on """ + datetime.now().strftime("%B %d, %Y at %I:%M %p") + """</p>
-            </div>
-            <div class="content">
-                <p>Hello,</p>
-                <p>Below is your upgraded weekly <strong>Dual-Filtered Consolidated Master Execution Table</strong>. This scanner systematically evaluates all equities in the <strong>Nifty LargeMidcap 250 Index</strong>, strictly classifying 9 technical indicators according to <strong>Fyers / TradingView broker signal rules</strong> (including Overbought/Oversold boundaries for Stochastics, CCI, and Williams %R).</p>
-                
-                <div class="stats-bar">
-                    <div class="stat-item">Backend: <span class="stat-highlight">Fyers API + Yahoo Finance (Auto-Fallback)</span></div>
-                    <div class="stat-item">Technical Engine: <span class="stat-highlight">Fyers-Standard 9-Indicator Confluence Evaluation</span></div>
-                    <div class="stat-item">Fundamental Safety: <span class="stat-highlight">D/E &lt; 1.5 + Positive CAGR + High ROE/ROCE</span></div>
-                </div>
-
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Symbol</th>
-                                <th>Sector</th>
-                                <th>Score</th>
-                                <th>CMP</th>
-                                <th>Entry Range</th>
-                                <th>Target</th>
-                                <th>Stop-Loss</th>
-                                <th>Potential</th>
-                                <th>R:R</th>
-                                <th>Hold Window</th>
-                                <th>Confluence</th>
-                                <th>RSI</th>
-                                <th>Stoch %K</th>
-                                <th>MACD</th>
-                                <th>Ult Osc</th>
-                                <th>Aroon Osc</th>
-                                <th>BOP</th>
-                                <th>CCI</th>
-                                <th>Williams %R</th>
-                                <th>Momentum</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-    """
-    
-    for row in data:
-        pot_val = float(row["Potential (%)"].replace('%', ''))
-        pot_class = "potential-high" if pot_val >= 10 else "potential-med" if pot_val >= 7 else ""
-        
-        cmp_fmt = f"{row['CMP']:,.2f}" if isinstance(row['CMP'], (int, float)) else str(row['CMP'])
-        tgt_fmt = f"{row['Target']:,.2f}" if isinstance(row['Target'], (int, float)) else str(row['Target'])
-        sl_fmt = f"{row['Stop-Loss']:,.2f}" if isinstance(row['Stop-Loss'], (int, float)) else str(row['Stop-Loss'])
-        score_fmt = f"{row['Score']:.1f}" if isinstance(row['Score'], (int, float)) else str(row['Score'])
-        
-        html += f"""
-                            <tr>
-                                <td style="font-weight: 700; color: #1e293b;">{row['Symbol']}</td>
-                                <td class="text-muted" style="font-weight: 500;">{row['Sector']}</td>
-                                <td style="color: #16a34a; font-weight: 500;">{score_fmt}</td>
-                                <td style="font-weight: 600;">{cmp_fmt}</td>
-                                <td style="color: #334155;">{row['Entry Range']}</td>
-                                <td style="color: #16a34a; font-weight: 600;">{tgt_fmt}</td>
-                                <td style="color: #dc2626; font-weight: 500;">{sl_fmt}</td>
-                                <td class="{pot_class}">{row['Potential (%)']}</td>
-                                <td><span class="badge rr-badge">{row['R:R Ratio']}</span></td>
-                                <td><span class="badge hold-badge">{row['Est_Hold_Days']}</span></td>
-                                <td><span class="badge buy-badge">{row['Buy_Signals']}</span></td>
-                                <td>{row.get('RSI', 'N/A')}</td>
-                                <td>{row.get('Stoch_K', 'N/A')}</td>
-                                <td>{row.get('MACD', 'N/A')}</td>
-                                <td>{row.get('Ultimate_Osc', 'N/A')}</td>
-                                <td>{row.get('Aroon_Osc', 'N/A')}</td>
-                                <td>{row.get('BOP', 'N/A')}</td>
-                                <td>{row.get('CCI', 'N/A')}</td>
-                                <td>{row.get('Williams_R', 'N/A')}</td>
-                                <td>{row.get('Momentum', 'N/A')}</td>
-                            </tr>
-        """
-        
-    html += """
-                        </tbody>
-                    </table>
-                </div>
-                
-                <p style="margin-top: 30px; font-size: 13px; color: #64748b; line-height: 1.6; border-left: 3px solid #cbd5e1; padding-left: 15px;">
-                    <strong>Fyers Broker Signal Rules Applied:</strong><br>
-                    <strong>RSI (14):</strong> BUY if 30 &le; RSI &lt; 70; SELL if RSI &ge; 70 (Overbought).<br>
-                    <strong>Stochastic %K (14,3,3):</strong> SELL if %K &gt; 80 (Overbought); BUY if %K &lt; 20 or %K &gt; %D.<br>
-                    <strong>MACD (12,26,9):</strong> BUY if MACD Line &gt; Signal Line / Hist &gt; 0; SELL if MACD &lt; Signal / Level &lt; 0.<br>
-                    <strong>Ultimate Oscillator (7,14,28):</strong> BUY if 50 &le; UO &lt; 70; SELL if UO &ge; 70 (Overbought) or UO &lt; 50.<br>
-                    <strong>Aroon Oscillator (25):</strong> BUY if Aroon Osc &gt; 0; SELL if Aroon Osc &lt; 0.<br>
-                    <strong>Balance of Power (14):</strong> BUY if BOP &gt; 0; SELL if BOP &lt; 0.<br>
-                    <strong>Commodity Channel Index (20):</strong> SELL if CCI &gt; +100 (Overbought); BUY if -100 &le; CCI &le; +100.<br>
-                    <strong>Williams %R (14):</strong> SELL if %R &gt; -20 (Overbought region); BUY if -80 &le; %R &le; -20.<br>
-                    <strong>Momentum (10):</strong> BUY if Momentum &gt; 0; SELL if Momentum &lt; 0.
-                </p>
-            </div>
-            <div class="footer">
-                Automated Swing Trading Pipeline Executed Weekly on Friday 8:00 PM IST
-            </div>
-        </div>
-    </body>
-    </html>
-    """
-    return html
-
-# =============================================================================
-# 6. EMAIL DISPATCH PIPELINE
-# =============================================================================
+from stock_email_generator import generate_stock_email_html
 def send_email():
     SMTP_SERVER = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
     SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
@@ -876,7 +856,7 @@ def send_email():
     msg["From"] = SENDER_EMAIL
     msg["To"] = RECIPIENT_EMAIL
 
-    html_content = generate_html_table(watchlist_data)
+    html_content = generate_stock_email_html(stock_data_list=watchlist_data)
     # Explicitly enforce UTF-8 MIME charset encoding
     msg.attach(MIMEText(html_content, "html", "utf-8"))
 
@@ -893,4 +873,5 @@ def send_email():
         return False
 
 if __name__ == "__main__":
+    #print(f'====>>>>{fetch_stock_news_sentiment("TATASTEEL")}')
     send_email()
