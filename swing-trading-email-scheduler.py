@@ -9,6 +9,9 @@ import numpy as np
 import requests
 import csv
 from bs4 import BeautifulSoup
+from utilities import get_nifty_stock_universe
+import stock_fundamentals_fetcher as sff
+
 
 # Try to import yfinance strictly as a secondary fallback for price series if Fyers API is not configured
 try:
@@ -57,7 +60,7 @@ def export_to_csv(data_list, filename="nse_swing_trading_candidates.csv"):
 # =============================================================================
 # 1. RETRIEVE NIFTY LARGEMIDCAP 250 TICKERS & SECTORS
 # =============================================================================
-
+'''
 
 def get_nifty_stock_universe(csv_file_path="ind_nifty500LargeMidSmallEqualCapWeighted_list.csv"):
     """
@@ -134,7 +137,7 @@ def get_nifty_stock_universe(csv_file_path="ind_nifty500LargeMidSmallEqualCapWei
         print(f"[ERROR] The local fallback file '{csv_file_path}' was not found in the current directory.")
 
     return fallback_universe
-
+'''
 # =============================================================================
 # 2. DATA CAPTURE BACKENDS (FYERS API & YFINANCE)
 # =============================================================================
@@ -372,7 +375,7 @@ def evaluate_technical_buy_signals(latest):
         "stoch_k": round(stoch_k, 2),
         "stoch_sig": stoch_sig,
         "macd_hist": round(macd_hist, 2),
-        "macd_sig": macd_sig,
+        "macd_sig": macd_sig_text,
         "u_osc": round(u_osc, 2),
         "u_osc_sig": u_sig,
         "aroon_osc": round(aroon_osc, 2),
@@ -491,7 +494,7 @@ def fetch_stock_news_sentiment(symbol):
         
     #if symbol in grounded_news_db:
     #return grounded_news_db[symbol]
-    print(f"[ERROR]   unable to get the news sentiment "):
+    print(f"[ERROR]   unable to get the news sentiment ")
     return {
         "headline": f"{symbol} maintains steady operational performance with positive sector outlook",
         "score": 0.15,
@@ -548,7 +551,7 @@ def calculate_screener_growth_score(f_data):
     breakdown["Comp_Sales_Growth"] = f"{sales_cagr}% ({sales_pts}/15 pts)"
 
     # 3. Return on Equity / ROE (15 Pts Max) - Checks both 'return_on_equity' and 'roe'
-    roe_val = parse_float("return_on_equity", parse_float("roe"))
+    roe_val = parse_float("return_on_equity", parse_float("ROE"))
     if roe_val > 20:
         roe_pts = 15
     elif roe_val >= 12:
@@ -561,7 +564,7 @@ def calculate_screener_growth_score(f_data):
     breakdown["ROE"] = f"{roe_val}% ({roe_pts}/15 pts)"
 
     # 4. Return on Capital Employed / ROCE (15 Pts Max)
-    roce_val = parse_float("roce")
+    roce_val = parse_float("ROCE")
     if roce_val > 25:
         roce_pts = 15
     elif roce_val >= 15:
@@ -572,7 +575,7 @@ def calculate_screener_growth_score(f_data):
         roce_pts = 0
     growth_score += roce_pts
     breakdown["ROCE"] = f"{roce_val}% ({roce_pts}/15 pts)"
-
+    '''
     # 5. Debt to Equity / D/E (15 Pts Max) - Balance Sheet Safety
     de_val = parse_float("de")
     if de_val == 0.0:
@@ -585,9 +588,9 @@ def calculate_screener_growth_score(f_data):
         de_pts = 0  # High Leverage Zone (> 1.0x)
     growth_score += de_pts
     breakdown["Debt_to_Equity"] = f"{de_val} ({de_pts}/15 pts)"
-
+    '''
     # 6. Price to Earnings / P/E Multiple (10 Pts Max)
-    pe_val = parse_float("pe")
+    pe_val = parse_float("Stock P/E")
     if 0 < pe_val <= 20:
         pe_pts = 10  # Attractive / Fair Valuation
     elif 20 < pe_val <= 35:
@@ -598,7 +601,8 @@ def calculate_screener_growth_score(f_data):
     breakdown["PE_Ratio"] = f"{pe_val} ({pe_pts}/10 pts)"
 
     # 7. Price to Book / P/B Multiple (5 Pts Max)
-    pb_val = parse_float("pb")
+    pb_val = round(float(parse_float('Current Price')) / float(parse_float("Book Value")), 2)
+    f_data['PB'] = pb_val
     if 0 < pb_val <= 3.0:
         pb_pts = 5
     elif 3.0 < pb_val <= 6.0:
@@ -620,7 +624,7 @@ def calculate_screener_growth_score(f_data):
         cagr_pts = 0
     growth_score += cagr_pts
     breakdown["Stock_CAGR"] = f"{stock_cagr_val}% ({cagr_pts}/5 pts)"
-
+    print(f"fundamental score => {growth_score}")
     return {
         "growth_score": growth_score,
         "breakdown": breakdown
@@ -640,36 +644,40 @@ def scan_and_research():
     fyers_app_id = APP_ID
     fyers_access_token = fyres.token
     use_fyers = bool(fyers_app_id and fyers_access_token)
+    stock_fundamentals = sff.StockFundamentalsDB()
     
     if use_fyers:
         print("[INFO] Fyers credentials detected. Active scan using Fyers API backend.")
     else:
         print("[INFO] Fyers credentials not found. Falling back to yfinance.")
         
-    universe = get_nifty_stock_universe()
+    stock_universe = get_nifty_stock_universe(url=sff.NSE_LMS500_URL)
     candidates = []
-    
+    if not stock_universe:
+        print(" Failed to retrive the stock List from NSE")
+        return
     count = 0
-    for symbol, sector in universe.items():
+    for symbol in stock_universe:
         count += 1
         if count > 150 and not use_fyers:
             break
-        print(f"[INFO] Scanning : {symbol} ({sector})")
+        print(f"[INFO] Scanning : {symbol}")
         try:
             # 1. Fetch Market Data
             df = None
-            if use_fyers:
-                df = fetch_data_fyers(symbol, fyers_app_id, fyers_access_token)
+            df = fetch_data_fyers(symbol, fyers_app_id, fyers_access_token)
             '''
             if df is None or df.empty:
                 df = fetch_data_yfinance(symbol)
             '''
             if df is None or len(df) < 50:
+                print(f"[WARRNING]  DF is None df len = {len(df)}")
                 continue
-                
+   
             # 2. Run Comprehensive Technical Analysis
             df = calculate_indicators(df)
             if df is None:
+                print("[WARRNING]    calculate_indicators no data in df ")
                 continue
                 
             latest = df.iloc[-1]
@@ -690,16 +698,23 @@ def scan_and_research():
             # if cmp < 50: # Filter out low-priced penny stocks
             #    continue
             if cmp < sma_200:  # Must be in structural long-term uptrend
+                print(f"[INFO] Price {cmp} below SMA_200 = {sma_200} so skipping the {symbol}")
                 continue
             if buy_signals_count < 6:  # Require at least 4 out of 9 technical BUY signals for entry consideration
+                print(f"[INFO] Buy_signals_count should > 6, It is {buy_signals_count} so skipping the {symbol}") 
                 continue
-            from nse_fundamentals_tracker import fetch_fundamental_data_screener
+            #from nse_fundamentals_tracker import fetch_fundamental_data_screener
             
             # 3. Pull Screener.in Fundamental Metrics (Replaces yfinance)
-            f_data = fetch_fundamental_data_screener(symbol)
-            print(f"[DEBUG] Fundamentals ==> {f_data}")
+            df_data = stock_fundamentals.get_update_fundamentals(symbol)
+            print(f"[DEBUG] Fundamentals ==> {df_data}")
             
-            if f_data["pe"] < 0 or f_data["de"] > 1.5 or f_data["roe"] < 5.0:
+            # roe < 5 slip the stock
+            pe = float(df_data['Stock P/E'])
+            #de = df_data['Stock P/E'])
+            roe = float(df_data['ROE'])
+            if pe < 0 or roe < 5.0:
+                print(f" not satisified 'pe' {pe}<0  or 'roe' {roe} < 0")
                 continue
             
             # 4. Pull Market News Event Sentiment
@@ -738,13 +753,13 @@ def scan_and_research():
             elif volume > vol_sma: score += 5
             
             # Screener.in Fundamentals
-            if f_data["roce"] > 25 or f_data["roe"] > 25: score += 25
-            elif f_data["roce"] > 15 or f_data["roe"] > 15: score += 15
-            
+            #if f_data["ROCE"] > 25 or f_data["ROE"] > 25: score += 25
+            #elif f_data["ROCE"] > 15 or f_data["ROE"] > 15: score += 15
+            '''
             if f_data["de"] == 0.0: score += 20
             elif f_data["de"] < 0.5: score += 10
-            
-            calculate_screener_growth_score(f_data)['growth_score']
+            '''
+            score += calculate_screener_growth_score(df_data)['growth_score']
             
             # News Sentiment Adjustment
             if news_score >= 0.50: score += 25
@@ -752,10 +767,11 @@ def scan_and_research():
             elif news_score >= 0.0: score += 5
             else: score -= 25
             
+            print(f"Total tech + fundametal + news score ={score}")
             candidates.append({
                 "Symbol": symbol,
-                "Sector": sector,
-                "market_cap" : f_data['market_cap'],
+                "Sector": "N/A",
+                "market_cap" : df_data['Market Cap'],
                 "CMP (₹)": cmp,
                 "Entry Range (₹)": entry_range,
                 "Stop-Loss (₹)": stop_loss,
@@ -773,20 +789,21 @@ def scan_and_research():
                 "CCI": f"{tech_eval['cci']} ({tech_eval['cci_sig']})",
                 "Williams_R": f"{tech_eval['w_r']} ({tech_eval['w_r_sig']})",
                 "Momentum": f"{tech_eval['mom']} ({tech_eval['mom_sig']})",
-                "PE": f_data["pe"],
-                "ROE": f"{f_data['roe']}%",
-                "ROCE": f"{f_data['roce']}%",
-                "DE": f_data["de"],
-                "PB": f_data["pb"],
-                "comp_sales_grt": f"{f_data['comp_sales_grt']}%",
-                "comp_profit_grt": f"{f_data['comp_profit_grt']}%",
-                "stock_CAGR": f"{f_data['stock_CAGR']}%",
-                "return_on_equity": f"{f_data['return_on_equity']}%",
+                "PE": df_data["Stock P/E"],
+                "ROE": f"{df_data['ROE']}%",
+                "ROCE": f"{df_data['ROCE']}%",
+                "DE": "DE" ,  #f_data["de"],
+                "PB": df_data["PB"],
+                "comp_sales_grt": f"{df_data['comp_sales_grt']}%",
+                "comp_profit_grt": f"{df_data['comp_profit_grt']}%",
+                "stock_CAGR": f"{df_data['stock_CAGR']}%",
+                "return_on_equity": f"{df_data['return_on_equity']}%",
                 "News_Label": f"{news_eval['label']} ({news_score:+.2f})",
                 "News_Headline": news_eval["headline"],
                 "Score": score
             })
-        except Exception:
+        except Exception as e:
+            print(f"[ERROR] Failed to scan_and_research : {str(e)}")
             continue
             
     final_picks = sorted(candidates, key=lambda x: x["Score"], reverse=True)[:15]

@@ -72,9 +72,17 @@ def fetch_http_response(session, url=None):
     """
     if url:
         try:
-            response = session.get(url, timeout=10)
-            response.raise_for_status()  # Check for HTTP errors
-            return response.text
+            if session:
+                response = session.get(url, timeout=10)
+                response.raise_for_status()  # Check for HTTP errors
+                return response.text
+            else:
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                }
+                response = requests.get(url, headers=headers, timeout=10)
+                response.raise_for_status()  # Check for HTTP errors
+                return response.text
         except requests.exceptions.RequestException as e:
             print(f"Error fetching URL: {e}")
             return None
@@ -254,13 +262,14 @@ def export_sqlite_to_csv(db_path, output_dir="."):
             conn.close()
 
     
-def get_nifty_stock_universe(session, url=None, csv_file_path=None):
+def get_nifty_stock_universe(session=None, url=None, csv_file_path=None):
     """
     Attempts to download the official Nifty list from NSE.
     If the live download fails, falls back to reading from a local CSV file 
     containing columns: "Company Name,Industry,Symbol,Series,ISIN Code".
     Returns a dictionary of {symbol: industry}.
     """
+    print(f" args = 1 {session}  2{url} 3{csv_file_path}")
     if url:
         csv_file_path = os.path.basename(url.strip())
         print(f"====> {csv_file_path} ")
@@ -280,8 +289,10 @@ def get_nifty_stock_universe(session, url=None, csv_file_path=None):
             # Using csv.DictReader is safer because it maps the exact column headers you specified 
             # ("Company Name,Industry,Symbol,Series,ISIN Code") and handles commas inside company names safely.
             nse_stock_symbols = read_from_csv(csv_file_path)
-            print(f" Keys = {nse_stock_symbols.keys()}")
-            print(f"{nse_stock_symbols["SYMBOL"]}")
+            # Convert all keys to uppercase and overwrite the existing variable
+            nse_stock_symbols = {key.upper(): value for key, value in nse_stock_symbols.items()}
+            print(f" Keys = {type(nse_stock_symbols)}=={nse_stock_symbols.keys()}")
+            print(f"nse_stock_symbols['SYMBOL'] = {nse_stock_symbols["SYMBOL"]}")
             return nse_stock_symbols["SYMBOL"]
             
         except Exception as e:
