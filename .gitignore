@@ -147,6 +147,9 @@ activemq-data/
 # SageMath parsed files
 *.sage.py
 
+# backup files
+*.py.bak
+
 # Environments
 .env
 .envrc
@@ -216,3 +219,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+#other large files 
+http_internt_cache.sqlite
