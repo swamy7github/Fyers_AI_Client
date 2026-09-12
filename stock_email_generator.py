@@ -134,31 +134,49 @@ def generate_stock_email_html(stock_data_list):
                         <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📊 Technical Indicators</h4>
                         <table style="width: 100%; font-size: 12px; border-collapse: collapse; text-align: left;">
                             <tr style="background-color: #f8fafc;">
-                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">RSI</td>
-                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">{{ data.get('RSI', '-') }}</td>
-                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">Stoch %K</td>
-                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">{{ data.get('Stoch_K', '-') }}</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">SMA 50</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">{{ data.get('SMA_50', '-') }}</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">SMA 200</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">{{ data.get('SMA_200', '-') }}</td>
                             </tr>
                             <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Vol SMA 20</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">{{ data.get('Vol_SMA_20', '-') }}</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">ATR</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">{{ data.get('ATR', '-') }}</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Swing Low (10)</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">{{ data.get('Swing_Low_10', '-') }}</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Swing High (20)</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">{{ data.get('Swing_High_20', '-') }}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">RSI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">{{ data.get('RSI', '-') }}</td>
                                 <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">MACD</td>
                                 <td style="padding: 6px; border: 1px solid #e2e8f0;">{{ data.get('MACD', '-') }}</td>
-                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Ultimate Osc</td>
-                                <td style="padding: 6px; border: 1px solid #e2e8f0;">{{ data.get('Ultimate_Osc', '-') }}</td>
                             </tr>
                             <tr style="background-color: #f8fafc;">
-                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Aroon Osc</td>
-                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">{{ data.get('Aroon_Osc', '-') }}</td>
-                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">BOP</td>
-                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">{{ data.get('BOP', '-') }}</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Stoch %K</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">{{ data.get('Stoch_K', '-') }}</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Ultimate Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">{{ data.get('Ultimate_Osc', '-') }}</td>
                             </tr>
                             <tr>
-                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">CCI</td>
-                                <td style="padding: 6px; border: 1px solid #e2e8f0;">{{ data.get('CCI', '-') }}</td>
-                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Williams %R</td>
-                                <td style="padding: 6px; border: 1px solid #e2e8f0;">{{ data.get('Williams_R', '-') }}</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Aroon Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">{{ data.get('Aroon_Osc', '-') }}</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">BOP</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">{{ data.get('BOP', '-') }}</td>
                             </tr>
                             <tr style="background-color: #f8fafc;">
-                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Momentum</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">CCI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">{{ data.get('CCI', '-') }}</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Williams %R</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">{{ data.get('Williams_R', '-') }}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Momentum</td>
                                 <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;" colspan="3">{{ data.get('Momentum', '-') }}</td>
                             </tr>
                         </table>
@@ -220,10 +238,69 @@ if __name__ == "__main__":
             '3Y_ROE_Avg': '16.0%', 
             '3Y_Stock_CAGR': '58.0%', 
             'PE': 38.0, 
-            'News_Label': 'NEUTRAL (+0.15)', 
-            'News_Headline': 'AEGISLOG maintains steady operational performance with positive sector outlook', 
-            'Raw_Score': 150, 
-            'Opt_Score': np.float64(61.9)
+            'News_Label': 'BULLISH (+0.50)', 
+            'News_Headline': 'Aegis Logistics Share Price - Live NSE: AEGISLOG Stock Price & Chart - Upstox', 
+            'Raw_Score': 170, 
+            'Opt_Score': np.float64(65.1),
+            
+            # Expanded Technicals
+            'SMA_50': '1290.4',
+            'SMA_200': '1110.2',
+            'Vol_SMA_20': '1.2M',
+            'Swing_Low_10': '1290.0',
+            'Swing_High_20': '1410.5',
+            'ATR': '25.4',
+            'RSI': '62.4',
+            'Stoch_K': '75.1 (BUY)',
+            'MACD': '2.45 (s-1.1, l-0.5)',
+            'Ultimate_Osc': '58.2',
+            'Aroon_Osc': '100.0)',
+            'BOP': '0.35 )',
+            'CCI': '125.6',
+            'Williams_R': '-15.4 )',
+            'Momentum': '14.5)'
+        },
+        {
+            'Symbol': 'BOSCHLTD', 
+            'Sector': 'Auto Components', 
+            'CMP (₹)': 48385.0, 
+            'Entry Range (₹)': '48000 - 48250', 
+            'Stop-Loss (₹)': 46500.0, 
+            'Target (₹)': 52500.0, 
+            'Potential (%)': '8.5%', 
+            'Potential_Val': 8.5, 
+            'R:R Ratio': '1 : 2.2', 
+            'RR_Val': 2.2, 
+            'Est_Hold_Days': '15 Days', 
+            'Buy_Signals': '6/9', 
+            'Fund_Score': '75/100 Pts', 
+            'Piotroski_Score': '8/9 (STRONG)', 
+            '3Y_Profit_Growth': '14.0%', 
+            '3Y_Sales_Growth': '10.0%', 
+            '3Y_ROE_Avg': '15.0%', 
+            '3Y_Stock_CAGR': '36.0%', 
+            'PE': 60.4, 
+            'News_Label': 'NEUTRAL (+0.10)', 
+            'News_Headline': 'BOSCHLTD maintains consistent growth trajectory in Q2.', 
+            'Raw_Score': 140, 
+            'Opt_Score': 78.5,
+            
+            # Expanded Technicals
+            'SMA_50': '47200',
+            'SMA_200': '41000',
+            'Vol_SMA_20': '35.5K',
+            'Swing_Low_10': '46800',
+            'Swing_High_20': '49500',
+            'ATR': '850.5',
+            'RSI': '55.2',
+            'Stoch_K': '60.5 (NEUTRAL)',
+            'MACD': '450.2 (s-300, l-150.2)',
+            'Ultimate_Osc': '52.1',
+            'Aroon_Osc': '65 (STRONG)',
+            'BOP': '0.15 )',
+            'CCI': '95.2',
+            'Williams_R': '-45.5 )',
+            'Momentum': 'BULLISH)'
         }
     ]
 
