@@ -1,78 +1,77 @@
 import datetime
 from jinja2 import Environment, BaseLoader
 
-# Sample data mimicking the LIST of dictionary structure provided by the user.
+# Sample data mimicking the updated LIST of dictionary structure provided by the user.
 sample_data_list = [
     {
         "Symbol": "RELIANCE",
         "Sector": "Oil & Gas",
-        "market_cap": "19,50,000 Cr",
         "CMP (₹)": "2850.50",
         "Entry Range (₹)": "2830 - 2860",
         "Stop-Loss (₹)": "2750.00",
         "Target (₹)": "3100.00",
         "Potential (%)": "8.75%",
+        "Potential_Val": 8.75,
         "R:R Ratio": "1:2.5",
+        "RR_Val": 2.5,
         "Est_Hold_Days": "14 Days",
         "Buy_Signals": "7/9",
-        "RSI": "65.4 (Bullish)",
-        "Stoch_K": "72.1 (Overbought)",
-        "MACD": "12.5 (Buy)",
-        "Ultimate_Osc": "55.2 (Neutral)",
-        "Aroon_Osc": "80.0 (Strong Uptrend)",
-        "BOP": "0.45 (Bullish)",
-        "CCI": "110.5 (Buy)",
-        "Williams_R": "-25.4 (Overbought)",
-        "Momentum": "45.6 (Bullish)",
+        "Fund_Score": "85/100 Pts",
+        "Piotroski_Score": "8/9 (Strong)",
+        "3Y_Profit_Growth": "18.2%",
+        "3Y_Sales_Growth": "12.5%",
+        "3Y_ROE_Avg": "14.5%",
+        "3Y_Stock_CAGR": "15.4%",
         "PE": "25.4",
-        "ROE": "14.5%",
-        "ROCE": "16.2%",
-        "DE": "0.35",
-        "PB": "2.8",
-        "comp_sales_grt": "12.5%",
-        "comp_profit_grt": "18.2%",
-        "stock_CAGR": "15.4%",
-        "return_on_equity": "14.5%",
         "News_Label": "Positive (+0.85)",
         "News_Headline": "Reliance signs new deal in renewable energy sector, boosting investor confidence.",
-        "Score": 85.5
+        "Raw_Score": 85.5,
+        "Opt_Score": 92.0,
+        "RSI": "65.5 (BUY)",
+        "Stoch_K": "82.1 (OVERBOUGHT)",
+        "MACD": "12.4 (BUY)",
+        "Ultimate_Osc": "55.2 (NEUTRAL)",
+        "Aroon_Osc": "100.0 (STRONG BUY)",
+        "BOP": "0.45 (BUY)",
+        "CCI": "125.4 (BUY)",
+        "Williams_R": "-25.6 (BUY)",
+        "Momentum": "14.2 (BUY)"
     },
     {
         "Symbol": "TCS",
         "Sector": "IT Services",
-        "market_cap": "14,20,000 Cr",
         "CMP (₹)": "3950.00",
         "Entry Range (₹)": "3900 - 3960",
         "Stop-Loss (₹)": "3820.00",
         "Target (₹)": "4200.00",
         "Potential (%)": "6.33%",
+        "Potential_Val": 6.33,
         "R:R Ratio": "1:2.0",
+        "RR_Val": 2.0,
         "Est_Hold_Days": "10 Days",
         "Buy_Signals": "6/9",
-        "RSI": "58.2 (Neutral)",
-        "Stoch_K": "65.0 (Neutral)",
-        "MACD": "8.2 (Buy)",
-        "Ultimate_Osc": "50.1 (Neutral)",
-        "Aroon_Osc": "40.0 (Uptrend)",
-        "BOP": "0.20 (Neutral)",
-        "CCI": "85.0 (Buy)",
-        "Williams_R": "-45.0 (Neutral)",
-        "Momentum": "30.0 (Bullish)",
+        "Fund_Score": "90/100 Pts",
+        "Piotroski_Score": "9/9 (Exceptional)",
+        "3Y_Profit_Growth": "14.8%",
+        "3Y_Sales_Growth": "15.0%",
+        "3Y_ROE_Avg": "45.2%",
+        "3Y_Stock_CAGR": "12.0%",
         "PE": "32.1",
-        "ROE": "45.2%",
-        "ROCE": "52.5%",
-        "DE": "0.05",
-        "PB": "14.5",
-        "comp_sales_grt": "15.0%",
-        "comp_profit_grt": "14.8%",
-        "stock_CAGR": "12.0%",
-        "return_on_equity": "45.2%",
         "News_Label": "Neutral (+0.10)",
         "News_Headline": "TCS announces upcoming quarterly results date.",
-        "Score": 72.0
+        "Raw_Score": 72.0,
+        "Opt_Score": 78.5,
+        "RSI": "45.2 (NEUTRAL)",
+        "Stoch_K": "32.1 (SELL)",
+        "MACD": "-2.4 (SELL)",
+        "Ultimate_Osc": "41.2 (SELL)",
+        "Aroon_Osc": "-50.0 (SELL)",
+        "BOP": "-0.25 (SELL)",
+        "CCI": "-115.4 (SELL)",
+        "Williams_R": "-85.6 (SELL)",
+        "Momentum": "-4.2 (SELL)"
     }
 ]
-
 
 # Note: For HTML emails, inline styles are strongly recommended for maximum compatibility.
 html_template_string = """
@@ -96,7 +95,7 @@ html_template_string = """
                     <tr>
                         <td style="padding-bottom: 20px; text-align: center;">
                             <h1 style="color: #1e3c72; margin: 0; font-size: 24px;">Daily Quantitative Stock Analysis</h1>
-                            <p style="color: #64748b; margin: 5px 0 0 0; font-size: 14px;">{{ date }} • {{ stocks|length }} Stocks Analyzed</p>
+                            <p style="color: #64748b; margin: 5px 0 0 0; font-size: 14px;">{{ date }} • {{ stocks|length }} Candidates Identified</p>
                         </td>
                     </tr>
 
@@ -110,26 +109,26 @@ html_template_string = """
                                         <tr style="background-color: #1e3c72; color: #ffffff;">
                                             <th style="padding: 12px 5px; border-bottom: 2px solid #e0e0e0;">Symbol</th>
                                             <th style="padding: 12px 5px; border-bottom: 2px solid #e0e0e0;">Sector</th>
-                                            <th style="padding: 12px 5px; border-bottom: 2px solid #e0e0e0;">Mkt Cap</th>
                                             <th style="padding: 12px 5px; border-bottom: 2px solid #e0e0e0;">CMP</th>
                                             <th style="padding: 12px 5px; border-bottom: 2px solid #e0e0e0;">Entry</th>
                                             <th style="padding: 12px 5px; border-bottom: 2px solid #e0e0e0;">Target</th>
+                                            <th style="padding: 12px 5px; border-bottom: 2px solid #e0e0e0;">Potential</th>
                                             <th style="padding: 12px 5px; border-bottom: 2px solid #e0e0e0;">SL</th>
-                                            <th style="padding: 12px 5px; border-bottom: 2px solid #e0e0e0;">Score</th>
+                                            <th style="padding: 12px 5px; border-bottom: 2px solid #e0e0e0;">Opt Score</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {% for summary_data in stocks %}
                                         <tr style="background-color: {{ loop.cycle('#ffffff', '#f8fafc') }}; border-bottom: 1px solid #e2e8f0;">
                                             <td style="font-weight: bold; color: #1e3c72; padding: 10px 5px;">{{ summary_data['Symbol'] }}</td>
-                                            <td style="padding: 10px 5px;">{{ summary_data['Sector'] }}</td>
-                                            <td style="padding: 10px 5px;">{{ summary_data['market_cap'] }}</td>
+                                            <td style="padding: 10px 5px; font-size: 11px;">{{ summary_data['Sector'] }}</td>
                                             <td style="padding: 10px 5px;">₹{{ summary_data['CMP (₹)'] }}</td>
                                             <td style="padding: 10px 5px; white-space: nowrap;">₹{{ summary_data['Entry Range (₹)'] }}</td>
                                             <td style="color: #166534; font-weight: bold; padding: 10px 5px;">₹{{ summary_data['Target (₹)'] }}</td>
+                                            <td style="color: #166534; font-weight: bold; padding: 10px 5px;">{{ summary_data['Potential (%)'] }}</td>
                                             <td style="color: #991b1b; font-weight: bold; padding: 10px 5px;">₹{{ summary_data['Stop-Loss (₹)'] }}</td>
                                             <td style="font-weight: bold; padding: 10px 5px;">
-                                                <span style="background-color: #dbeafe; color: #1e40af; padding: 4px 8px; border-radius: 12px; font-size: 11px;">{{ summary_data['Score'] }}</span>
+                                                <span style="background-color: #dbeafe; color: #1e40af; padding: 4px 8px; border-radius: 12px; font-size: 11px;">{{ summary_data['Opt_Score'] }}</span>
                                             </td>
                                         </tr>
                                         {% endfor %}
@@ -153,9 +152,13 @@ html_template_string = """
                                         
                                         <table align="center" style="margin-top: 20px;">
                                             <tr>
-                                                <td style="background-color: rgba(255,255,255,0.2); border-radius: 5px; padding: 10px 20px;">
-                                                    <span style="color: #ffffff; font-size: 14px;">Overall Score</span><br>
-                                                    <span style="color: #ffffff; font-size: 32px; font-weight: bold;">{{ data['Score'] }}</span>
+                                                <td style="background-color: rgba(255,255,255,0.2); border-radius: 5px; padding: 10px 20px; margin-right: 10px; display: inline-block;">
+                                                    <span style="color: #ffffff; font-size: 12px; text-transform: uppercase;">Raw Score</span><br>
+                                                    <span style="color: #ffffff; font-size: 24px; font-weight: bold;">{{ data['Raw_Score'] }}</span>
+                                                </td>
+                                                <td style="background-color: rgba(255,255,255,0.3); border-radius: 5px; padding: 10px 20px; display: inline-block;">
+                                                    <span style="color: #ffffff; font-size: 12px; text-transform: uppercase;">Opt Score</span><br>
+                                                    <span style="color: #ffffff; font-size: 24px; font-weight: bold;">{{ data['Opt_Score'] }}</span>
                                                 </td>
                                             </tr>
                                         </table>
@@ -200,77 +203,72 @@ html_template_string = """
                                             </tr>
                                         </table>
 
-                                        <!-- Technical Indicators -->
-                                        <h3 style="color: #1e3c72; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; font-size: 18px;">📊 Technical Indicators</h3>
+                                        <!-- Fundamental Data -->
+                                        <h3 style="color: #1e3c72; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; font-size: 18px;">🏢 Fundamental Snapshot</h3>
+                                        
+                                        <table width="100%" cellpadding="8" cellspacing="0" style="margin-bottom: 15px; font-size: 13px; border-collapse: collapse;">
+                                             <tr>
+                                                <td width="50%" style="background-color: #f1f5f9; border: 1px solid #e2e8f0; padding: 10px;">
+                                                    <strong>Fund Score:</strong> <span style="color: #1e3c72;">{{ data['Fund_Score'] }}</span>
+                                                </td>
+                                                <td width="50%" style="background-color: #f1f5f9; border: 1px solid #e2e8f0; padding: 10px;">
+                                                    <strong>Piotroski Score:</strong> <span style="color: #1e3c72;">{{ data['Piotroski_Score'] }}</span>
+                                                </td>
+                                            </tr>
+                                        </table>
+
                                         <table width="100%" cellpadding="8" cellspacing="0" style="margin-bottom: 30px; font-size: 13px; border-collapse: collapse;">
-                                            <thead>
-                                                <tr style="background-color: #f1f5f9;">
-                                                    <th align="left" style="border: 1px solid #e2e8f0; width: 25%;">Indicator</th>
-                                                    <th align="left" style="border: 1px solid #e2e8f0; width: 25%;">Value & Signal</th>
-                                                    <th align="left" style="border: 1px solid #e2e8f0; width: 25%;">Indicator</th>
-                                                    <th align="left" style="border: 1px solid #e2e8f0; width: 25%;">Value & Signal</th>
-                                                </tr>
-                                            </thead>
                                             <tbody>
                                                 <tr>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">RSI</td>
-                                                    <td style="border: 1px solid #e2e8f0;">{{ data['RSI'] }}</td>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">MACD</td>
-                                                    <td style="border: 1px solid #e2e8f0;">{{ data['MACD'] }}</td>
-                                                </tr>
-                                                <tr style="background-color: #fafafa;">
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">Stochastic K</td>
-                                                    <td style="border: 1px solid #e2e8f0;">{{ data['Stoch_K'] }}</td>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">Ultimate Osc</td>
-                                                    <td style="border: 1px solid #e2e8f0;">{{ data['Ultimate_Osc'] }}</td>
+                                                    <td width="25%" style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>3Y Profit Gr.</strong></td>
+                                                    <td width="25%" style="border-bottom: 1px solid #eee; font-weight: bold; color: #166534;">{{ data['3Y_Profit_Growth'] }}</td>
+                                                    <td width="25%" style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>3Y Sales Gr.</strong></td>
+                                                    <td width="25%" style="border-bottom: 1px solid #eee; font-weight: bold; color: #166534;">{{ data['3Y_Sales_Growth'] }}</td>
                                                 </tr>
                                                 <tr>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">Aroon Osc</td>
-                                                    <td style="border: 1px solid #e2e8f0;">{{ data['Aroon_Osc'] }}</td>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">BOP</td>
-                                                    <td style="border: 1px solid #e2e8f0;">{{ data['BOP'] }}</td>
-                                                </tr>
-                                                <tr style="background-color: #fafafa;">
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">CCI</td>
-                                                    <td style="border: 1px solid #e2e8f0;">{{ data['CCI'] }}</td>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">Williams %R</td>
-                                                    <td style="border: 1px solid #e2e8f0;">{{ data['Williams_R'] }}</td>
+                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>3Y ROE Avg</strong></td>
+                                                    <td style="border-bottom: 1px solid #eee;">{{ data['3Y_ROE_Avg'] }}</td>
+                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>3Y Stock CAGR</strong></td>
+                                                    <td style="border-bottom: 1px solid #eee;">{{ data['3Y_Stock_CAGR'] }}</td>
                                                 </tr>
                                                 <tr>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">Momentum</td>
-                                                    <td style="border: 1px solid #e2e8f0;" colspan="3">{{ data['Momentum'] }}</td>
+                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>P/E Ratio</strong></td>
+                                                    <td style="border-bottom: 1px solid #eee;" colspan="3">{{ data['PE'] }}</td>
                                                 </tr>
                                             </tbody>
                                         </table>
 
-                                        <!-- Fundamental Data -->
-                                        <h3 style="color: #1e3c72; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; font-size: 18px;">🏢 Fundamental Snapshot</h3>
-                                        <p style="font-size: 13px; color: #666; margin-top: 0;">Market Cap: <strong>{{ data['market_cap'] }}</strong></p>
+                                        <!-- Technical Indicators -->
+                                        <h3 style="color: #1e3c72; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; font-size: 18px;">📊 Technical Indicators</h3>
                                         <table width="100%" cellpadding="8" cellspacing="0" style="margin-bottom: 30px; font-size: 13px; border-collapse: collapse;">
                                             <tbody>
                                                 <tr>
-                                                    <td width="25%" style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>P/E Ratio</strong></td>
-                                                    <td width="25%" style="border-bottom: 1px solid #eee;">{{ data['PE'] }}</td>
-                                                    <td width="25%" style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>P/B Ratio</strong></td>
-                                                    <td width="25%" style="border-bottom: 1px solid #eee;">{{ data['PB'] }}</td>
+                                                    <td width="25%" style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>RSI</strong></td>
+                                                    <td width="25%" style="border-bottom: 1px solid #eee;">{{ data['RSI']|default('-', true) }}</td>
+                                                    <td width="25%" style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>Stoch %K</strong></td>
+                                                    <td width="25%" style="border-bottom: 1px solid #eee;">{{ data['Stoch_K']|default('-', true) }}</td>
                                                 </tr>
                                                 <tr>
-                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>ROE</strong></td>
-                                                    <td style="border-bottom: 1px solid #eee;">{{ data['ROE'] }}</td>
-                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>ROCE</strong></td>
-                                                    <td style="border-bottom: 1px solid #eee;">{{ data['ROCE'] }}</td>
+                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>MACD</strong></td>
+                                                    <td style="border-bottom: 1px solid #eee;">{{ data['MACD']|default('-', true) }}</td>
+                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>Ultimate Osc</strong></td>
+                                                    <td style="border-bottom: 1px solid #eee;">{{ data['Ultimate_Osc']|default('-', true) }}</td>
                                                 </tr>
                                                 <tr>
-                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>Debt/Equity</strong></td>
-                                                    <td style="border-bottom: 1px solid #eee;">{{ data['DE'] }}</td>
-                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>Stock CAGR</strong></td>
-                                                    <td style="border-bottom: 1px solid #eee;">{{ data['stock_CAGR'] }}</td>
+                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>Aroon Osc</strong></td>
+                                                    <td style="border-bottom: 1px solid #eee;">{{ data['Aroon_Osc']|default('-', true) }}</td>
+                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>BOP</strong></td>
+                                                    <td style="border-bottom: 1px solid #eee;">{{ data['BOP']|default('-', true) }}</td>
                                                 </tr>
                                                 <tr>
-                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>Sales Growth</strong></td>
-                                                    <td style="border-bottom: 1px solid #eee;">{{ data['comp_sales_grt'] }}</td>
-                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>Profit Growth</strong></td>
-                                                    <td style="border-bottom: 1px solid #eee;">{{ data['comp_profit_grt'] }}</td>
+                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>CCI</strong></td>
+                                                    <td style="border-bottom: 1px solid #eee;">{{ data['CCI']|default('-', true) }}</td>
+                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>Williams %R</strong></td>
+                                                    <td style="border-bottom: 1px solid #eee;">{{ data['Williams_R']|default('-', true) }}</td>
+                                                </tr>
+                                                <tr>
+                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>Momentum</strong></td>
+                                                    <td style="border-bottom: 1px solid #eee;" colspan="3">{{ data['Momentum']|default('-', true) }}</td>
                                                 </tr>
                                             </tbody>
                                         </table>
@@ -317,7 +315,6 @@ html_template_string = """
 </body>
 </html>
 """
-
 
 def generate_stock_email_html(stock_data_list: list) -> str:
     """

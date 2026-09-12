@@ -113,7 +113,7 @@ class ScreenerClient:
             if name_elem and val_elem:
                 name = name_elem.text.strip()
                 val = val_elem.text.strip().replace(",", "")
-                ratios[name] = val
+                ratios[name] = round(float(val), 2)
         # Search Profit & Loss or Quarters table for OPM % and Sales Growth
         tables = soup.find_all('table', class_='ranges-table')
         return_on_equity = 0

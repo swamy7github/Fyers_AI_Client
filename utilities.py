@@ -23,7 +23,7 @@ def create_safe_session():
     # or the network drops completely, the session will return the expired 
     # cached response rather than failing entirely.
     session = requests_cache.CachedSession(
-        'http_internt_cache',
+        'http_internet_cache',
         expire_after=86400,
         stale_if_error=True 
     )
@@ -190,6 +190,7 @@ def get_url_response_save(session, url, output_filename):
         # 3. Store the parsed data in a CSV file
         if parsed_data:
              save_to_csv(parsed_data, output_filename)
+             print(f" saving the dowload file to {output_filename}")
         else:
              print("Could not parse data into a format suitable for CSV.")
     else:
@@ -288,12 +289,16 @@ def get_nifty_stock_universe(session=None, url=None, csv_file_path=None):
         try:
             # Using csv.DictReader is safer because it maps the exact column headers you specified 
             # ("Company Name,Industry,Symbol,Series,ISIN Code") and handles commas inside company names safely.
-            nse_stock_symbols = read_from_csv(csv_file_path)
-            # Convert all keys to uppercase and overwrite the existing variable
-            nse_stock_symbols = {key.upper(): value for key, value in nse_stock_symbols.items()}
-            print(f" Keys = {type(nse_stock_symbols)}=={nse_stock_symbols.keys()}")
-            print(f"nse_stock_symbols['SYMBOL'] = {nse_stock_symbols["SYMBOL"]}")
-            return nse_stock_symbols["SYMBOL"]
+             # DictReader maps the information in each row to a dict whose keys are the header names
+            df = pd.read_csv(csv_file_path)
+            nse_stock_symbols = dict(zip(df["Symbol"], df["Industry"]))
+
+            # Convert keys to uppercase
+            nse_stock_symbols = {
+                key.upper(): value for key, value in nse_stock_symbols.items()
+            }
+            print(f"[SUCCESS] Successfully loaded {len(nse_stock_symbols)} tickers from local CSV file.")
+            return nse_stock_symbols
             
         except Exception as e:
             print(f"[ERROR] Failed to read from {csv_file_path}: {str(e)}")

@@ -70,7 +70,23 @@ class StockFundamentalsDB:
                 
             metrics = self.screener.get_company_ratios(symbol)
             print(f"[INFO] metrics ---> {metrics}")
-            info_json = json.dumps(metrics)
+            # 1. Define the key mapping
+            key_mapping = {
+                "Stock P/E": "pe",
+                "ROCE": "roec",
+                "ROE": "roe",
+                "comp_sales_grt": "comp_sales_grt_3y",
+                "comp_profit_grt": "comp_profit_grt_3y",
+                "stock_CAGR": "stock_CAGR_3y",
+                "return_on_equity": "return_on_equity_3y",
+            }
+            # 2. Rename keys using a dictionary comprehension
+            # It replaces the key if it's in the mapping, otherwise keeps the original key
+            updated_metrics = {
+                key_mapping.get(k, k): v for k, v in metrics.items()
+            }
+
+            info_json = json.dumps(updated_metrics)
             
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
@@ -82,7 +98,7 @@ class StockFundamentalsDB:
             self.conn.commit()
             
             print(f"Successfully updated fundamentals for {symbol}")
-            return metrics
+            return updated_metrics
             
         except Exception as e:
             print(f"Error updating database for {symbol}: {e}")

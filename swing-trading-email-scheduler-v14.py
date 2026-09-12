@@ -9,6 +9,9 @@ import pandas as pd
 import numpy as np
 import requests
 from bs4 import BeautifulSoup
+import stock_fundamentals_fetcher as sff
+from utilities import get_nifty_stock_universe
+
 
 # Try to import yfinance strictly as a secondary fallback for price series if Fyers API is not configured
 try:
@@ -16,61 +19,8 @@ try:
     YFINANCE_AVAILABLE = True
 except ImportError:
     YFINANCE_AVAILABLE = False
-YFINANCE_AVAILABLE = False /Make 
-# =============================================================================
-# 1. RETRIEVE NIFTY LARGEMIDCAP 250 TICKERS & SECTORS
-# =============================================================================
-def get_nifty_250_universe():
-    """
-    Attempts to download the official Nifty LargeMidcap 250 list from NSE India.
-    Returns a dictionary of {symbol: industry} or falls back to an embedded list.
-    """
-    tickers_dict = {}
-    urls = [
-        "https://archives.nseindia.com/content/indices/ind_niftylargemidcap250list.csv",
-        "https://raw.githubusercontent.com/anirban-m/nifty-indices-trackers/main/ind_niftylargemidcap250list.csv"
-    ]
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
-    
-    for url in urls:
-        try:
-            response = requests.get(url, headers=headers, timeout=10)
-            if response.status_code == 200:
-                lines = response.text.split("\n")
-                for line in lines[1:]: # Skip header
-                    parts = line.strip().split(",")
-                    if len(parts) >= 3:
-                        symbol = parts[2].replace('"', '').strip()
-                        industry = parts[1].replace('"', '').strip()
-                        if symbol and symbol != "Symbol":
-                            tickers_dict[symbol] = industry
-                if tickers_dict:
-                    print(f"[SUCCESS] Successfully ingested {len(tickers_dict)} tickers from {url}")
-                    return tickers_dict
-        except Exception as e:
-            print(f"[WARNING] Ingestion failed for URL {url}: {str(e)}")
-            continue
+YFINANCE_AVAILABLE = False # Make dont use YF 
 
-    # High-fidelity Fallback List representing key Nifty 250 growth stocks
-    print("[WARNING] Live NSE list download failed. Deploying high-fidelity fallback universe.")
-    fallback_universe = {
-        "ADANIPORTS": "Services & Logistics", "TATASTEEL": "Metals & Mining", "NATIONALUM": "Metals & Mining",
-        "HINDALCO": "Metals & Mining", "VEDL": "Metals & Mining", "JINDALSTEL": "Metals & Mining",
-        "BEL": "Defense & Capital Goods", "HAL": "Defense & Capital Goods", "LT": "Defense & Capital Goods",
-        "BHEL": "Defense & Capital Goods", "COCHINSHIP": "Defense & Capital Goods", "MAZDOCK": "Defense & Capital Goods",
-        "DIVISLAB": "Healthcare & Pharma", "AUROPHARMA": "Healthcare & Pharma", "SUNPHARMA": "Healthcare & Pharma",
-        "CIPLA": "Healthcare & Pharma", "LUPIN": "Healthcare & Pharma", "DRREDDY": "Healthcare & Pharma",
-        "KOTAKBANK": "Banking & Finance", "SHRIRAMFIN": "Banking & Finance", "HDFCBANK": "Banking & Finance",
-        "ICICIBANK": "Banking & Finance", "SBIN": "Banking & Finance", "AXISBANK": "Banking & Finance",
-        "TECHM": "Information Technology", "WIPRO": "Information Technology", "TCS": "Information Technology",
-        "INFY": "Information Technology", "HCLTECH": "Information Technology", "COFORGE": "Information Technology",
-        "TATAPOWER": "Renewable Energy & Power", "ADANIGREEN": "Renewable Energy & Power", "NHPC": "Renewable Energy & Power",
-        "SJVN": "Renewable Energy & Power", "IREDA": "Renewable Energy & Power", "NTPC": "Renewable Energy & Power"
-    }
-    return fallback_universe
 
 # =============================================================================
 # 2. PIOTROSKI F-SCORE ENGINE (0 TO 9 POINTS FINANCIAL HEALTH TEST)
@@ -547,17 +497,25 @@ def calculate_trade_optimization_index(raw_score, potential_pct, rr_val):
 # 8. EXECUTIVE SCANNER ENGINE WITH PIOTROSKI F-SCORE INTEGRATION
 # =============================================================================
 def scan_and_research():
-    fyers_app_id = os.environ.get("FYERS_APP_ID")
-    fyers_access_token = os.environ.get("FYERS_ACCESS_TOKEN")
+    #fyers_app_id = os.environ.get("FYERS_APP_ID")
+    #fyers_access_token = os.environ.get("FYERS_ACCESS_TOKEN")
+    from fyers_auto_login_v2 import APP_ID, get_fyers_session_handle 
+    fyres = get_fyers_session_handle()
+    fyers_app_id = APP_ID
+    fyers_access_token = fyres.token
     use_fyers = bool(fyers_app_id and fyers_access_token)
-    
-    universe = get_nifty_250_universe()
+
+    stock_fundamentals = sff.StockFundamentalsDB()
+    stock_universe = get_nifty_stock_universe(url=sff.NSE_LMS500_URL)
     candidates = []
     
     count = 0
-    for symbol, sector in universe.items():
+    if not use_fyers: 
+        print(" Can not be used fyers API with out ACCESS_TOKEN and APP_ID")
+        return None
+    
+    for symbol, sector in stock_universe.items():
         count += 1
-        if count > 150 and not use_fyers: break
             
         try:
             df = None
@@ -580,21 +538,35 @@ def scan_and_research():
             
             tech_eval = evaluate_technical_buy_signals(latest)
             buy_signals_count = tech_eval["buy_signals_count"]
+            print(f"[INFO] Buy_signals_count is  {buy_signals_count} for {symbol}")
             
-            if cmp < 50 or cmp < sma_200 or buy_signals_count < 4: continue
-                
+            # skip pinny stocks cmp < 50
+            if cmp < sma_200:
+                print(f"[INFO] Price {cmp} below SMA_200 = {sma_200} so skipping the {symbol}")
+                continue
+            if buy_signals_count < 6:
+                print(f"[INFO] Buy_signals_count should > 6, It is {buy_signals_count} so skipping the {symbol}") 
+                continue
+            
+            #if cmp < 50 or cmp < sma_200 or buy_signals_count < 4: continue   
             # Screener.in Fundamentals
-            f_data = fetch_fundamental_data_screener(symbol)
-            if f_data["pe"] < 0 or f_data["de"] > 1.5 or f_data["return_on_equity_3y"] < 5.0: continue
-                
+            #f_data = fetch_fundamental_data_screener(symbol)
+            f_data = stock_fundamentals.get_update_fundamentals(symbol)
+            print(f"[DEBUG] Fundamentals ==> {f_data}")
+            print(f"keys  in f_data = {f_data.keys()}")
+            
+            #if f_data["pe"] < 0 or f_data["de"] > 1.5 or f_data["return_on_equity_3y"] < 5.0: continue
+            if f_data["pe"] < 0  or f_data["return_on_equity_3y"] < 5.0: continue
+            
             # Piotroski F-Score Calculation (0 to 9)
             piotroski_res = calculate_piotroski_f_score(f_data)
             p_score = piotroski_res["piotroski_score"]
             p_label = piotroski_res["label"]
             
+            '''
             # Hard Filter Guardrail: Exclude companies with weak Piotroski Scores (< 4)
             if p_score < 4: continue
-                
+             '''   
             fund_score_res = calculate_screener_growth_score(f_data)
             fund_growth_score = fund_score_res["growth_score"]
             
@@ -619,9 +591,10 @@ def scan_and_research():
             
             # Base Composite Score incorporating Piotroski F-Score Bonus (+15 pts for F-Score >= 7)
             score = fund_growth_score
+            '''
             if p_score >= 8: score += 15
             elif p_score >= 6: score += 10
-            
+            '''
             if cmp > sma_50: score += 15
             if sma_50 > sma_200: score += 10
             score += (buy_signals_count * 10)
@@ -655,13 +628,16 @@ def scan_and_research():
                 "3Y_ROE_Avg": f"{f_data['return_on_equity_3y']}%",
                 "3Y_Stock_CAGR": f"{f_data['stock_CAGR_3y']}%",
                 "PE": f_data["pe"],
-                "DE": f_data["de"],
+                #"DE": f_data["de"],
                 "News_Label": f"{news_eval['label']} ({news_score:+.2f})",
                 "News_Headline": news_eval["headline"],
                 "Raw_Score": score,
                 "Opt_Score": opt_index
             })
-        except Exception:
+            if len(candidates) > 15:
+                break
+        except Exception as e:
+            print(f"Faled scan_and_research() for {symbol} -> {e}")
             continue
             
     final_picks = sorted(candidates, key=lambda x: x["Opt_Score"], reverse=True)[:15]
@@ -809,26 +785,31 @@ def send_email():
     SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
     SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD")
     RECIPIENT_EMAIL = os.environ.get("RECIPIENT_EMAIL")
+    watchlist_data = scan_and_research()
 
     if not all([SENDER_EMAIL, SENDER_PASSWORD, RECIPIENT_EMAIL]):
         print("[ERROR] Missing email credentials in Environment Variables!")
         print("Please configure: SENDER_EMAIL, SENDER_PASSWORD, and RECIPIENT_EMAIL.")
         return False
 
-    watchlist_data = scan_and_research()
+    
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"📊 Master Execution Table — Piotroski F-Score Integrated Scan ({datetime.now().strftime('%Y-%m-%d')})"
     msg["From"] = SENDER_EMAIL
     msg["To"] = RECIPIENT_EMAIL
-
+    '''
     html_content = generate_html_table(watchlist_data)
     msg.attach(MIMEText(html_content, "html", "utf-8"))
-
+    '''
+    from stock_email_generator import generate_stock_email_html
+    html_content = generate_stock_email_html(watchlist_data)
+    msg.attach(MIMEText(html_content, "html", "utf-8"))
     try:
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
         server.starttls()
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        #erver.sendmail(SENDER_EMAIL, RECIPIENT_EMAIL, msg.as_string())
         server.sendmail(SENDER_EMAIL, RECIPIENT_EMAIL, msg.as_string())
         server.quit()
         print(f"[SUCCESS] Piotroski F-Score integrated scan compiled and emailed to {RECIPIENT_EMAIL}!")
