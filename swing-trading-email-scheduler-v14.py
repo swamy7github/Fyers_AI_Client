@@ -786,7 +786,7 @@ def send_email():
     SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD")
     RECIPIENT_EMAIL = os.environ.get("RECIPIENT_EMAIL")
     watchlist_data = scan_and_research()
-
+    print(f"{watchlist_data[0]}")
     if not all([SENDER_EMAIL, SENDER_PASSWORD, RECIPIENT_EMAIL]):
         print("[ERROR] Missing email credentials in Environment Variables!")
         print("Please configure: SENDER_EMAIL, SENDER_PASSWORD, and RECIPIENT_EMAIL.")
@@ -812,6 +812,9 @@ def send_email():
         #erver.sendmail(SENDER_EMAIL, RECIPIENT_EMAIL, msg.as_string())
         server.sendmail(SENDER_EMAIL, RECIPIENT_EMAIL, msg.as_string())
         server.quit()
+        with open("stock_email_preview.html", "w", encoding="utf-8") as f:
+            f.write(html_content)
+        
         print(f"[SUCCESS] Piotroski F-Score integrated scan compiled and emailed to {RECIPIENT_EMAIL}!")
         return True
     except Exception as e:
