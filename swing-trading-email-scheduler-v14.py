@@ -557,9 +557,11 @@ def scan_and_research():
             swing_low = latest['Swing_Low_10']
             swing_high = latest['Swing_High_20']
             vol_sma = latest['Vol_SMA_20']
+            #print(f"tech_eval keys = {latest.keys()}")
             
             tech_eval = evaluate_technical_buy_signals(latest)
             buy_signals_count = tech_eval["buy_signals_count"]
+            print(f"tech_eval keys = {tech_eval.keys()}")
             print(f"[INFO] Buy_signals_count is  {buy_signals_count} for {symbol}")
             
             # skip pinny stocks cmp < 50
@@ -575,7 +577,7 @@ def scan_and_research():
             #f_data = fetch_fundamental_data_screener(symbol)
             f_data = stock_fundamentals.get_update_fundamentals(symbol)
             print(f"[DEBUG] Fundamentals ==> {f_data}")
-            print(f"keys  in f_data = {f_data.keys()}")
+            #print(f"keys  in f_data = {f_data.keys()}")
             
             #if f_data["pe"] < 0 or f_data["de"] > 1.5 or f_data["return_on_equity_3y"] < 5.0: continue
             if f_data["pe"] < 0  or f_data["return_on_equity_3y"] < 5.0: continue
@@ -653,6 +655,21 @@ def scan_and_research():
                 #"DE": f_data["de"],
                 "News_Label": f"{news_eval['label']} ({news_score:+.2f})",
                 "News_Headline": news_eval["headline"],
+                "SMA_50" : f"{latest['SMA_50']}",
+                "SMA_200" : f"{latest['SMA_200']}",
+                "Vol_SMA_20" : f"{latest['Vol_SMA_20']}",
+                "Swing_Low_10" : f"{latest['Swing_Low_10']}",
+                "Swing_High_20" : f"{latest['Swing_High_20']}",
+                "RSI": f"{latest['RSI']}",
+                "ATR": f"{latest['ATR']}",
+                "Stoch_K": f"{latest['Stoch_K']} ({latest['Stoch_K']})",
+                "MACD": f"{latest['MACD_Hist']} (s-{latest['MACD_Signal']}, l-{latest['MACD_Line']})",
+                "Ultimate_Osc": f"{latest['Ultimate_Osc']}",
+                "Aroon_Osc": f"{latest['Aroon_Osc']})",
+                "BOP": f"{latest['BOP']} )",
+                "CCI": f"{latest['CCI']}",
+                "Williams_R": f"{latest['Williams_R']} )",
+                "Momentum": f"{latest['Momentum']})",
                 "Raw_Score": score,
                 "Opt_Score": opt_index
             })
