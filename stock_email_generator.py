@@ -1,10 +1,11 @@
 import os
+import numpy as np
 from jinja2 import Template
 
 def generate_stock_email_html(stock_data_list):
     """
     Generates a responsive HTML email string from a list of stock dictionaries.
-    Handles mixed data types (str, float, int) safely and defaults missing keys to '-'.
+    Handles mixed data types (str, float, int, np.float64) safely and defaults missing keys to '-'.
     """
     
     html_template = """
@@ -193,72 +194,36 @@ def generate_stock_email_html(stock_data_list):
     return template.render(stocks=stock_data_list)
 
 # ==========================================
-# TEST DATA & EXECUTION (Handles mixed types)
+# TEST DATA & EXECUTION
 # ==========================================
 if __name__ == "__main__":
     
-    # Sample list showcasing full data vs missing technical data 
-    # to demonstrate that the template won't crash and will fallback to '-'
+    # Real-world data sample provided featuring np.float64 values 
     sample_data_list = [
         {
-            "Symbol": "ACMESOLAR",
-            "Sector": "Renewables",
-            "CMP (₹)": 1580,
-            "Entry Range (₹)": "1550-1570",
-            "Stop-Loss (₹)": 1490.5,
-            "Target (₹)": 1800,
-            "Potential (%)": "14.5%",
-            "Potential_Val": 14.5,
-            "R:R Ratio": "1:2.1",
-            "RR_Val": 2.1,
-            "Est_Hold_Days": "30 Days",
-            "Buy_Signals": "4/6",
-            "Fund_Score": "55/100 Pts",
-            "Piotroski_Score": "9/9 (VERY STRONG)",
-            "3Y_Profit_Growth": "149.0%",
-            "3Y_Sales_Growth": "16.0%",
-            "3Y_ROE_Avg": "8.0%",
-            "3Y_Stock_CAGR": "0.0%",
-            "PE": 47.8,
-            "News_Label": "NEUTRAL (+0.15)",
-            "News_Headline": "ACMESOLAR maintains steady operational performance with positive sector outlook",
-            "Raw_Score": "72",
-            "Opt_Score": 85,
-            "RSI": "65.2 (BUY)",
-            "MACD": 1.25,
-            "Stoch_K": "N/A",
-            "Ultimate_Osc": 55.4,
-            "Aroon_Osc": "70 (STRONG)",
-            "BOP": 0.45,
-            "CCI": "Wait",
-            "Williams_R": -45.2,
-            "Momentum": "Bullish"
-        },
-        {
-            "Symbol": "RELIANCE",
-            "Sector": "Energy",
-            "CMP (₹)": 2950,
-            "Entry Range (₹)": 2900,
-            "Stop-Loss (₹)": 2850,
-            "Target (₹)": 3200,
-            "Potential (%)": "8.4%",
-            "Potential_Val": "8.4", 
-            "R:R Ratio": 2.5, 
-            "RR_Val": "2.5", 
-            "Est_Hold_Days": 15,
-            "Buy_Signals": 5,
-            "Fund_Score": "82/100 Pts",
-            "Piotroski_Score": "7/9",
-            "3Y_Profit_Growth": "12.5%",
-            "3Y_Sales_Growth": "18.2%",
-            "3Y_ROE_Avg": "14.5%",
-            "3Y_Stock_CAGR": "22.1%",
-            "PE": 28.4,
-            "News_Label": "BULLISH (+0.75)",
-            "News_Headline": "Reliance signs major telecom agreement.",
-            "Raw_Score": 88,
-            "Opt_Score": 92
-            # Missing technical indicators intentionally to test the default '-' fallback
+            'Symbol': 'AEGISLOG', 
+            'Sector': 'Oil Gas & Consumable Fuels', 
+            'CMP (₹)': np.float64(1353.6), 
+            'Entry Range (₹)': '1,340.06 - 1,367.14', 
+            'Stop-Loss (₹)': np.float64(1180.0), 
+            'Target (₹)': np.float64(1614.0), 
+            'Potential (%)': '19.24%', 
+            'Potential_Val': np.float64(19.24), 
+            'R:R Ratio': '1 : 1.5', 
+            'RR_Val': np.float64(1.5), 
+            'Est_Hold_Days': '5 Days', 
+            'Buy_Signals': '7/9 BUY', 
+            'Fund_Score': '50/100 Pts', 
+            'Piotroski_Score': '9/9 (VERY STRONG)', 
+            '3Y_Profit_Growth': '24.0%', 
+            '3Y_Sales_Growth': '-1.0%', 
+            '3Y_ROE_Avg': '16.0%', 
+            '3Y_Stock_CAGR': '58.0%', 
+            'PE': 38.0, 
+            'News_Label': 'NEUTRAL (+0.15)', 
+            'News_Headline': 'AEGISLOG maintains steady operational performance with positive sector outlook', 
+            'Raw_Score': 150, 
+            'Opt_Score': np.float64(61.9)
         }
     ]
 

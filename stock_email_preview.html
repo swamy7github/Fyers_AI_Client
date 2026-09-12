@@ -1,402 +1,1945 @@
 
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Daily Stock Analysis Report</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f7f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #333333; -webkit-font-smoothing: antialiased;">
-    
-    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f4f7f6; padding: 20px 0;">
-        <tr>
-            <td align="center">
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    </head>
+    <body style="margin: 0; padding: 20px; font-family: Arial, sans-serif; background-color: #f4f7fa; color: #333333;">
+        
+        <!-- Main Email Container -->
+        <div style="max-width: 700px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+            
+            <!-- Header -->
+            <div style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 20px; text-align: center; color: white;">
+                <h1 style="margin: 0; font-size: 24px; letter-spacing: 1px;">DAILY MARKET REPORT</h1>
+                <p style="margin: 5px 0 0 0; font-size: 14px; opacity: 0.9;">Analyzing 15 Potential Setups</p>
+            </div>
+
+            <div style="padding: 20px;">
                 
-                <!-- Main Container -->
-                <table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color: transparent;">
-                    
-                    <!-- Top Email Header -->
-                    <tr>
-                        <td style="padding-bottom: 20px; text-align: center;">
-                            <h1 style="color: #1e3c72; margin: 0; font-size: 24px;">Daily Quantitative Stock Analysis</h1>
-                            <p style="color: #64748b; margin: 5px 0 0 0; font-size: 14px;">September 10, 2026 • 2 Stocks Analyzed</p>
-                        </td>
-                    </tr>
+                <!-- EXECUTIVE SUMMARY TABLE -->
+                <h2 style="font-size: 16px; color: #1e3c72; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; margin-top: 0;">Executive Summary</h2>
+                <div style="overflow-x: auto; margin-bottom: 30px;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 12px; text-align: center;">
+                        <thead>
+                            <tr style="background-color: #f8fafc; border-bottom: 2px solid #cbd5e1; color: #475569;">
+                                <th style="padding: 10px 5px;">Symbol</th>
+                                <th style="padding: 10px 5px;">Sector</th>
+                                <th style="padding: 10px 5px;">CMP</th>
+                                <th style="padding: 10px 5px;">Entry</th>
+                                <th style="padding: 10px 5px;">Target</th>
+                                <th style="padding: 10px 5px;">SL</th>
+                                <th style="padding: 10px 5px;">Potential</th>
+                                <th style="padding: 10px 5px;">Score</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                            <tr style="border-bottom: 1px solid #e2e8f0; background-color: #ffffff;">
+                                <td style="padding: 10px 5px; font-weight: bold; color: #1e3c72;">AEGISLOG</td>
+                                <td style="padding: 10px 5px; color: #64748b;">Oil Gas & Consumable Fuels</td>
+                                <td style="padding: 10px 5px;">₹1353.6</td>
+                                <td style="padding: 10px 5px;">₹1,340.06 - 1,367.14</td>
+                                <td style="padding: 10px 5px;">₹1614.0</td>
+                                <td style="padding: 10px 5px; color: #dc2626;">₹1180.0</td>
+                                
+                                
+                                <td style="padding: 10px 5px; font-weight: bold; color: #16a34a;">
+                                    19.24%
+                                </td>
+                                
+                                <td style="padding: 10px 5px; font-weight: bold;">
+                                    <span style="background-color: #1e3c72; color: white; padding: 3px 8px; border-radius: 12px; font-size: 11px;">
+                                        65.1
+                                    </span>
+                                </td>
+                            </tr>
+                            
+                            <tr style="border-bottom: 1px solid #e2e8f0; background-color: #f8fafc;">
+                                <td style="padding: 10px 5px; font-weight: bold; color: #1e3c72;">ADANIPORTS</td>
+                                <td style="padding: 10px 5px; color: #64748b;">Services</td>
+                                <td style="padding: 10px 5px;">₹1764.6</td>
+                                <td style="padding: 10px 5px;">₹1,746.95 - 1,782.25</td>
+                                <td style="padding: 10px 5px;">₹2021.85</td>
+                                <td style="padding: 10px 5px; color: #dc2626;">₹1593.1</td>
+                                
+                                
+                                <td style="padding: 10px 5px; font-weight: bold; color: #16a34a;">
+                                    14.58%
+                                </td>
+                                
+                                <td style="padding: 10px 5px; font-weight: bold;">
+                                    <span style="background-color: #1e3c72; color: white; padding: 3px 8px; border-radius: 12px; font-size: 11px;">
+                                        57.4
+                                    </span>
+                                </td>
+                            </tr>
+                            
+                            <tr style="border-bottom: 1px solid #e2e8f0; background-color: #ffffff;">
+                                <td style="padding: 10px 5px; font-weight: bold; color: #1e3c72;">ACUTAAS</td>
+                                <td style="padding: 10px 5px; color: #64748b;">Healthcare</td>
+                                <td style="padding: 10px 5px;">₹3383.7</td>
+                                <td style="padding: 10px 5px;">₹3,349.86 - 3,417.54</td>
+                                <td style="padding: 10px 5px;">₹3779.25</td>
+                                <td style="padding: 10px 5px; color: #dc2626;">₹3120.0</td>
+                                
+                                
+                                <td style="padding: 10px 5px; font-weight: bold; color: #16a34a;">
+                                    11.69%
+                                </td>
+                                
+                                <td style="padding: 10px 5px; font-weight: bold;">
+                                    <span style="background-color: #1e3c72; color: white; padding: 3px 8px; border-radius: 12px; font-size: 11px;">
+                                        56.1
+                                    </span>
+                                </td>
+                            </tr>
+                            
+                            <tr style="border-bottom: 1px solid #e2e8f0; background-color: #f8fafc;">
+                                <td style="padding: 10px 5px; font-weight: bold; color: #1e3c72;">ASTERDM</td>
+                                <td style="padding: 10px 5px; color: #64748b;">Healthcare</td>
+                                <td style="padding: 10px 5px;">₹763.05</td>
+                                <td style="padding: 10px 5px;">₹755.42 - 770.68</td>
+                                <td style="padding: 10px 5px;">₹844.9</td>
+                                <td style="padding: 10px 5px; color: #dc2626;">₹737.29</td>
+                                
+                                
+                                <td style="padding: 10px 5px; font-weight: bold; color: #16a34a;">
+                                    10.73%
+                                </td>
+                                
+                                <td style="padding: 10px 5px; font-weight: bold;">
+                                    <span style="background-color: #1e3c72; color: white; padding: 3px 8px; border-radius: 12px; font-size: 11px;">
+                                        52.6
+                                    </span>
+                                </td>
+                            </tr>
+                            
+                            <tr style="border-bottom: 1px solid #e2e8f0; background-color: #ffffff;">
+                                <td style="padding: 10px 5px; font-weight: bold; color: #1e3c72;">GROWW</td>
+                                <td style="padding: 10px 5px; color: #64748b;">Financial Services</td>
+                                <td style="padding: 10px 5px;">₹200.24</td>
+                                <td style="padding: 10px 5px;">₹198.24 - 202.24</td>
+                                <td style="padding: 10px 5px;">₹222.58</td>
+                                <td style="padding: 10px 5px; color: #dc2626;">₹185.35</td>
+                                
+                                
+                                <td style="padding: 10px 5px; font-weight: bold; color: #16a34a;">
+                                    11.16%
+                                </td>
+                                
+                                <td style="padding: 10px 5px; font-weight: bold;">
+                                    <span style="background-color: #1e3c72; color: white; padding: 3px 8px; border-radius: 12px; font-size: 11px;">
+                                        51.5
+                                    </span>
+                                </td>
+                            </tr>
+                            
+                            <tr style="border-bottom: 1px solid #e2e8f0; background-color: #f8fafc;">
+                                <td style="padding: 10px 5px; font-weight: bold; color: #1e3c72;">APARINDS</td>
+                                <td style="padding: 10px 5px; color: #64748b;">Capital Goods</td>
+                                <td style="padding: 10px 5px;">₹17500.0</td>
+                                <td style="padding: 10px 5px;">₹17,325.0 - 17,675.0</td>
+                                <td style="padding: 10px 5px;">₹19000.0</td>
+                                <td style="padding: 10px 5px; color: #dc2626;">₹16500.0</td>
+                                
+                                
+                                <td style="padding: 10px 5px; font-weight: bold; color: #16a34a;">
+                                    8.57%
+                                </td>
+                                
+                                <td style="padding: 10px 5px; font-weight: bold;">
+                                    <span style="background-color: #1e3c72; color: white; padding: 3px 8px; border-radius: 12px; font-size: 11px;">
+                                        51.0
+                                    </span>
+                                </td>
+                            </tr>
+                            
+                            <tr style="border-bottom: 1px solid #e2e8f0; background-color: #ffffff;">
+                                <td style="padding: 10px 5px; font-weight: bold; color: #1e3c72;">ANGELONE</td>
+                                <td style="padding: 10px 5px; color: #64748b;">Financial Services</td>
+                                <td style="padding: 10px 5px;">₹305.0</td>
+                                <td style="padding: 10px 5px;">₹301.95 - 308.05</td>
+                                <td style="padding: 10px 5px;">₹349.62</td>
+                                <td style="padding: 10px 5px; color: #dc2626;">₹275.25</td>
+                                
+                                
+                                <td style="padding: 10px 5px; font-weight: bold; color: #16a34a;">
+                                    14.63%
+                                </td>
+                                
+                                <td style="padding: 10px 5px; font-weight: bold;">
+                                    <span style="background-color: #1e3c72; color: white; padding: 3px 8px; border-radius: 12px; font-size: 11px;">
+                                        50.0
+                                    </span>
+                                </td>
+                            </tr>
+                            
+                            <tr style="border-bottom: 1px solid #e2e8f0; background-color: #f8fafc;">
+                                <td style="padding: 10px 5px; font-weight: bold; color: #1e3c72;">MAHABANK</td>
+                                <td style="padding: 10px 5px; color: #64748b;">Financial Services</td>
+                                <td style="padding: 10px 5px;">₹84.2</td>
+                                <td style="padding: 10px 5px;">₹83.36 - 85.04</td>
+                                <td style="padding: 10px 5px;">₹89.82</td>
+                                <td style="padding: 10px 5px; color: #dc2626;">₹80.45</td>
+                                
+                                
+                                <td style="padding: 10px 5px; font-weight: bold; color: #16a34a;">
+                                    6.67%
+                                </td>
+                                
+                                <td style="padding: 10px 5px; font-weight: bold;">
+                                    <span style="background-color: #1e3c72; color: white; padding: 3px 8px; border-radius: 12px; font-size: 11px;">
+                                        49.1
+                                    </span>
+                                </td>
+                            </tr>
+                            
+                            <tr style="border-bottom: 1px solid #e2e8f0; background-color: #ffffff;">
+                                <td style="padding: 10px 5px; font-weight: bold; color: #1e3c72;">ACMESOLAR</td>
+                                <td style="padding: 10px 5px; color: #64748b;">Power</td>
+                                <td style="padding: 10px 5px;">₹402.3</td>
+                                <td style="padding: 10px 5px;">₹398.28 - 406.32</td>
+                                <td style="padding: 10px 5px;">₹440.49</td>
+                                <td style="padding: 10px 5px; color: #dc2626;">₹376.84</td>
+                                
+                                
+                                <td style="padding: 10px 5px; font-weight: bold; color: #16a34a;">
+                                    9.49%
+                                </td>
+                                
+                                <td style="padding: 10px 5px; font-weight: bold;">
+                                    <span style="background-color: #1e3c72; color: white; padding: 3px 8px; border-radius: 12px; font-size: 11px;">
+                                        48.8
+                                    </span>
+                                </td>
+                            </tr>
+                            
+                            <tr style="border-bottom: 1px solid #e2e8f0; background-color: #f8fafc;">
+                                <td style="padding: 10px 5px; font-weight: bold; color: #1e3c72;">BEML</td>
+                                <td style="padding: 10px 5px; color: #64748b;">Capital Goods</td>
+                                <td style="padding: 10px 5px;">₹2023.4</td>
+                                <td style="padding: 10px 5px;">₹2,003.17 - 2,043.63</td>
+                                <td style="padding: 10px 5px;">₹2205.0</td>
+                                <td style="padding: 10px 5px; color: #dc2626;">₹1917.33</td>
+                                
+                                
+                                <td style="padding: 10px 5px; font-weight: bold; color: #16a34a;">
+                                    8.97%
+                                </td>
+                                
+                                <td style="padding: 10px 5px; font-weight: bold;">
+                                    <span style="background-color: #1e3c72; color: white; padding: 3px 8px; border-radius: 12px; font-size: 11px;">
+                                        44.7
+                                    </span>
+                                </td>
+                            </tr>
+                            
+                            <tr style="border-bottom: 1px solid #e2e8f0; background-color: #ffffff;">
+                                <td style="padding: 10px 5px; font-weight: bold; color: #1e3c72;">ANANDRATHI</td>
+                                <td style="padding: 10px 5px; color: #64748b;">Financial Services</td>
+                                <td style="padding: 10px 5px;">₹2211.0</td>
+                                <td style="padding: 10px 5px;">₹2,188.89 - 2,233.11</td>
+                                <td style="padding: 10px 5px;">₹2300.76</td>
+                                <td style="padding: 10px 5px; color: #dc2626;">₹2151.16</td>
+                                
+                                
+                                <td style="padding: 10px 5px; font-weight: bold; color: #16a34a;">
+                                    4.06%
+                                </td>
+                                
+                                <td style="padding: 10px 5px; font-weight: bold;">
+                                    <span style="background-color: #1e3c72; color: white; padding: 3px 8px; border-radius: 12px; font-size: 11px;">
+                                        43.1
+                                    </span>
+                                </td>
+                            </tr>
+                            
+                            <tr style="border-bottom: 1px solid #e2e8f0; background-color: #f8fafc;">
+                                <td style="padding: 10px 5px; font-weight: bold; color: #1e3c72;">BOSCHLTD</td>
+                                <td style="padding: 10px 5px; color: #64748b;">Automobile and Auto Components</td>
+                                <td style="padding: 10px 5px;">₹48385.0</td>
+                                <td style="padding: 10px 5px;">₹47,901.15 - 48,868.85</td>
+                                <td style="padding: 10px 5px;">₹51347.5</td>
+                                <td style="padding: 10px 5px; color: #dc2626;">₹46410.0</td>
+                                
+                                
+                                <td style="padding: 10px 5px; font-weight: bold; color: #16a34a;">
+                                    6.12%
+                                </td>
+                                
+                                <td style="padding: 10px 5px; font-weight: bold;">
+                                    <span style="background-color: #1e3c72; color: white; padding: 3px 8px; border-radius: 12px; font-size: 11px;">
+                                        41.7
+                                    </span>
+                                </td>
+                            </tr>
+                            
+                            <tr style="border-bottom: 1px solid #e2e8f0; background-color: #ffffff;">
+                                <td style="padding: 10px 5px; font-weight: bold; color: #1e3c72;">AUROPHARMA</td>
+                                <td style="padding: 10px 5px; color: #64748b;">Healthcare</td>
+                                <td style="padding: 10px 5px;">₹1679.8</td>
+                                <td style="padding: 10px 5px;">₹1,663.0 - 1,696.6</td>
+                                <td style="padding: 10px 5px;">₹1768.26</td>
+                                <td style="padding: 10px 5px; color: #dc2626;">₹1620.83</td>
+                                
+                                
+                                <td style="padding: 10px 5px; font-weight: bold; color: #16a34a;">
+                                    5.27%
+                                </td>
+                                
+                                <td style="padding: 10px 5px; font-weight: bold;">
+                                    <span style="background-color: #1e3c72; color: white; padding: 3px 8px; border-radius: 12px; font-size: 11px;">
+                                        41.4
+                                    </span>
+                                </td>
+                            </tr>
+                            
+                            <tr style="border-bottom: 1px solid #e2e8f0; background-color: #f8fafc;">
+                                <td style="padding: 10px 5px; font-weight: bold; color: #1e3c72;">ADANIPOWER</td>
+                                <td style="padding: 10px 5px; color: #64748b;">Power</td>
+                                <td style="padding: 10px 5px;">₹209.97</td>
+                                <td style="padding: 10px 5px;">₹207.87 - 212.07</td>
+                                <td style="padding: 10px 5px;">₹227.92</td>
+                                <td style="padding: 10px 5px; color: #dc2626;">₹198.0</td>
+                                
+                                
+                                <td style="padding: 10px 5px; font-weight: bold; color: #16a34a;">
+                                    8.55%
+                                </td>
+                                
+                                <td style="padding: 10px 5px; font-weight: bold;">
+                                    <span style="background-color: #1e3c72; color: white; padding: 3px 8px; border-radius: 12px; font-size: 11px;">
+                                        40.4
+                                    </span>
+                                </td>
+                            </tr>
+                            
+                            <tr style="border-bottom: 1px solid #e2e8f0; background-color: #ffffff;">
+                                <td style="padding: 10px 5px; font-weight: bold; color: #1e3c72;">AXISBANK</td>
+                                <td style="padding: 10px 5px; color: #64748b;">Financial Services</td>
+                                <td style="padding: 10px 5px;">₹1246.0</td>
+                                <td style="padding: 10px 5px;">₹1,233.54 - 1,258.46</td>
+                                <td style="padding: 10px 5px;">₹1300.0</td>
+                                <td style="padding: 10px 5px; color: #dc2626;">₹1211.44</td>
+                                
+                                
+                                <td style="padding: 10px 5px; font-weight: bold; color: #16a34a;">
+                                    4.33%
+                                </td>
+                                
+                                <td style="padding: 10px 5px; font-weight: bold;">
+                                    <span style="background-color: #1e3c72; color: white; padding: 3px 8px; border-radius: 12px; font-size: 11px;">
+                                        40.0
+                                    </span>
+                                </td>
+                            </tr>
+                            
+                        </tbody>
+                    </table>
+                </div>
 
-                    <!-- Executive Summary Table -->
-                    <tr>
-                        <td style="padding-bottom: 30px;">
-                            <div style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid #e0e0e0;">
-                                <h3 style="margin: 0; padding: 15px 20px; background-color: #f8fafc; color: #1e3c72; border-bottom: 1px solid #e0e0e0; font-size: 16px;">Executive Summary</h3>
-                                <table width="100%" cellpadding="8" cellspacing="0" border="0" style="font-size: 12px; text-align: center; border-collapse: collapse;">
-                                    <thead>
-                                        <tr style="background-color: #1e3c72; color: #ffffff;">
-                                            <th style="padding: 12px 5px; border-bottom: 2px solid #e0e0e0;">Symbol</th>
-                                            <th style="padding: 12px 5px; border-bottom: 2px solid #e0e0e0;">Sector</th>
-                                            <th style="padding: 12px 5px; border-bottom: 2px solid #e0e0e0;">Mkt Cap</th>
-                                            <th style="padding: 12px 5px; border-bottom: 2px solid #e0e0e0;">CMP</th>
-                                            <th style="padding: 12px 5px; border-bottom: 2px solid #e0e0e0;">Entry</th>
-                                            <th style="padding: 12px 5px; border-bottom: 2px solid #e0e0e0;">Target</th>
-                                            <th style="padding: 12px 5px; border-bottom: 2px solid #e0e0e0;">SL</th>
-                                            <th style="padding: 12px 5px; border-bottom: 2px solid #e0e0e0;">Score</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        
-                                        <tr style="background-color: #ffffff; border-bottom: 1px solid #e2e8f0;">
-                                            <td style="font-weight: bold; color: #1e3c72; padding: 10px 5px;">RELIANCE</td>
-                                            <td style="padding: 10px 5px;">Oil & Gas</td>
-                                            <td style="padding: 10px 5px;">19,50,000 Cr</td>
-                                            <td style="padding: 10px 5px;">₹2850.50</td>
-                                            <td style="padding: 10px 5px; white-space: nowrap;">₹2830 - 2860</td>
-                                            <td style="color: #166534; font-weight: bold; padding: 10px 5px;">₹3100.00</td>
-                                            <td style="color: #991b1b; font-weight: bold; padding: 10px 5px;">₹2750.00</td>
-                                            <td style="font-weight: bold; padding: 10px 5px;">
-                                                <span style="background-color: #dbeafe; color: #1e40af; padding: 4px 8px; border-radius: 12px; font-size: 11px;">85.5</span>
-                                            </td>
-                                        </tr>
-                                        
-                                        <tr style="background-color: #f8fafc; border-bottom: 1px solid #e2e8f0;">
-                                            <td style="font-weight: bold; color: #1e3c72; padding: 10px 5px;">TCS</td>
-                                            <td style="padding: 10px 5px;">IT Services</td>
-                                            <td style="padding: 10px 5px;">14,20,000 Cr</td>
-                                            <td style="padding: 10px 5px;">₹3950.00</td>
-                                            <td style="padding: 10px 5px; white-space: nowrap;">₹3900 - 3960</td>
-                                            <td style="color: #166534; font-weight: bold; padding: 10px 5px;">₹4200.00</td>
-                                            <td style="color: #991b1b; font-weight: bold; padding: 10px 5px;">₹3820.00</td>
-                                            <td style="font-weight: bold; padding: 10px 5px;">
-                                                <span style="background-color: #dbeafe; color: #1e40af; padding: 4px 8px; border-radius: 12px; font-size: 11px;">72.0</span>
-                                            </td>
-                                        </tr>
-                                        
-                                    </tbody>
-                                </table>
+                <!-- INDIVIDUAL STOCK CARDS -->
+                
+                <div style="border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 25px; overflow: hidden;">
+                    
+                    <!-- Card Header -->
+                    <div style="background-color: #f1f5f9; padding: 12px 15px; border-bottom: 1px solid #e2e8f0; display: table; width: 100%; box-sizing: border-box;">
+                        <div style="display: table-cell; vertical-align: middle;">
+                            <h3 style="margin: 0; font-size: 18px; color: #0f172a;">AEGISLOG <span style="font-size: 14px; color: #64748b; font-weight: normal;">| Oil Gas & Consumable Fuels</span></h3>
+                        </div>
+                        <div style="display: table-cell; vertical-align: middle; text-align: right;">
+                            <span style="background-color: #3b82f6; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Opt: 65.1</span>
+                            <span style="background-color: #64748b; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Raw: 170</span>
+                        </div>
+                    </div>
+
+                    <!-- Trade Setup -->
+                    <div style="padding: 15px; background-color: #ffffff; border-bottom: 1px solid #e2e8f0;">
+                        <table style="width: 100%; font-size: 13px; text-align: center;">
+                            <tr>
+                                <td><strong>CMP:</strong><br>₹1353.6</td>
+                                <td><strong>Entry:</strong><br>₹1,340.06 - 1,367.14</td>
+                                <td><strong>Target:</strong><br><span style="color: #16a34a; font-weight: bold;">₹1614.0</span></td>
+                                <td><strong>Stop-Loss:</strong><br><span style="color: #dc2626; font-weight: bold;">₹1180.0</span></td>
+                                <td><strong>Potential:</strong><br><span style="color: #16a34a; font-weight: bold;">19.24%</span></td>
+                                <td><strong>R:R:</strong><br>1 : 1.5</td>
+                                <td><strong>Hold:</strong><br>5 Days</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Fundamentals -->
+                    <div style="padding: 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Fundamental Snapshot</h4>
+                        
+                        <div style="background-color: #f8fafc; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 13px; text-align: center; border: 1px solid #e2e8f0;">
+                            <strong>Fund Score:</strong> 50/100 Pts &nbsp;|&nbsp; 
+                            <strong>Piotroski Score:</strong> 9/9 (VERY STRONG)
+                        </div>
+
+                        <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Profit Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">24.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Sales Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">-1.0%</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y ROE Avg</td>
+                                <td style="padding: 8px 5px;">16.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y Stock CAGR</td>
+                                <td style="padding: 8px 5px;">58.0%</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">P/E Ratio</td>
+                                <td style="padding: 8px 5px;" colspan="3">38.0</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Technical Indicators -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📊 Technical Indicators</h4>
+                        <table style="width: 100%; font-size: 12px; border-collapse: collapse; text-align: left;">
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">RSI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">Stoch %K</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">MACD</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Ultimate Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Aroon Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">BOP</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">CCI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Williams %R</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Momentum</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;" colspan="3">-</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- News & Sentiment -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📰 Latest News & Sentiment</h4>
+                        <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px; font-size: 13px;">
+                            <div style="margin-bottom: 5px;">
+                                <strong>Sentiment:</strong> 
+                                <span style="color: #ea580c; font-weight: bold;">BULLISH (+0.50)</span>
                             </div>
-                        </td>
-                    </tr>
+                            <i style="color: #475569;">"Aegis Logistics Share Price - Live NSE: AEGISLOG Stock Price & Chart - Upstox"</i>
+                        </div>
+                    </div>
 
+                </div>
+                
+                <div style="border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 25px; overflow: hidden;">
                     
-                    <!-- Individual Stock Card -->
-                    <tr>
-                        <td style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid #e0e0e0; margin-bottom: 30px; display: block;">
-                            
-                            <!-- Stock Header Section -->
-                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                                <tr>
-                                    <td style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 30px; text-align: center;">
-                                        <h2 style="color: #ffffff; margin: 0; font-size: 28px; letter-spacing: 1px;">RELIANCE</h2>
-                                        <p style="color: #c0d6f1; margin: 5px 0 0 0; font-size: 14px; text-transform: uppercase; letter-spacing: 2px;">Oil & Gas</p>
-                                        
-                                        <table align="center" style="margin-top: 20px;">
-                                            <tr>
-                                                <td style="background-color: rgba(255,255,255,0.2); border-radius: 5px; padding: 10px 20px;">
-                                                    <span style="color: #ffffff; font-size: 14px;">Overall Score</span><br>
-                                                    <span style="color: #ffffff; font-size: 32px; font-weight: bold;">85.5</span>
-                                                </td>
-                                            </tr>
-                                        </table>
-                                    </td>
-                                </tr>
+                    <!-- Card Header -->
+                    <div style="background-color: #f1f5f9; padding: 12px 15px; border-bottom: 1px solid #e2e8f0; display: table; width: 100%; box-sizing: border-box;">
+                        <div style="display: table-cell; vertical-align: middle;">
+                            <h3 style="margin: 0; font-size: 18px; color: #0f172a;">ADANIPORTS <span style="font-size: 14px; color: #64748b; font-weight: normal;">| Services</span></h3>
+                        </div>
+                        <div style="display: table-cell; vertical-align: middle; text-align: right;">
+                            <span style="background-color: #3b82f6; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Opt: 57.4</span>
+                            <span style="background-color: #64748b; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Raw: 166</span>
+                        </div>
+                    </div>
 
-                                <!-- Content Area -->
-                                <tr>
-                                    <td style="padding: 30px;">
-                                        
-                                        <!-- Trade Setup Section -->
-                                        <h3 style="color: #1e3c72; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; margin-top: 0; font-size: 18px;">📈 Trade Setup</h3>
-                                        <table width="100%" cellpadding="10" cellspacing="0" style="margin-bottom: 25px; border-collapse: collapse;">
-                                            <tr>
-                                                <td width="25%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; text-align: center;">
-                                                    <span style="font-size: 12px; color: #64748b; display: block; margin-bottom: 5px;">CMP</span>
-                                                    <strong style="font-size: 16px; color: #0f172a;">₹2850.50</strong>
-                                                </td>
-                                                <td width="25%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; text-align: center;">
-                                                    <span style="font-size: 12px; color: #64748b; display: block; margin-bottom: 5px;">Entry Range</span>
-                                                    <strong style="font-size: 16px; color: #0f172a;">₹2830 - 2860</strong>
-                                                </td>
-                                                <td width="25%" style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; text-align: center;">
-                                                    <span style="font-size: 12px; color: #ef4444; display: block; margin-bottom: 5px;">Stop-Loss</span>
-                                                    <strong style="font-size: 16px; color: #991b1b;">₹2750.00</strong>
-                                                </td>
-                                                <td width="25%" style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; text-align: center;">
-                                                    <span style="font-size: 12px; color: #22c55e; display: block; margin-bottom: 5px;">Target</span>
-                                                    <strong style="font-size: 16px; color: #166534;">₹3100.00</strong>
-                                                </td>
-                                            </tr>
-                                        </table>
+                    <!-- Trade Setup -->
+                    <div style="padding: 15px; background-color: #ffffff; border-bottom: 1px solid #e2e8f0;">
+                        <table style="width: 100%; font-size: 13px; text-align: center;">
+                            <tr>
+                                <td><strong>CMP:</strong><br>₹1764.6</td>
+                                <td><strong>Entry:</strong><br>₹1,746.95 - 1,782.25</td>
+                                <td><strong>Target:</strong><br><span style="color: #16a34a; font-weight: bold;">₹2021.85</span></td>
+                                <td><strong>Stop-Loss:</strong><br><span style="color: #dc2626; font-weight: bold;">₹1593.1</span></td>
+                                <td><strong>Potential:</strong><br><span style="color: #16a34a; font-weight: bold;">14.58%</span></td>
+                                <td><strong>R:R:</strong><br>1 : 1.5</td>
+                                <td><strong>Hold:</strong><br>5 Days</td>
+                            </tr>
+                        </table>
+                    </div>
 
-                                        <table width="100%" cellpadding="8" cellspacing="0" style="margin-bottom: 30px; font-size: 14px;">
-                                            <tr>
-                                                <td width="50%" style="border-bottom: 1px solid #eee;"><strong>Potential Return:</strong> <span style="color: #22c55e; font-weight: bold;">8.75%</span></td>
-                                                <td width="50%" style="border-bottom: 1px solid #eee;"><strong>Risk/Reward:</strong> 1:2.5</td>
-                                            </tr>
-                                            <tr>
-                                                <td style="border-bottom: 1px solid #eee;"><strong>Est. Hold Time:</strong> 14 Days</td>
-                                                <td style="border-bottom: 1px solid #eee;"><strong>Buy Signals:</strong> 7/9</td>
-                                            </tr>
-                                        </table>
+                    <!-- Fundamentals -->
+                    <div style="padding: 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Fundamental Snapshot</h4>
+                        
+                        <div style="background-color: #f8fafc; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 13px; text-align: center; border: 1px solid #e2e8f0;">
+                            <strong>Fund Score:</strong> 71/100 Pts &nbsp;|&nbsp; 
+                            <strong>Piotroski Score:</strong> 9/9 (VERY STRONG)
+                        </div>
 
-                                        <!-- Technical Indicators -->
-                                        <h3 style="color: #1e3c72; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; font-size: 18px;">📊 Technical Indicators</h3>
-                                        <table width="100%" cellpadding="8" cellspacing="0" style="margin-bottom: 30px; font-size: 13px; border-collapse: collapse;">
-                                            <thead>
-                                                <tr style="background-color: #f1f5f9;">
-                                                    <th align="left" style="border: 1px solid #e2e8f0; width: 25%;">Indicator</th>
-                                                    <th align="left" style="border: 1px solid #e2e8f0; width: 25%;">Value & Signal</th>
-                                                    <th align="left" style="border: 1px solid #e2e8f0; width: 25%;">Indicator</th>
-                                                    <th align="left" style="border: 1px solid #e2e8f0; width: 25%;">Value & Signal</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <tr>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">RSI</td>
-                                                    <td style="border: 1px solid #e2e8f0;">65.4 (Bullish)</td>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">MACD</td>
-                                                    <td style="border: 1px solid #e2e8f0;">12.5 (Buy)</td>
-                                                </tr>
-                                                <tr style="background-color: #fafafa;">
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">Stochastic K</td>
-                                                    <td style="border: 1px solid #e2e8f0;">72.1 (Overbought)</td>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">Ultimate Osc</td>
-                                                    <td style="border: 1px solid #e2e8f0;">55.2 (Neutral)</td>
-                                                </tr>
-                                                <tr>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">Aroon Osc</td>
-                                                    <td style="border: 1px solid #e2e8f0;">80.0 (Strong Uptrend)</td>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">BOP</td>
-                                                    <td style="border: 1px solid #e2e8f0;">0.45 (Bullish)</td>
-                                                </tr>
-                                                <tr style="background-color: #fafafa;">
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">CCI</td>
-                                                    <td style="border: 1px solid #e2e8f0;">110.5 (Buy)</td>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">Williams %R</td>
-                                                    <td style="border: 1px solid #e2e8f0;">-25.4 (Overbought)</td>
-                                                </tr>
-                                                <tr>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">Momentum</td>
-                                                    <td style="border: 1px solid #e2e8f0;" colspan="3">45.6 (Bullish)</td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
+                        <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Profit Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">27.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Sales Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">23.0%</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y ROE Avg</td>
+                                <td style="padding: 8px 5px;">18.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y Stock CAGR</td>
+                                <td style="padding: 8px 5px;">28.0%</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">P/E Ratio</td>
+                                <td style="padding: 8px 5px;" colspan="3">30.6</td>
+                            </tr>
+                        </table>
+                    </div>
 
-                                        <!-- Fundamental Data -->
-                                        <h3 style="color: #1e3c72; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; font-size: 18px;">🏢 Fundamental Snapshot</h3>
-                                        <p style="font-size: 13px; color: #666; margin-top: 0;">Market Cap: <strong>19,50,000 Cr</strong></p>
-                                        <table width="100%" cellpadding="8" cellspacing="0" style="margin-bottom: 30px; font-size: 13px; border-collapse: collapse;">
-                                            <tbody>
-                                                <tr>
-                                                    <td width="25%" style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>P/E Ratio</strong></td>
-                                                    <td width="25%" style="border-bottom: 1px solid #eee;">25.4</td>
-                                                    <td width="25%" style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>P/B Ratio</strong></td>
-                                                    <td width="25%" style="border-bottom: 1px solid #eee;">2.8</td>
-                                                </tr>
-                                                <tr>
-                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>ROE</strong></td>
-                                                    <td style="border-bottom: 1px solid #eee;">14.5%</td>
-                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>ROCE</strong></td>
-                                                    <td style="border-bottom: 1px solid #eee;">16.2%</td>
-                                                </tr>
-                                                <tr>
-                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>Debt/Equity</strong></td>
-                                                    <td style="border-bottom: 1px solid #eee;">0.35</td>
-                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>Stock CAGR</strong></td>
-                                                    <td style="border-bottom: 1px solid #eee;">15.4%</td>
-                                                </tr>
-                                                <tr>
-                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>Sales Growth</strong></td>
-                                                    <td style="border-bottom: 1px solid #eee;">12.5%</td>
-                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>Profit Growth</strong></td>
-                                                    <td style="border-bottom: 1px solid #eee;">18.2%</td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
+                    <!-- Technical Indicators -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📊 Technical Indicators</h4>
+                        <table style="width: 100%; font-size: 12px; border-collapse: collapse; text-align: left;">
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">RSI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">Stoch %K</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">MACD</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Ultimate Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Aroon Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">BOP</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">CCI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Williams %R</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Momentum</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;" colspan="3">-</td>
+                            </tr>
+                        </table>
+                    </div>
 
-                                        <!-- News Sentiment -->
-                                        <h3 style="color: #1e3c72; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; font-size: 18px;">📰 Latest News & Sentiment</h3>
-                                        <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 15px; border-radius: 0 4px 4px 0;">
-                                            <p style="margin: 0 0 10px 0; font-size: 14px;"><strong>Sentiment:</strong> 
-                                                
-                                                    <span style="color: #16a34a; font-weight: bold;">Positive (+0.85)</span>
-                                                
-                                            </p>
-                                            <p style="margin: 0; font-size: 14px; font-style: italic; color: #475569;">"Reliance signs new deal in renewable energy sector, boosting investor confidence."</p>
-                                        </div>
+                    <!-- News & Sentiment -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📰 Latest News & Sentiment</h4>
+                        <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px; font-size: 13px;">
+                            <div style="margin-bottom: 5px;">
+                                <strong>Sentiment:</strong> 
+                                <span style="color: #ea580c; font-weight: bold;">BULLISH (+1.00)</span>
+                            </div>
+                            <i style="color: #475569;">"Adani Port Share Price - Live NSE: ADANIPORTS Stock Price & Chart - Upstox"</i>
+                        </div>
+                    </div>
 
-                                    </td>
-                                </tr>
-                            </table>
-                        </td>
-                    </tr>
+                </div>
+                
+                <div style="border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 25px; overflow: hidden;">
                     
-                    <!-- Individual Stock Card -->
-                    <tr>
-                        <td style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid #e0e0e0; margin-bottom: 30px; display: block;">
-                            
-                            <!-- Stock Header Section -->
-                            <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                                <tr>
-                                    <td style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 30px; text-align: center;">
-                                        <h2 style="color: #ffffff; margin: 0; font-size: 28px; letter-spacing: 1px;">TCS</h2>
-                                        <p style="color: #c0d6f1; margin: 5px 0 0 0; font-size: 14px; text-transform: uppercase; letter-spacing: 2px;">IT Services</p>
-                                        
-                                        <table align="center" style="margin-top: 20px;">
-                                            <tr>
-                                                <td style="background-color: rgba(255,255,255,0.2); border-radius: 5px; padding: 10px 20px;">
-                                                    <span style="color: #ffffff; font-size: 14px;">Overall Score</span><br>
-                                                    <span style="color: #ffffff; font-size: 32px; font-weight: bold;">72.0</span>
-                                                </td>
-                                            </tr>
-                                        </table>
-                                    </td>
-                                </tr>
+                    <!-- Card Header -->
+                    <div style="background-color: #f1f5f9; padding: 12px 15px; border-bottom: 1px solid #e2e8f0; display: table; width: 100%; box-sizing: border-box;">
+                        <div style="display: table-cell; vertical-align: middle;">
+                            <h3 style="margin: 0; font-size: 18px; color: #0f172a;">ACUTAAS <span style="font-size: 14px; color: #64748b; font-weight: normal;">| Healthcare</span></h3>
+                        </div>
+                        <div style="display: table-cell; vertical-align: middle; text-align: right;">
+                            <span style="background-color: #3b82f6; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Opt: 56.1</span>
+                            <span style="background-color: #64748b; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Raw: 185</span>
+                        </div>
+                    </div>
 
-                                <!-- Content Area -->
-                                <tr>
-                                    <td style="padding: 30px;">
-                                        
-                                        <!-- Trade Setup Section -->
-                                        <h3 style="color: #1e3c72; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; margin-top: 0; font-size: 18px;">📈 Trade Setup</h3>
-                                        <table width="100%" cellpadding="10" cellspacing="0" style="margin-bottom: 25px; border-collapse: collapse;">
-                                            <tr>
-                                                <td width="25%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; text-align: center;">
-                                                    <span style="font-size: 12px; color: #64748b; display: block; margin-bottom: 5px;">CMP</span>
-                                                    <strong style="font-size: 16px; color: #0f172a;">₹3950.00</strong>
-                                                </td>
-                                                <td width="25%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; text-align: center;">
-                                                    <span style="font-size: 12px; color: #64748b; display: block; margin-bottom: 5px;">Entry Range</span>
-                                                    <strong style="font-size: 16px; color: #0f172a;">₹3900 - 3960</strong>
-                                                </td>
-                                                <td width="25%" style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 4px; text-align: center;">
-                                                    <span style="font-size: 12px; color: #ef4444; display: block; margin-bottom: 5px;">Stop-Loss</span>
-                                                    <strong style="font-size: 16px; color: #991b1b;">₹3820.00</strong>
-                                                </td>
-                                                <td width="25%" style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; text-align: center;">
-                                                    <span style="font-size: 12px; color: #22c55e; display: block; margin-bottom: 5px;">Target</span>
-                                                    <strong style="font-size: 16px; color: #166534;">₹4200.00</strong>
-                                                </td>
-                                            </tr>
-                                        </table>
+                    <!-- Trade Setup -->
+                    <div style="padding: 15px; background-color: #ffffff; border-bottom: 1px solid #e2e8f0;">
+                        <table style="width: 100%; font-size: 13px; text-align: center;">
+                            <tr>
+                                <td><strong>CMP:</strong><br>₹3383.7</td>
+                                <td><strong>Entry:</strong><br>₹3,349.86 - 3,417.54</td>
+                                <td><strong>Target:</strong><br><span style="color: #16a34a; font-weight: bold;">₹3779.25</span></td>
+                                <td><strong>Stop-Loss:</strong><br><span style="color: #dc2626; font-weight: bold;">₹3120.0</span></td>
+                                <td><strong>Potential:</strong><br><span style="color: #16a34a; font-weight: bold;">11.69%</span></td>
+                                <td><strong>R:R:</strong><br>1 : 1.5</td>
+                                <td><strong>Hold:</strong><br>5 Days</td>
+                            </tr>
+                        </table>
+                    </div>
 
-                                        <table width="100%" cellpadding="8" cellspacing="0" style="margin-bottom: 30px; font-size: 14px;">
-                                            <tr>
-                                                <td width="50%" style="border-bottom: 1px solid #eee;"><strong>Potential Return:</strong> <span style="color: #22c55e; font-weight: bold;">6.33%</span></td>
-                                                <td width="50%" style="border-bottom: 1px solid #eee;"><strong>Risk/Reward:</strong> 1:2.0</td>
-                                            </tr>
-                                            <tr>
-                                                <td style="border-bottom: 1px solid #eee;"><strong>Est. Hold Time:</strong> 10 Days</td>
-                                                <td style="border-bottom: 1px solid #eee;"><strong>Buy Signals:</strong> 6/9</td>
-                                            </tr>
-                                        </table>
+                    <!-- Fundamentals -->
+                    <div style="padding: 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Fundamental Snapshot</h4>
+                        
+                        <div style="background-color: #f8fafc; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 13px; text-align: center; border: 1px solid #e2e8f0;">
+                            <strong>Fund Score:</strong> 65/100 Pts &nbsp;|&nbsp; 
+                            <strong>Piotroski Score:</strong> 9/9 (VERY STRONG)
+                        </div>
 
-                                        <!-- Technical Indicators -->
-                                        <h3 style="color: #1e3c72; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; font-size: 18px;">📊 Technical Indicators</h3>
-                                        <table width="100%" cellpadding="8" cellspacing="0" style="margin-bottom: 30px; font-size: 13px; border-collapse: collapse;">
-                                            <thead>
-                                                <tr style="background-color: #f1f5f9;">
-                                                    <th align="left" style="border: 1px solid #e2e8f0; width: 25%;">Indicator</th>
-                                                    <th align="left" style="border: 1px solid #e2e8f0; width: 25%;">Value & Signal</th>
-                                                    <th align="left" style="border: 1px solid #e2e8f0; width: 25%;">Indicator</th>
-                                                    <th align="left" style="border: 1px solid #e2e8f0; width: 25%;">Value & Signal</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <tr>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">RSI</td>
-                                                    <td style="border: 1px solid #e2e8f0;">58.2 (Neutral)</td>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">MACD</td>
-                                                    <td style="border: 1px solid #e2e8f0;">8.2 (Buy)</td>
-                                                </tr>
-                                                <tr style="background-color: #fafafa;">
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">Stochastic K</td>
-                                                    <td style="border: 1px solid #e2e8f0;">65.0 (Neutral)</td>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">Ultimate Osc</td>
-                                                    <td style="border: 1px solid #e2e8f0;">50.1 (Neutral)</td>
-                                                </tr>
-                                                <tr>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">Aroon Osc</td>
-                                                    <td style="border: 1px solid #e2e8f0;">40.0 (Uptrend)</td>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">BOP</td>
-                                                    <td style="border: 1px solid #e2e8f0;">0.20 (Neutral)</td>
-                                                </tr>
-                                                <tr style="background-color: #fafafa;">
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">CCI</td>
-                                                    <td style="border: 1px solid #e2e8f0;">85.0 (Buy)</td>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">Williams %R</td>
-                                                    <td style="border: 1px solid #e2e8f0;">-45.0 (Neutral)</td>
-                                                </tr>
-                                                <tr>
-                                                    <td style="border: 1px solid #e2e8f0; font-weight: bold;">Momentum</td>
-                                                    <td style="border: 1px solid #e2e8f0;" colspan="3">30.0 (Bullish)</td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
+                        <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Profit Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">62.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Sales Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">30.0%</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y ROE Avg</td>
+                                <td style="padding: 8px 5px;">18.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y Stock CAGR</td>
+                                <td style="padding: 8px 5px;">74.0%</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">P/E Ratio</td>
+                                <td style="padding: 8px 5px;" colspan="3">71.7</td>
+                            </tr>
+                        </table>
+                    </div>
 
-                                        <!-- Fundamental Data -->
-                                        <h3 style="color: #1e3c72; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; font-size: 18px;">🏢 Fundamental Snapshot</h3>
-                                        <p style="font-size: 13px; color: #666; margin-top: 0;">Market Cap: <strong>14,20,000 Cr</strong></p>
-                                        <table width="100%" cellpadding="8" cellspacing="0" style="margin-bottom: 30px; font-size: 13px; border-collapse: collapse;">
-                                            <tbody>
-                                                <tr>
-                                                    <td width="25%" style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>P/E Ratio</strong></td>
-                                                    <td width="25%" style="border-bottom: 1px solid #eee;">32.1</td>
-                                                    <td width="25%" style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>P/B Ratio</strong></td>
-                                                    <td width="25%" style="border-bottom: 1px solid #eee;">14.5</td>
-                                                </tr>
-                                                <tr>
-                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>ROE</strong></td>
-                                                    <td style="border-bottom: 1px solid #eee;">45.2%</td>
-                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>ROCE</strong></td>
-                                                    <td style="border-bottom: 1px solid #eee;">52.5%</td>
-                                                </tr>
-                                                <tr>
-                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>Debt/Equity</strong></td>
-                                                    <td style="border-bottom: 1px solid #eee;">0.05</td>
-                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>Stock CAGR</strong></td>
-                                                    <td style="border-bottom: 1px solid #eee;">12.0%</td>
-                                                </tr>
-                                                <tr>
-                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>Sales Growth</strong></td>
-                                                    <td style="border-bottom: 1px solid #eee;">15.0%</td>
-                                                    <td style="border-bottom: 1px solid #eee; background-color: #fafafa;"><strong>Profit Growth</strong></td>
-                                                    <td style="border-bottom: 1px solid #eee;">14.8%</td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
+                    <!-- Technical Indicators -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📊 Technical Indicators</h4>
+                        <table style="width: 100%; font-size: 12px; border-collapse: collapse; text-align: left;">
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">RSI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">Stoch %K</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">MACD</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Ultimate Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Aroon Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">BOP</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">CCI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Williams %R</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Momentum</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;" colspan="3">-</td>
+                            </tr>
+                        </table>
+                    </div>
 
-                                        <!-- News Sentiment -->
-                                        <h3 style="color: #1e3c72; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; font-size: 18px;">📰 Latest News & Sentiment</h3>
-                                        <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 15px; border-radius: 0 4px 4px 0;">
-                                            <p style="margin: 0 0 10px 0; font-size: 14px;"><strong>Sentiment:</strong> 
-                                                
-                                                    <span style="color: #d97706; font-weight: bold;">Neutral (+0.10)</span>
-                                                
-                                            </p>
-                                            <p style="margin: 0; font-size: 14px; font-style: italic; color: #475569;">"TCS announces upcoming quarterly results date."</p>
-                                        </div>
+                    <!-- News & Sentiment -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📰 Latest News & Sentiment</h4>
+                        <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px; font-size: 13px;">
+                            <div style="margin-bottom: 5px;">
+                                <strong>Sentiment:</strong> 
+                                <span style="color: #ea580c; font-weight: bold;">BULLISH (+1.00)</span>
+                            </div>
+                            <i style="color: #475569;">"We Ran A Stock Scan For Earnings Growth And Acutaas Chemicals (NSE:ACUTAAS) Passed With Ease - simplywall.st"</i>
+                        </div>
+                    </div>
 
-                                    </td>
-                                </tr>
-                            </table>
-                        </td>
-                    </tr>
+                </div>
+                
+                <div style="border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 25px; overflow: hidden;">
                     
+                    <!-- Card Header -->
+                    <div style="background-color: #f1f5f9; padding: 12px 15px; border-bottom: 1px solid #e2e8f0; display: table; width: 100%; box-sizing: border-box;">
+                        <div style="display: table-cell; vertical-align: middle;">
+                            <h3 style="margin: 0; font-size: 18px; color: #0f172a;">ASTERDM <span style="font-size: 14px; color: #64748b; font-weight: normal;">| Healthcare</span></h3>
+                        </div>
+                        <div style="display: table-cell; vertical-align: middle; text-align: right;">
+                            <span style="background-color: #3b82f6; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Opt: 52.6</span>
+                            <span style="background-color: #64748b; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Raw: 109</span>
+                        </div>
+                    </div>
+
+                    <!-- Trade Setup -->
+                    <div style="padding: 15px; background-color: #ffffff; border-bottom: 1px solid #e2e8f0;">
+                        <table style="width: 100%; font-size: 13px; text-align: center;">
+                            <tr>
+                                <td><strong>CMP:</strong><br>₹763.05</td>
+                                <td><strong>Entry:</strong><br>₹755.42 - 770.68</td>
+                                <td><strong>Target:</strong><br><span style="color: #16a34a; font-weight: bold;">₹844.9</span></td>
+                                <td><strong>Stop-Loss:</strong><br><span style="color: #dc2626; font-weight: bold;">₹737.29</span></td>
+                                <td><strong>Potential:</strong><br><span style="color: #16a34a; font-weight: bold;">10.73%</span></td>
+                                <td><strong>R:R:</strong><br>1 : 3.18</td>
+                                <td><strong>Hold:</strong><br>5 Days</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Fundamentals -->
+                    <div style="padding: 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Fundamental Snapshot</h4>
+                        
+                        <div style="background-color: #f8fafc; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 13px; text-align: center; border: 1px solid #e2e8f0;">
+                            <strong>Fund Score:</strong> 39/100 Pts &nbsp;|&nbsp; 
+                            <strong>Piotroski Score:</strong> 9/9 (VERY STRONG)
+                        </div>
+
+                        <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Profit Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">-1.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Sales Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">16.0%</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y ROE Avg</td>
+                                <td style="padding: 8px 5px;">6.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y Stock CAGR</td>
+                                <td style="padding: 8px 5px;">32.0%</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">P/E Ratio</td>
+                                <td style="padding: 8px 5px;" colspan="3">184.0</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Technical Indicators -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📊 Technical Indicators</h4>
+                        <table style="width: 100%; font-size: 12px; border-collapse: collapse; text-align: left;">
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">RSI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">Stoch %K</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">MACD</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Ultimate Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Aroon Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">BOP</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">CCI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Williams %R</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Momentum</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;" colspan="3">-</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- News & Sentiment -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📰 Latest News & Sentiment</h4>
+                        <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px; font-size: 13px;">
+                            <div style="margin-bottom: 5px;">
+                                <strong>Sentiment:</strong> 
+                                <span style="color: #ea580c; font-weight: bold;">NEUTRAL (+0.00)</span>
+                            </div>
+                            <i style="color: #475569;">"Aster DM Quality Care Share Price Today - Live NSE/BSE - icicidirect.com"</i>
+                        </div>
+                    </div>
+
+                </div>
+                
+                <div style="border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 25px; overflow: hidden;">
                     
-                    <!-- Global Footer -->
-                    <tr>
-                        <td style="padding: 20px; text-align: center;">
-                            <p style="font-size: 11px; color: #94a3b8; margin: 0;">
-                                Generated on September 10, 2026<br>
-                                Disclaimer: This report is for informational purposes only and does not constitute financial advice. Please do your own research before trading.
-                            </p>
-                        </td>
-                    </tr>
+                    <!-- Card Header -->
+                    <div style="background-color: #f1f5f9; padding: 12px 15px; border-bottom: 1px solid #e2e8f0; display: table; width: 100%; box-sizing: border-box;">
+                        <div style="display: table-cell; vertical-align: middle;">
+                            <h3 style="margin: 0; font-size: 18px; color: #0f172a;">GROWW <span style="font-size: 14px; color: #64748b; font-weight: normal;">| Financial Services</span></h3>
+                        </div>
+                        <div style="display: table-cell; vertical-align: middle; text-align: right;">
+                            <span style="background-color: #3b82f6; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Opt: 51.5</span>
+                            <span style="background-color: #64748b; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Raw: 161</span>
+                        </div>
+                    </div>
 
-                </table>
-                <!-- End Main Container -->
+                    <!-- Trade Setup -->
+                    <div style="padding: 15px; background-color: #ffffff; border-bottom: 1px solid #e2e8f0;">
+                        <table style="width: 100%; font-size: 13px; text-align: center;">
+                            <tr>
+                                <td><strong>CMP:</strong><br>₹200.24</td>
+                                <td><strong>Entry:</strong><br>₹198.24 - 202.24</td>
+                                <td><strong>Target:</strong><br><span style="color: #16a34a; font-weight: bold;">₹222.58</span></td>
+                                <td><strong>Stop-Loss:</strong><br><span style="color: #dc2626; font-weight: bold;">₹185.35</span></td>
+                                <td><strong>Potential:</strong><br><span style="color: #16a34a; font-weight: bold;">11.16%</span></td>
+                                <td><strong>R:R:</strong><br>1 : 1.5</td>
+                                <td><strong>Hold:</strong><br>5 Days</td>
+                            </tr>
+                        </table>
+                    </div>
 
-            </td>
-        </tr>
-    </table>
+                    <!-- Fundamentals -->
+                    <div style="padding: 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Fundamental Snapshot</h4>
+                        
+                        <div style="background-color: #f8fafc; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 13px; text-align: center; border: 1px solid #e2e8f0;">
+                            <strong>Fund Score:</strong> 66/100 Pts &nbsp;|&nbsp; 
+                            <strong>Piotroski Score:</strong> 9/9 (VERY STRONG)
+                        </div>
 
-</body>
-</html>
+                        <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Profit Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">66.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Sales Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">60.0%</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y ROE Avg</td>
+                                <td style="padding: 8px 5px;">34.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y Stock CAGR</td>
+                                <td style="padding: 8px 5px;">0.0%</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">P/E Ratio</td>
+                                <td style="padding: 8px 5px;" colspan="3">51.5</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Technical Indicators -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📊 Technical Indicators</h4>
+                        <table style="width: 100%; font-size: 12px; border-collapse: collapse; text-align: left;">
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">RSI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">Stoch %K</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">MACD</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Ultimate Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Aroon Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">BOP</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">CCI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Williams %R</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Momentum</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;" colspan="3">-</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- News & Sentiment -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📰 Latest News & Sentiment</h4>
+                        <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px; font-size: 13px;">
+                            <div style="margin-bottom: 5px;">
+                                <strong>Sentiment:</strong> 
+                                <span style="color: #ea580c; font-weight: bold;">NEUTRAL (+0.00)</span>
+                            </div>
+                            <i style="color: #475569;">"Daily and Weekly Digest - Latest News and Updates on Digest at Groww - Groww"</i>
+                        </div>
+                    </div>
+
+                </div>
+                
+                <div style="border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 25px; overflow: hidden;">
+                    
+                    <!-- Card Header -->
+                    <div style="background-color: #f1f5f9; padding: 12px 15px; border-bottom: 1px solid #e2e8f0; display: table; width: 100%; box-sizing: border-box;">
+                        <div style="display: table-cell; vertical-align: middle;">
+                            <h3 style="margin: 0; font-size: 18px; color: #0f172a;">APARINDS <span style="font-size: 14px; color: #64748b; font-weight: normal;">| Capital Goods</span></h3>
+                        </div>
+                        <div style="display: table-cell; vertical-align: middle; text-align: right;">
+                            <span style="background-color: #3b82f6; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Opt: 51.0</span>
+                            <span style="background-color: #64748b; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Raw: 182</span>
+                        </div>
+                    </div>
+
+                    <!-- Trade Setup -->
+                    <div style="padding: 15px; background-color: #ffffff; border-bottom: 1px solid #e2e8f0;">
+                        <table style="width: 100%; font-size: 13px; text-align: center;">
+                            <tr>
+                                <td><strong>CMP:</strong><br>₹17500.0</td>
+                                <td><strong>Entry:</strong><br>₹17,325.0 - 17,675.0</td>
+                                <td><strong>Target:</strong><br><span style="color: #16a34a; font-weight: bold;">₹19000.0</span></td>
+                                <td><strong>Stop-Loss:</strong><br><span style="color: #dc2626; font-weight: bold;">₹16500.0</span></td>
+                                <td><strong>Potential:</strong><br><span style="color: #16a34a; font-weight: bold;">8.57%</span></td>
+                                <td><strong>R:R:</strong><br>1 : 1.5</td>
+                                <td><strong>Hold:</strong><br>5 Days</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Fundamentals -->
+                    <div style="padding: 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Fundamental Snapshot</h4>
+                        
+                        <div style="background-color: #f8fafc; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 13px; text-align: center; border: 1px solid #e2e8f0;">
+                            <strong>Fund Score:</strong> 62/100 Pts &nbsp;|&nbsp; 
+                            <strong>Piotroski Score:</strong> 9/9 (VERY STRONG)
+                        </div>
+
+                        <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Profit Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">16.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Sales Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">17.0%</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y ROE Avg</td>
+                                <td style="padding: 8px 5px;">22.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y Stock CAGR</td>
+                                <td style="padding: 8px 5px;">53.0%</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">P/E Ratio</td>
+                                <td style="padding: 8px 5px;" colspan="3">60.8</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Technical Indicators -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📊 Technical Indicators</h4>
+                        <table style="width: 100%; font-size: 12px; border-collapse: collapse; text-align: left;">
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">RSI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">Stoch %K</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">MACD</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Ultimate Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Aroon Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">BOP</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">CCI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Williams %R</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Momentum</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;" colspan="3">-</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- News & Sentiment -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📰 Latest News & Sentiment</h4>
+                        <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px; font-size: 13px;">
+                            <div style="margin-bottom: 5px;">
+                                <strong>Sentiment:</strong> 
+                                <span style="color: #ea580c; font-weight: bold;">BULLISH (+1.00)</span>
+                            </div>
+                            <i style="color: #475569;">"APAR Industries (NSE:APARINDS): Why Did It Publish a Special Window Notice for Physical Share Transfers? - Kalkine India"</i>
+                        </div>
+                    </div>
+
+                </div>
+                
+                <div style="border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 25px; overflow: hidden;">
+                    
+                    <!-- Card Header -->
+                    <div style="background-color: #f1f5f9; padding: 12px 15px; border-bottom: 1px solid #e2e8f0; display: table; width: 100%; box-sizing: border-box;">
+                        <div style="display: table-cell; vertical-align: middle;">
+                            <h3 style="margin: 0; font-size: 18px; color: #0f172a;">ANGELONE <span style="font-size: 14px; color: #64748b; font-weight: normal;">| Financial Services</span></h3>
+                        </div>
+                        <div style="display: table-cell; vertical-align: middle; text-align: right;">
+                            <span style="background-color: #3b82f6; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Opt: 50.0</span>
+                            <span style="background-color: #64748b; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Raw: 119</span>
+                        </div>
+                    </div>
+
+                    <!-- Trade Setup -->
+                    <div style="padding: 15px; background-color: #ffffff; border-bottom: 1px solid #e2e8f0;">
+                        <table style="width: 100%; font-size: 13px; text-align: center;">
+                            <tr>
+                                <td><strong>CMP:</strong><br>₹305.0</td>
+                                <td><strong>Entry:</strong><br>₹301.95 - 308.05</td>
+                                <td><strong>Target:</strong><br><span style="color: #16a34a; font-weight: bold;">₹349.62</span></td>
+                                <td><strong>Stop-Loss:</strong><br><span style="color: #dc2626; font-weight: bold;">₹275.25</span></td>
+                                <td><strong>Potential:</strong><br><span style="color: #16a34a; font-weight: bold;">14.63%</span></td>
+                                <td><strong>R:R:</strong><br>1 : 1.5</td>
+                                <td><strong>Hold:</strong><br>5 Days</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Fundamentals -->
+                    <div style="padding: 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Fundamental Snapshot</h4>
+                        
+                        <div style="background-color: #f8fafc; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 13px; text-align: center; border: 1px solid #e2e8f0;">
+                            <strong>Fund Score:</strong> 59/100 Pts &nbsp;|&nbsp; 
+                            <strong>Piotroski Score:</strong> 9/9 (VERY STRONG)
+                        </div>
+
+                        <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Profit Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">1.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Sales Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">20.0%</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y ROE Avg</td>
+                                <td style="padding: 8px 5px;">25.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y Stock CAGR</td>
+                                <td style="padding: 8px 5px;">20.0%</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">P/E Ratio</td>
+                                <td style="padding: 8px 5px;" colspan="3">27.0</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Technical Indicators -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📊 Technical Indicators</h4>
+                        <table style="width: 100%; font-size: 12px; border-collapse: collapse; text-align: left;">
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">RSI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">Stoch %K</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">MACD</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Ultimate Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Aroon Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">BOP</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">CCI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Williams %R</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Momentum</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;" colspan="3">-</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- News & Sentiment -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📰 Latest News & Sentiment</h4>
+                        <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px; font-size: 13px;">
+                            <div style="margin-bottom: 5px;">
+                                <strong>Sentiment:</strong> 
+                                <span style="color: #ea580c; font-weight: bold;">NEUTRAL (+0.00)</span>
+                            </div>
+                            <i style="color: #475569;">"Stocks to watch, July 16: Adani Power, Paytm, Angel One, Swiggy, Himadri Speciality, ICICI Lombard, Wipro - Upstox"</i>
+                        </div>
+                    </div>
+
+                </div>
+                
+                <div style="border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 25px; overflow: hidden;">
+                    
+                    <!-- Card Header -->
+                    <div style="background-color: #f1f5f9; padding: 12px 15px; border-bottom: 1px solid #e2e8f0; display: table; width: 100%; box-sizing: border-box;">
+                        <div style="display: table-cell; vertical-align: middle;">
+                            <h3 style="margin: 0; font-size: 18px; color: #0f172a;">MAHABANK <span style="font-size: 14px; color: #64748b; font-weight: normal;">| Financial Services</span></h3>
+                        </div>
+                        <div style="display: table-cell; vertical-align: middle; text-align: right;">
+                            <span style="background-color: #3b82f6; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Opt: 49.1</span>
+                            <span style="background-color: #64748b; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Raw: 188</span>
+                        </div>
+                    </div>
+
+                    <!-- Trade Setup -->
+                    <div style="padding: 15px; background-color: #ffffff; border-bottom: 1px solid #e2e8f0;">
+                        <table style="width: 100%; font-size: 13px; text-align: center;">
+                            <tr>
+                                <td><strong>CMP:</strong><br>₹84.2</td>
+                                <td><strong>Entry:</strong><br>₹83.36 - 85.04</td>
+                                <td><strong>Target:</strong><br><span style="color: #16a34a; font-weight: bold;">₹89.82</span></td>
+                                <td><strong>Stop-Loss:</strong><br><span style="color: #dc2626; font-weight: bold;">₹80.45</span></td>
+                                <td><strong>Potential:</strong><br><span style="color: #16a34a; font-weight: bold;">6.67%</span></td>
+                                <td><strong>R:R:</strong><br>1 : 1.5</td>
+                                <td><strong>Hold:</strong><br>5 Days</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Fundamentals -->
+                    <div style="padding: 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Fundamental Snapshot</h4>
+                        
+                        <div style="background-color: #f8fafc; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 13px; text-align: center; border: 1px solid #e2e8f0;">
+                            <strong>Fund Score:</strong> 78/100 Pts &nbsp;|&nbsp; 
+                            <strong>Piotroski Score:</strong> 9/9 (VERY STRONG)
+                        </div>
+
+                        <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Profit Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">39.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Sales Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">23.0%</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y ROE Avg</td>
+                                <td style="padding: 8px 5px;">23.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y Stock CAGR</td>
+                                <td style="padding: 8px 5px;">25.0%</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">P/E Ratio</td>
+                                <td style="padding: 8px 5px;" colspan="3">8.59</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Technical Indicators -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📊 Technical Indicators</h4>
+                        <table style="width: 100%; font-size: 12px; border-collapse: collapse; text-align: left;">
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">RSI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">Stoch %K</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">MACD</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Ultimate Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Aroon Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">BOP</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">CCI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Williams %R</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Momentum</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;" colspan="3">-</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- News & Sentiment -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📰 Latest News & Sentiment</h4>
+                        <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px; font-size: 13px;">
+                            <div style="margin-bottom: 5px;">
+                                <strong>Sentiment:</strong> 
+                                <span style="color: #ea580c; font-weight: bold;">BULLISH (+1.00)</span>
+                            </div>
+                            <i style="color: #475569;">"Bank of Maharashtra (NSE:MAHABANK) most popular amongst state or government who own 74% of the shares, institutions hold 16% - simplywall.st"</i>
+                        </div>
+                    </div>
+
+                </div>
+                
+                <div style="border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 25px; overflow: hidden;">
+                    
+                    <!-- Card Header -->
+                    <div style="background-color: #f1f5f9; padding: 12px 15px; border-bottom: 1px solid #e2e8f0; display: table; width: 100%; box-sizing: border-box;">
+                        <div style="display: table-cell; vertical-align: middle;">
+                            <h3 style="margin: 0; font-size: 18px; color: #0f172a;">ACMESOLAR <span style="font-size: 14px; color: #64748b; font-weight: normal;">| Power</span></h3>
+                        </div>
+                        <div style="display: table-cell; vertical-align: middle; text-align: right;">
+                            <span style="background-color: #3b82f6; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Opt: 48.8</span>
+                            <span style="background-color: #64748b; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Raw: 160</span>
+                        </div>
+                    </div>
+
+                    <!-- Trade Setup -->
+                    <div style="padding: 15px; background-color: #ffffff; border-bottom: 1px solid #e2e8f0;">
+                        <table style="width: 100%; font-size: 13px; text-align: center;">
+                            <tr>
+                                <td><strong>CMP:</strong><br>₹402.3</td>
+                                <td><strong>Entry:</strong><br>₹398.28 - 406.32</td>
+                                <td><strong>Target:</strong><br><span style="color: #16a34a; font-weight: bold;">₹440.49</span></td>
+                                <td><strong>Stop-Loss:</strong><br><span style="color: #dc2626; font-weight: bold;">₹376.84</span></td>
+                                <td><strong>Potential:</strong><br><span style="color: #16a34a; font-weight: bold;">9.49%</span></td>
+                                <td><strong>R:R:</strong><br>1 : 1.5</td>
+                                <td><strong>Hold:</strong><br>5 Days</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Fundamentals -->
+                    <div style="padding: 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Fundamental Snapshot</h4>
+                        
+                        <div style="background-color: #f8fafc; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 13px; text-align: center; border: 1px solid #e2e8f0;">
+                            <strong>Fund Score:</strong> 55/100 Pts &nbsp;|&nbsp; 
+                            <strong>Piotroski Score:</strong> 9/9 (VERY STRONG)
+                        </div>
+
+                        <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Profit Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">149.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Sales Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">16.0%</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y ROE Avg</td>
+                                <td style="padding: 8px 5px;">8.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y Stock CAGR</td>
+                                <td style="padding: 8px 5px;">0.0%</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">P/E Ratio</td>
+                                <td style="padding: 8px 5px;" colspan="3">47.8</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Technical Indicators -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📊 Technical Indicators</h4>
+                        <table style="width: 100%; font-size: 12px; border-collapse: collapse; text-align: left;">
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">RSI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">Stoch %K</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">MACD</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Ultimate Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Aroon Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">BOP</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">CCI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Williams %R</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Momentum</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;" colspan="3">-</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- News & Sentiment -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📰 Latest News & Sentiment</h4>
+                        <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px; font-size: 13px;">
+                            <div style="margin-bottom: 5px;">
+                                <strong>Sentiment:</strong> 
+                                <span style="color: #ea580c; font-weight: bold;">BULLISH (+1.00)</span>
+                            </div>
+                            <i style="color: #475569;">"Suzlon Energy, Waaree Energies, ACME Solar, KPI Green: How renewable energy stocks performed on Sept 10 - Upstox"</i>
+                        </div>
+                    </div>
+
+                </div>
+                
+                <div style="border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 25px; overflow: hidden;">
+                    
+                    <!-- Card Header -->
+                    <div style="background-color: #f1f5f9; padding: 12px 15px; border-bottom: 1px solid #e2e8f0; display: table; width: 100%; box-sizing: border-box;">
+                        <div style="display: table-cell; vertical-align: middle;">
+                            <h3 style="margin: 0; font-size: 18px; color: #0f172a;">BEML <span style="font-size: 14px; color: #64748b; font-weight: normal;">| Capital Goods</span></h3>
+                        </div>
+                        <div style="display: table-cell; vertical-align: middle; text-align: right;">
+                            <span style="background-color: #3b82f6; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Opt: 44.7</span>
+                            <span style="background-color: #64748b; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Raw: 131</span>
+                        </div>
+                    </div>
+
+                    <!-- Trade Setup -->
+                    <div style="padding: 15px; background-color: #ffffff; border-bottom: 1px solid #e2e8f0;">
+                        <table style="width: 100%; font-size: 13px; text-align: center;">
+                            <tr>
+                                <td><strong>CMP:</strong><br>₹2023.4</td>
+                                <td><strong>Entry:</strong><br>₹2,003.17 - 2,043.63</td>
+                                <td><strong>Target:</strong><br><span style="color: #16a34a; font-weight: bold;">₹2205.0</span></td>
+                                <td><strong>Stop-Loss:</strong><br><span style="color: #dc2626; font-weight: bold;">₹1917.33</span></td>
+                                <td><strong>Potential:</strong><br><span style="color: #16a34a; font-weight: bold;">8.97%</span></td>
+                                <td><strong>R:R:</strong><br>1 : 1.71</td>
+                                <td><strong>Hold:</strong><br>5 Days</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Fundamentals -->
+                    <div style="padding: 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Fundamental Snapshot</h4>
+                        
+                        <div style="background-color: #f8fafc; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 13px; text-align: center; border: 1px solid #e2e8f0;">
+                            <strong>Fund Score:</strong> 26/100 Pts &nbsp;|&nbsp; 
+                            <strong>Piotroski Score:</strong> 9/9 (VERY STRONG)
+                        </div>
+
+                        <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Profit Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">-3.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Sales Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">4.0%</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y ROE Avg</td>
+                                <td style="padding: 8px 5px;">9.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y Stock CAGR</td>
+                                <td style="padding: 8px 5px;">19.0%</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">P/E Ratio</td>
+                                <td style="padding: 8px 5px;" colspan="3">94.4</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Technical Indicators -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📊 Technical Indicators</h4>
+                        <table style="width: 100%; font-size: 12px; border-collapse: collapse; text-align: left;">
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">RSI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">Stoch %K</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">MACD</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Ultimate Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Aroon Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">BOP</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">CCI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Williams %R</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Momentum</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;" colspan="3">-</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- News & Sentiment -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📰 Latest News & Sentiment</h4>
+                        <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px; font-size: 13px;">
+                            <div style="margin-bottom: 5px;">
+                                <strong>Sentiment:</strong> 
+                                <span style="color: #ea580c; font-weight: bold;">BULLISH (+1.00)</span>
+                            </div>
+                            <i style="color: #475569;">"Defence index hits new high; Midhani, HAL, BEML rally up to 5%; here's why - Business Standard"</i>
+                        </div>
+                    </div>
+
+                </div>
+                
+                <div style="border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 25px; overflow: hidden;">
+                    
+                    <!-- Card Header -->
+                    <div style="background-color: #f1f5f9; padding: 12px 15px; border-bottom: 1px solid #e2e8f0; display: table; width: 100%; box-sizing: border-box;">
+                        <div style="display: table-cell; vertical-align: middle;">
+                            <h3 style="margin: 0; font-size: 18px; color: #0f172a;">ANANDRATHI <span style="font-size: 14px; color: #64748b; font-weight: normal;">| Financial Services</span></h3>
+                        </div>
+                        <div style="display: table-cell; vertical-align: middle; text-align: right;">
+                            <span style="background-color: #3b82f6; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Opt: 43.1</span>
+                            <span style="background-color: #64748b; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Raw: 175</span>
+                        </div>
+                    </div>
+
+                    <!-- Trade Setup -->
+                    <div style="padding: 15px; background-color: #ffffff; border-bottom: 1px solid #e2e8f0;">
+                        <table style="width: 100%; font-size: 13px; text-align: center;">
+                            <tr>
+                                <td><strong>CMP:</strong><br>₹2211.0</td>
+                                <td><strong>Entry:</strong><br>₹2,188.89 - 2,233.11</td>
+                                <td><strong>Target:</strong><br><span style="color: #16a34a; font-weight: bold;">₹2300.76</span></td>
+                                <td><strong>Stop-Loss:</strong><br><span style="color: #dc2626; font-weight: bold;">₹2151.16</span></td>
+                                <td><strong>Potential:</strong><br><span style="color: #16a34a; font-weight: bold;">4.06%</span></td>
+                                <td><strong>R:R:</strong><br>1 : 1.5</td>
+                                <td><strong>Hold:</strong><br>5 Days</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Fundamentals -->
+                    <div style="padding: 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Fundamental Snapshot</h4>
+                        
+                        <div style="background-color: #f8fafc; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 13px; text-align: center; border: 1px solid #e2e8f0;">
+                            <strong>Fund Score:</strong> 70/100 Pts &nbsp;|&nbsp; 
+                            <strong>Piotroski Score:</strong> 9/9 (VERY STRONG)
+                        </div>
+
+                        <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Profit Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">33.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Sales Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">31.0%</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y ROE Avg</td>
+                                <td style="padding: 8px 5px;">45.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y Stock CAGR</td>
+                                <td style="padding: 8px 5px;">86.0%</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">P/E Ratio</td>
+                                <td style="padding: 8px 5px;" colspan="3">79.0</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Technical Indicators -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📊 Technical Indicators</h4>
+                        <table style="width: 100%; font-size: 12px; border-collapse: collapse; text-align: left;">
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">RSI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">Stoch %K</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">MACD</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Ultimate Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Aroon Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">BOP</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">CCI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Williams %R</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Momentum</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;" colspan="3">-</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- News & Sentiment -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📰 Latest News & Sentiment</h4>
+                        <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px; font-size: 13px;">
+                            <div style="margin-bottom: 5px;">
+                                <strong>Sentiment:</strong> 
+                                <span style="color: #ea580c; font-weight: bold;">BULLISH (+1.00)</span>
+                            </div>
+                            <i style="color: #475569;">"Anand Rathi ARSSBL NCD Allotment Rs 1 Crore Private Placement - Kalkine India"</i>
+                        </div>
+                    </div>
+
+                </div>
+                
+                <div style="border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 25px; overflow: hidden;">
+                    
+                    <!-- Card Header -->
+                    <div style="background-color: #f1f5f9; padding: 12px 15px; border-bottom: 1px solid #e2e8f0; display: table; width: 100%; box-sizing: border-box;">
+                        <div style="display: table-cell; vertical-align: middle;">
+                            <h3 style="margin: 0; font-size: 18px; color: #0f172a;">BOSCHLTD <span style="font-size: 14px; color: #64748b; font-weight: normal;">| Automobile and Auto Components</span></h3>
+                        </div>
+                        <div style="display: table-cell; vertical-align: middle; text-align: right;">
+                            <span style="background-color: #3b82f6; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Opt: 41.7</span>
+                            <span style="background-color: #64748b; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Raw: 147</span>
+                        </div>
+                    </div>
+
+                    <!-- Trade Setup -->
+                    <div style="padding: 15px; background-color: #ffffff; border-bottom: 1px solid #e2e8f0;">
+                        <table style="width: 100%; font-size: 13px; text-align: center;">
+                            <tr>
+                                <td><strong>CMP:</strong><br>₹48385.0</td>
+                                <td><strong>Entry:</strong><br>₹47,901.15 - 48,868.85</td>
+                                <td><strong>Target:</strong><br><span style="color: #16a34a; font-weight: bold;">₹51347.5</span></td>
+                                <td><strong>Stop-Loss:</strong><br><span style="color: #dc2626; font-weight: bold;">₹46410.0</span></td>
+                                <td><strong>Potential:</strong><br><span style="color: #16a34a; font-weight: bold;">6.12%</span></td>
+                                <td><strong>R:R:</strong><br>1 : 1.5</td>
+                                <td><strong>Hold:</strong><br>5 Days</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Fundamentals -->
+                    <div style="padding: 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Fundamental Snapshot</h4>
+                        
+                        <div style="background-color: #f8fafc; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 13px; text-align: center; border: 1px solid #e2e8f0;">
+                            <strong>Fund Score:</strong> 52/100 Pts &nbsp;|&nbsp; 
+                            <strong>Piotroski Score:</strong> 9/9 (VERY STRONG)
+                        </div>
+
+                        <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Profit Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">14.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Sales Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">10.0%</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y ROE Avg</td>
+                                <td style="padding: 8px 5px;">15.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y Stock CAGR</td>
+                                <td style="padding: 8px 5px;">36.0%</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">P/E Ratio</td>
+                                <td style="padding: 8px 5px;" colspan="3">60.4</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Technical Indicators -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📊 Technical Indicators</h4>
+                        <table style="width: 100%; font-size: 12px; border-collapse: collapse; text-align: left;">
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">RSI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">Stoch %K</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">MACD</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Ultimate Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Aroon Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">BOP</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">CCI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Williams %R</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Momentum</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;" colspan="3">-</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- News & Sentiment -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📰 Latest News & Sentiment</h4>
+                        <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px; font-size: 13px;">
+                            <div style="margin-bottom: 5px;">
+                                <strong>Sentiment:</strong> 
+                                <span style="color: #ea580c; font-weight: bold;">BULLISH (+1.00)</span>
+                            </div>
+                            <i style="color: #475569;">"Bosch Limited (NSE:BOSCHLTD) Passed Our Checks, And It's About To Pay A ₹270.00 Dividend - simplywall.st"</i>
+                        </div>
+                    </div>
+
+                </div>
+                
+                <div style="border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 25px; overflow: hidden;">
+                    
+                    <!-- Card Header -->
+                    <div style="background-color: #f1f5f9; padding: 12px 15px; border-bottom: 1px solid #e2e8f0; display: table; width: 100%; box-sizing: border-box;">
+                        <div style="display: table-cell; vertical-align: middle;">
+                            <h3 style="margin: 0; font-size: 18px; color: #0f172a;">AUROPHARMA <span style="font-size: 14px; color: #64748b; font-weight: normal;">| Healthcare</span></h3>
+                        </div>
+                        <div style="display: table-cell; vertical-align: middle; text-align: right;">
+                            <span style="background-color: #3b82f6; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Opt: 41.4</span>
+                            <span style="background-color: #64748b; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Raw: 153</span>
+                        </div>
+                    </div>
+
+                    <!-- Trade Setup -->
+                    <div style="padding: 15px; background-color: #ffffff; border-bottom: 1px solid #e2e8f0;">
+                        <table style="width: 100%; font-size: 13px; text-align: center;">
+                            <tr>
+                                <td><strong>CMP:</strong><br>₹1679.8</td>
+                                <td><strong>Entry:</strong><br>₹1,663.0 - 1,696.6</td>
+                                <td><strong>Target:</strong><br><span style="color: #16a34a; font-weight: bold;">₹1768.26</span></td>
+                                <td><strong>Stop-Loss:</strong><br><span style="color: #dc2626; font-weight: bold;">₹1620.83</span></td>
+                                <td><strong>Potential:</strong><br><span style="color: #16a34a; font-weight: bold;">5.27%</span></td>
+                                <td><strong>R:R:</strong><br>1 : 1.5</td>
+                                <td><strong>Hold:</strong><br>5 Days</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Fundamentals -->
+                    <div style="padding: 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Fundamental Snapshot</h4>
+                        
+                        <div style="background-color: #f8fafc; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 13px; text-align: center; border: 1px solid #e2e8f0;">
+                            <strong>Fund Score:</strong> 58/100 Pts &nbsp;|&nbsp; 
+                            <strong>Piotroski Score:</strong> 9/9 (VERY STRONG)
+                        </div>
+
+                        <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Profit Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">23.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Sales Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">11.0%</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y ROE Avg</td>
+                                <td style="padding: 8px 5px;">11.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y Stock CAGR</td>
+                                <td style="padding: 8px 5px;">23.0%</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">P/E Ratio</td>
+                                <td style="padding: 8px 5px;" colspan="3">25.6</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Technical Indicators -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📊 Technical Indicators</h4>
+                        <table style="width: 100%; font-size: 12px; border-collapse: collapse; text-align: left;">
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">RSI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">Stoch %K</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">MACD</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Ultimate Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Aroon Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">BOP</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">CCI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Williams %R</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Momentum</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;" colspan="3">-</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- News & Sentiment -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📰 Latest News & Sentiment</h4>
+                        <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px; font-size: 13px;">
+                            <div style="margin-bottom: 5px;">
+                                <strong>Sentiment:</strong> 
+                                <span style="color: #ea580c; font-weight: bold;">NEUTRAL (+0.00)</span>
+                            </div>
+                            <i style="color: #475569;">"Top stocks in news: HDFC Bank, RIL, Augmont, M&M, LEAP, Auro Pharma, Cipla, NBCC, Clean Max, Ola - Business Today"</i>
+                        </div>
+                    </div>
+
+                </div>
+                
+                <div style="border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 25px; overflow: hidden;">
+                    
+                    <!-- Card Header -->
+                    <div style="background-color: #f1f5f9; padding: 12px 15px; border-bottom: 1px solid #e2e8f0; display: table; width: 100%; box-sizing: border-box;">
+                        <div style="display: table-cell; vertical-align: middle;">
+                            <h3 style="margin: 0; font-size: 18px; color: #0f172a;">ADANIPOWER <span style="font-size: 14px; color: #64748b; font-weight: normal;">| Power</span></h3>
+                        </div>
+                        <div style="display: table-cell; vertical-align: middle; text-align: right;">
+                            <span style="background-color: #3b82f6; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Opt: 40.4</span>
+                            <span style="background-color: #64748b; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Raw: 116</span>
+                        </div>
+                    </div>
+
+                    <!-- Trade Setup -->
+                    <div style="padding: 15px; background-color: #ffffff; border-bottom: 1px solid #e2e8f0;">
+                        <table style="width: 100%; font-size: 13px; text-align: center;">
+                            <tr>
+                                <td><strong>CMP:</strong><br>₹209.97</td>
+                                <td><strong>Entry:</strong><br>₹207.87 - 212.07</td>
+                                <td><strong>Target:</strong><br><span style="color: #16a34a; font-weight: bold;">₹227.92</span></td>
+                                <td><strong>Stop-Loss:</strong><br><span style="color: #dc2626; font-weight: bold;">₹198.0</span></td>
+                                <td><strong>Potential:</strong><br><span style="color: #16a34a; font-weight: bold;">8.55%</span></td>
+                                <td><strong>R:R:</strong><br>1 : 1.5</td>
+                                <td><strong>Hold:</strong><br>5 Days</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Fundamentals -->
+                    <div style="padding: 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Fundamental Snapshot</h4>
+                        
+                        <div style="background-color: #f8fafc; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 13px; text-align: center; border: 1px solid #e2e8f0;">
+                            <strong>Fund Score:</strong> 56/100 Pts &nbsp;|&nbsp; 
+                            <strong>Piotroski Score:</strong> 9/9 (VERY STRONG)
+                        </div>
+
+                        <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Profit Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">6.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Sales Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">12.0%</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y ROE Avg</td>
+                                <td style="padding: 8px 5px;">32.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y Stock CAGR</td>
+                                <td style="padding: 8px 5px;">41.0%</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">P/E Ratio</td>
+                                <td style="padding: 8px 5px;" colspan="3">28.4</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Technical Indicators -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📊 Technical Indicators</h4>
+                        <table style="width: 100%; font-size: 12px; border-collapse: collapse; text-align: left;">
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">RSI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">Stoch %K</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">MACD</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Ultimate Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Aroon Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">BOP</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">CCI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Williams %R</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Momentum</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;" colspan="3">-</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- News & Sentiment -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📰 Latest News & Sentiment</h4>
+                        <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px; font-size: 13px;">
+                            <div style="margin-bottom: 5px;">
+                                <strong>Sentiment:</strong> 
+                                <span style="color: #ea580c; font-weight: bold;">NEUTRAL (+0.00)</span>
+                            </div>
+                            <i style="color: #475569;">"Adani Power Share Price - Live NSE: ADANIPOWER Stock Price & Chart - Upstox"</i>
+                        </div>
+                    </div>
+
+                </div>
+                
+                <div style="border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 25px; overflow: hidden;">
+                    
+                    <!-- Card Header -->
+                    <div style="background-color: #f1f5f9; padding: 12px 15px; border-bottom: 1px solid #e2e8f0; display: table; width: 100%; box-sizing: border-box;">
+                        <div style="display: table-cell; vertical-align: middle;">
+                            <h3 style="margin: 0; font-size: 18px; color: #0f172a;">AXISBANK <span style="font-size: 14px; color: #64748b; font-weight: normal;">| Financial Services</span></h3>
+                        </div>
+                        <div style="display: table-cell; vertical-align: middle; text-align: right;">
+                            <span style="background-color: #3b82f6; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Opt: 40.0</span>
+                            <span style="background-color: #64748b; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Raw: 151</span>
+                        </div>
+                    </div>
+
+                    <!-- Trade Setup -->
+                    <div style="padding: 15px; background-color: #ffffff; border-bottom: 1px solid #e2e8f0;">
+                        <table style="width: 100%; font-size: 13px; text-align: center;">
+                            <tr>
+                                <td><strong>CMP:</strong><br>₹1246.0</td>
+                                <td><strong>Entry:</strong><br>₹1,233.54 - 1,258.46</td>
+                                <td><strong>Target:</strong><br><span style="color: #16a34a; font-weight: bold;">₹1300.0</span></td>
+                                <td><strong>Stop-Loss:</strong><br><span style="color: #dc2626; font-weight: bold;">₹1211.44</span></td>
+                                <td><strong>Potential:</strong><br><span style="color: #16a34a; font-weight: bold;">4.33%</span></td>
+                                <td><strong>R:R:</strong><br>1 : 1.56</td>
+                                <td><strong>Hold:</strong><br>5 Days</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Fundamentals -->
+                    <div style="padding: 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Fundamental Snapshot</h4>
+                        
+                        <div style="background-color: #f8fafc; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 13px; text-align: center; border: 1px solid #e2e8f0;">
+                            <strong>Fund Score:</strong> 66/100 Pts &nbsp;|&nbsp; 
+                            <strong>Piotroski Score:</strong> 9/9 (VERY STRONG)
+                        </div>
+
+                        <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Profit Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">35.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569; width: 25%;">3Y Sales Gr.</td>
+                                <td style="padding: 8px 5px; color: #16a34a; font-weight: bold; width: 25%;">15.0%</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y ROE Avg</td>
+                                <td style="padding: 8px 5px;">16.0%</td>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">3Y Stock CAGR</td>
+                                <td style="padding: 8px 5px;">7.0%</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 8px 5px; font-weight: bold; color: #475569;">P/E Ratio</td>
+                                <td style="padding: 8px 5px;" colspan="3">14.0</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- Technical Indicators -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📊 Technical Indicators</h4>
+                        <table style="width: 100%; font-size: 12px; border-collapse: collapse; text-align: left;">
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">RSI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">Stoch %K</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">MACD</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Ultimate Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Aroon Osc</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">BOP</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;">-</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">CCI</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Williams %R</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0;">-</td>
+                            </tr>
+                            <tr style="background-color: #f8fafc;">
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0;">Momentum</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; background-color: #ffffff;" colspan="3">-</td>
+                            </tr>
+                        </table>
+                    </div>
+
+                    <!-- News & Sentiment -->
+                    <div style="padding: 0 15px 15px 15px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📰 Latest News & Sentiment</h4>
+                        <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px; font-size: 13px;">
+                            <div style="margin-bottom: 5px;">
+                                <strong>Sentiment:</strong> 
+                                <span style="color: #ea580c; font-weight: bold;">BULLISH (+1.00)</span>
+                            </div>
+                            <i style="color: #475569;">"Axis Bank to ICICI Bank - Why banking stocks are falling today? - Livemint"</i>
+                        </div>
+                    </div>
+
+                </div>
+                
+
+                <div style="text-align: center; margin-top: 30px; font-size: 11px; color: #94a3b8;">
+                    <p>Generated by Automated Analysis Engine</p>
+                    <p>Disclaimer: This data is for informational purposes only and does not constitute financial advice.</p>
+                </div>
+
+            </div>
+        </div>
+    </body>
+    </html>
+    

@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import os
 import smtplib
+import xml.etree.ElementTree as ET
+import warnings
 import re
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -335,14 +337,34 @@ def fetch_stock_news_sentiment(symbol):
     try:
         res = requests.get(rss_url, headers=headers, timeout=5)
         if res.status_code == 200:
-            soup = BeautifulSoup(res.text, "xml") if "xml" in res.text else BeautifulSoup(res.text, "html.parser")
-            items = soup.find_all("item")
-            headlines = [item.find("title").text for item in items[:5] if item.find("title")]
+            headlines = []
+            # 1. Try standard library ElementTree (no lxml or bs4 xml parser needed)
+            try:
+                root = ET.fromstring(res.content if isinstance(res.content, bytes) else res.text.encode("utf-8"))
+                for item in root.findall(".//item")[:5]:
+                    t = item.find("title")
+                    if t is not None and t.text:
+                        headlines.append(t.text.strip())
+            except Exception:
+                pass
+
+            # 2. Fallback to BeautifulSoup html.parser if ElementTree parsing fails
+            if not headlines:
+                from bs4 import XMLParsedAsHTMLWarning
+                warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+                soup = BeautifulSoup(res.text, "html.parser")
+                items = soup.find_all("item")
+                for item in items[:5]:
+                    t_tag = item.find("title")
+                    if t_tag and t_tag.text:
+                        headlines.append(t_tag.text.strip())
+
             if headlines:
                 combined_text = " ".join(headlines)
                 score, label = analyze_text_sentiment(combined_text)
                 return {"headline": headlines[0], "score": round(score, 2), "label": label}
-    except Exception:
+    except Exception as e:
+        print(f"fetch_stock_news_sentiment failed ({e})")
         pass
         
     if symbol in grounded_news_db:
@@ -634,8 +656,8 @@ def scan_and_research():
                 "Raw_Score": score,
                 "Opt_Score": opt_index
             })
-            if len(candidates) > 15:
-                break
+            #if len(candidates) > 15:
+            #    break
         except Exception as e:
             print(f"Faled scan_and_research() for {symbol} -> {e}")
             continue

@@ -222,3 +222,5 @@ __marimo__/
 
 #other large files 
 http_internet_cache.sqlite
+*.temp
+*.tmp
