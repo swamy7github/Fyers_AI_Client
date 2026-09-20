@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 from dotenv import load_dotenv
+
 
 # ----------------------------------------------------------------------------
 # File paths
@@ -21,10 +23,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 
+current_path = Path(BASE_DIR)
 # Add the directory containing your module to the search path
-sys.path.append("BASE_DIR")
 
-load_dotenv()  # loads variables from a local .env file, if present
+
+load_dotenv(".env.example")  # loads variables from a local .env file, if present
 
 """
 APP_ID = "YFLRWVHU2G"       # Example: 'EGNI8CE27Q' YFLRWVHU2G-100
@@ -54,8 +57,9 @@ TOKEN_FILE = os.getenv("TOKEN_FILE")
 # sentiment helper in global_sentiment.get_llm_news_sentiment()
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
-
-STOCK_UNIVERSE_CSV = os.path.join(DATA_DIR, "ind_nifty500list.csv")     # see README for download link
+os.makedirs(DATA_DIR, exist_ok=True)
+#STOCK_UNIVERSE_CSV = os.path.join(DATA_DIR, "ind_nifty500list.csv")     # see README for download link
+STOCK_UNIVERSE_CSV = Path(__file__).parent / 'data' / 'ind_nifty500list.csv'
 SECTOR_INDEX_MAP_CSV = os.path.join(DATA_DIR, "sector_index_map.csv")  # symbol -> sector mapping
 LOG_FILE = os.path.join(LOG_DIR, "orb_agent.log")
 TRADE_LOG_CSV = os.path.join(LOG_DIR, "trade_book_{date}.csv")
@@ -65,10 +69,16 @@ TRADE_LOG_CSV = os.path.join(LOG_DIR, "trade_book_{date}.csv")
 # ----------------------------------------------------------------------------
 TIMEZONE = "Asia/Kolkata"
 
+SECTOR_SCAN_TIME = "17:00:00"           # pre-open sector snapshot (see caveat in sector_scanner.py)
+OPENING_RANGE_SCAN_TIME = "17:20:00"    # 2s buffer after the 09:15-09:20 candle closes
+SIGNAL_ENGINE_LAST_RUN = "19:00:00"    # stop looking for NEW signals after this time
+SQUARE_OFF_TIME = "23:10:30"            # force-close any open paper positions
+'''
 SECTOR_SCAN_TIME = "09:10:00"           # pre-open sector snapshot (see caveat in sector_scanner.py)
 OPENING_RANGE_SCAN_TIME = "09:20:02"    # 2s buffer after the 09:15-09:20 candle closes
 SIGNAL_ENGINE_LAST_RUN = "15:10:00"     # stop looking for NEW signals after this time
 SQUARE_OFF_TIME = "15:10:30"            # force-close any open paper positions
+'''
 CANDLE_INTERVAL_MINUTES = 5
 
 # ----------------------------------------------------------------------------

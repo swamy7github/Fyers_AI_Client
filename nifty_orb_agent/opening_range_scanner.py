@@ -31,6 +31,7 @@ def load_universe() -> list[str]:
     Reads the NSE Nifty 500 constituent CSV (see README for the download
     link) and converts each symbol into Fyers' 'NSE:<SYMBOL>-EQ' format.
     """
+    logger.info(f" STOCK_UNIVERSE_CSV file is @ {config.STOCK_UNIVERSE_CSV} ")
     df = pd.read_csv(config.STOCK_UNIVERSE_CSV)
     symbol_col = "Symbol" if "Symbol" in df.columns else df.columns[0]
     return [f"NSE:{str(s).strip()}-EQ" for s in df[symbol_col].tolist()]
@@ -61,7 +62,7 @@ def scan_opening_range(data_service: FyersDataService) -> pd.DataFrame:
             if not prev_close:
                 continue
 
-            pct_change = (c - prev_close) / prev_close * 100
+            pct_change = round(((c - prev_close) / prev_close * 100), 2)
             if config.MIN_GAIN_PCT < pct_change <= config.MAX_GAIN_PCT:
                 rows.append({
                     "symbol": symbol, "open": o, "high": h, "low": l, "close": c,

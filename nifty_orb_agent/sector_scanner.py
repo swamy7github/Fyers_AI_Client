@@ -55,7 +55,7 @@ def scan_sectors(data_service: FyersDataService) -> pd.DataFrame:
         ltp = quote.get("lp")  # last traded / pre-open indicative price
         if not prev_close:
             continue
-        pct_change = (ltp - prev_close) / prev_close * 100
+        pct_change = round(((ltp - prev_close) / prev_close * 100), 2)
         rows.append({"symbol": row["symbol"], "sector": row["sector"], "pct_change": pct_change})
 
     df = pd.DataFrame(rows)

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import time
 from datetime import datetime, timedelta
 
@@ -32,6 +33,7 @@ from global_sentiment import fetch_global_snapshot, score_global_bias
 from sector_scanner import scan_sectors
 from opening_range_scanner import scan_opening_range
 from signal_engine import SignalEngine
+from pathlib import Path
 
 # ----------------------------------------------------------------------------
 # Logging: console + file handler, per the brief's "include logging" requirement
@@ -49,10 +51,19 @@ TZ = pytz.timezone(config.TIMEZONE)
 # Shared mutable state the scheduled jobs read/write
 state = {"data_service": None, "signal_engine": None}
 
+# 1. Dynamically parse the parent path ('C:\NS\Fyers_AI_Client')
+# This gets the folder containing the current script and looks one level up
+project_root = Path(__file__).resolve().parent.parent
 
+# 2. Add 'C:\NS\Fyers_AI_Client' to Python's search path
+if str(project_root) not in sys.path:
+    sys.path.append(str(project_root))
+    
 def _cron_from_hms(hms: str) -> CronTrigger:
     h, m, s = map(int, hms.split(":"))
-    return CronTrigger(hour=h, minute=m, second=s, day_of_week="mon-fri", timezone=TZ)
+    corn_hms = CronTrigger(hour=h, minute=m, second=s, day_of_week="mon-fri", timezone=TZ)
+    logger.info(f" corn job starts from {corn_hms}")
+    return corn_hms
 
 
 def job_global_sentiment():
@@ -95,6 +106,7 @@ def job_check_signals():
     cutoff_h, cutoff_m, cutoff_s = map(int, config.SIGNAL_ENGINE_LAST_RUN.split(":"))
     cutoff = now.replace(hour=cutoff_h, minute=cutoff_m, second=cutoff_s, microsecond=0)
     if now > cutoff:
+        logger.warning(f"past the 'keep checking till 3:10pm' window Now its {now} ")
         return  # past the "keep checking till 3:10pm" window
 
     window_end = now.replace(second=0, microsecond=0)
@@ -125,14 +137,32 @@ def job_square_off_and_report():
 def main():
     logger.info("Starting ORB scanning agent (DRY_RUN=%s)...", config.DRY_RUN)
 
+    from fyers_auto_login_v2 import APP_ID, get_fyers_final_session_handle 
+    
+    fyres = get_fyers_final_session_handle(
+        fy_id=config.FYERS_FY_ID,
+        totp_key=config.FYERS_TOTP_SECRET,
+        pin=config.FYERS_PIN,
+        redirect_uri=config.FYERS_REDIRECT_URI,
+        app_id=config.FYERS_APP_ID,
+        app_secret=config.FYERS_SECRET_KEY
+    )
+    if not fyres:
+        logger.error(f"Failed to get fyres tocken and authenticat for the APP {APP_ID}")
+        return
+    '''
     auth = FyersAuthManager()
+    
     access_token = auth.get_access_token()
+    '''
+    access_token = fyres.token
+    
     state["data_service"] = FyersDataService(access_token)
-
     # One-off, informational: run once immediately regardless of the clock
     job_global_sentiment()
 
     scheduler = BackgroundScheduler(timezone=TZ)
+    '''
     scheduler.add_job(job_sector_scan, _cron_from_hms(config.SECTOR_SCAN_TIME),
                        id="sector_scan", misfire_grace_time=60)
     scheduler.add_job(job_opening_range_scan, _cron_from_hms(config.OPENING_RANGE_SCAN_TIME),
@@ -143,7 +173,13 @@ def main():
                        id="check_signals", misfire_grace_time=30)
     scheduler.add_job(job_square_off_and_report, _cron_from_hms(config.SQUARE_OFF_TIME),
                        id="square_off", misfire_grace_time=60)
-
+                       '''
+    scheduler.add_job(job_sector_scan)
+    scheduler.add_job(job_opening_range_scan)
+    scheduler.add_job(job_check_signals)
+    scheduler.add_job(job_square_off_and_report)
+    
+    
     scheduler.start()
     logger.info("Scheduler started. Waiting for scheduled jobs (Ctrl+C to stop)...")
 
