@@ -11,9 +11,33 @@ credentials never get hard-coded or committed to source control. Copy
 from __future__ import annotations
 
 import os
+import sys
 from dotenv import load_dotenv
 
+# ----------------------------------------------------------------------------
+# File paths
+# ----------------------------------------------------------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+LOG_DIR = os.path.join(BASE_DIR, "logs")
+
+# Add the directory containing your module to the search path
+sys.path.append("BASE_DIR")
+
 load_dotenv()  # loads variables from a local .env file, if present
+
+"""
+APP_ID = "YFLRWVHU2G"       # Example: 'EGNI8CE27Q' YFLRWVHU2G-100
+APP_SECRET = "HJ5RUXDPW2"   #HJ5RUXDPW2
+
+#===================================================
+APP_TYPE = "100"             # Usually '100'
+FY_ID = "YY01479"      # Example: 'XY12345'
+TOTP_KEY = "U6DLWH4CW64MFZJV4KOOI6F47WG55U4W" # 32-character base32 secret from Fyers account settings
+PIN = "1436"      # e.g., '1234'
+REDIRECT_URI = "http://127.0.0.1:5000/fyers/ai_callback/" # Example: 'https://trade.fyers.in/api-login/redirect-uri/index.html'
+TOKEN_FILE = "fyers_token.txt"
+"""
 
 # ----------------------------------------------------------------------------
 # Fyers API credentials (create an app at https://myapi.fyers.in)
@@ -24,17 +48,12 @@ FYERS_REDIRECT_URI = os.getenv("FYERS_REDIRECT_URI", "")
 FYERS_FY_ID = os.getenv("FYERS_FY_ID", "")               # your Fyers login id (e.g. XY01234)
 FYERS_PIN = os.getenv("FYERS_PIN", "")                   # 4-digit trading PIN
 FYERS_TOTP_SECRET = os.getenv("FYERS_TOTP_SECRET", "")   # from Fyers > Profile > 2FA setup
+TOKEN_FILE = os.getenv("TOKEN_FILE")
 
 # Optional: only needed if you enable the LLM-based macro/geopolitical news
 # sentiment helper in global_sentiment.get_llm_news_sentiment()
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
-# ----------------------------------------------------------------------------
-# File paths
-# ----------------------------------------------------------------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
-LOG_DIR = os.path.join(BASE_DIR, "logs")
 
 STOCK_UNIVERSE_CSV = os.path.join(DATA_DIR, "ind_nifty500list.csv")     # see README for download link
 SECTOR_INDEX_MAP_CSV = os.path.join(DATA_DIR, "sector_index_map.csv")  # symbol -> sector mapping
@@ -58,8 +77,23 @@ CANDLE_INTERVAL_MINUTES = 5
 MIN_GAIN_PCT = 0.5       # lower bound (exclusive) for the opening-range gainer filter
 MAX_GAIN_PCT = 2.5       # upper bound (inclusive) for the opening-range gainer filter
 TOP_N_STOCKS = 5          # how many stocks to shortlist and track intraday
-VOLUME_MA_PERIOD = 20     # number of 5-min candles for the volume moving average
-CONSECUTIVE_CANDLES_FOR_BUY = 2  # candles required to confirm a breakout
+VOLUME_MA_PERIOD = 20     # number of 5-min candles for the ENTRY volume moving average
+CONSECUTIVE_CANDLES_FOR_BUY = 2  # candles required to confirm a breakout entry
+
+# ---- Stop-loss / square-off & position-sizing (add-on) parameters ----
+# Weakness/breakdown is detected using a much faster, 2-period volume average
+# than the entry's volMA(20) - the idea is entry needs sustained conviction,
+# exit should react quickly.
+VOLUME_SMA_STOPLOSS_PERIOD = 2
+CONSECUTIVE_CANDLES_FOR_STOPLOSS = 2
+
+# The FIRST time the weakness pattern appears after a buy (no square-off has
+# fired yet on this position), the engine adds to the position instead of
+# exiting - up to MAX_POSITION_ADDS times. Any weakness event beyond that
+# triggers a full square-off of the whole position (all adds included).
+# Set MAX_POSITION_ADDS = 0 to disable adding and square off on the very
+# first weakness event instead.
+MAX_POSITION_ADDS = 1
 
 # Retry / resilience for API calls
 API_MAX_RETRIES = 3

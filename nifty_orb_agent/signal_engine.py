@@ -15,8 +15,20 @@ Tracks the shortlisted stocks from the opening-range scan candle by candle
          the 09:30 candle - which is exactly the "wait till 9:30 candle
          closed" checkpoint in the brief.
 
-  EXIT - for any open position, the first candle that closes below VWAP
-         with volume > the 20-period volume moving average.
+  WEAKNESS EVENT (shared detector for both the add-on and the stop-loss) -
+         two CONSECUTIVE candles that each close below VWAP AND each have
+         volume above a fast 2-period volume average (SMA(2)). This is
+         intentionally quicker to react than the 20-period average used for
+         entries: getting into a trade should need sustained conviction,
+         getting out (or adding) should react fast.
+
+         - 1st weakness event on an open position (no square-off has fired
+           yet) -> BUY MORE: add to the position at that candle's close,
+           instead of exiting. Up to config.MAX_POSITION_ADDS times.
+         - Any weakness event after that (or immediately, if
+           MAX_POSITION_ADDS = 0) -> STOP-LOSS / SQUARE OFF: close the
+           ENTIRE position (the original entry plus every add-on) at that
+           candle's close.
 
   EOD  - any position still open at SQUARE_OFF_TIME (15:10:30) is closed at
          the last traded price, so nothing is left open overnight.
