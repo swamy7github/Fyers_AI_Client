@@ -170,7 +170,10 @@ def calculate_screener_growth_score(f_data):
     """
     growth_score = 0
     breakdown = {}
-
+    if f_data['f_score_calc'] is not True:
+        return {"growth_score": 100,
+                "breakdown": {}}
+        
     def parse_float(key, default=0.0):
         val = f_data.get(key, default)
         try:

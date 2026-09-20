@@ -12,7 +12,7 @@ import numpy as np
 import requests
 from bs4 import BeautifulSoup
 import stock_fundamentals_fetcher as sff
-from utilities import get_nifty_stock_universe
+from utilities import get_nifty_stock_universe, save_to_csv
 
 
 # Try to import yfinance strictly as a secondary fallback for price series if Fyers API is not configured
@@ -51,6 +51,13 @@ def calculate_piotroski_f_score(f_data):
     f_score = 0
     breakdown = {}
     
+    # Hack added to aviod the piotroski Score
+    if f_data['f_score_calc'] is not True:
+        return {
+                "piotroski_score": 9,
+                "label": "VERY STRONG" if f_score >= 8 else ("STRONG" if f_score >= 6 else ("MODERATE" if f_score >= 4 else "WEAK")),
+                "breakdown": []
+            }
     def parse_float(key, default=0.0):
         val = f_data.get(key, default)
         try:
@@ -120,7 +127,10 @@ def calculate_screener_growth_score(f_data):
     """
     growth_score = 0
     breakdown = {}
-
+    if f_data['f_score_calc'] is not True:
+        return {"growth_score": 100,
+                "breakdown": {}}
+            
     def parse_float(key, default=0.0):
         val = f_data.get(key, default)
         try:
@@ -421,7 +431,17 @@ def calculate_indicators(df):
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / (loss + 1e-10)
     df['RSI'] = 100 - (100 / (1 + rs))
-    
+    '''
+    # Exact Fyers / TradingView / Wilder's RSI Calculation in Pandas: 
+    delta = df['Close'].diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
+    # Wilder's Exponential Smoothing (alpha = 1/14, adjust=False) 
+    avg_gain = gain.ewm(alpha=1 / 14, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / 14, adjust=False).mean()
+    rs = avg_gain / (avg_loss + 1e-10)
+    df['RSI'] = 100.0 - (100.0 / (1.0 + rs))
+    '''
     high_low = df['High'] - df['Low']
     high_close = np.abs(df['High'] - df['Close'].shift())
     low_close = np.abs(df['Low'] - df['Close'].shift())
@@ -523,6 +543,10 @@ def scan_and_research():
     #fyers_access_token = os.environ.get("FYERS_ACCESS_TOKEN")
     from fyers_auto_login_v2 import APP_ID, get_fyers_session_handle 
     fyres = get_fyers_session_handle()
+    if not fyres:
+        print(f"[ERROR]: Failed to get fyres tocken and authenticat for the APP {APP_ID}")
+        return
+        
     fyers_app_id = APP_ID
     fyers_access_token = fyres.token
     use_fyers = bool(fyers_app_id and fyers_access_token)
@@ -530,12 +554,14 @@ def scan_and_research():
     stock_fundamentals = sff.StockFundamentalsDB()
     stock_universe = get_nifty_stock_universe(url=sff.NSE_LMS500_URL)
     candidates = []
+    from itertools import islice
+    #stock_universe = dict(islice(stock_universe.items(), 0, 15))
     
     count = 0
     if not use_fyers: 
         print(" Can not be used fyers API with out ACCESS_TOKEN and APP_ID")
         return None
-    
+    #stock_universe = {'GVT&D': 'Power'}
     for symbol, sector in stock_universe.items():
         count += 1
             
@@ -580,17 +606,20 @@ def scan_and_research():
             #print(f"keys  in f_data = {f_data.keys()}")
             
             #if f_data["pe"] < 0 or f_data["de"] > 1.5 or f_data["return_on_equity_3y"] < 5.0: continue
-            if f_data["pe"] < 0  or f_data["return_on_equity_3y"] < 5.0: continue
+            if f_data.get("pe", 0) < 0 or f_data.get("return_on_equity_3y", 5) < 5.0: continue
             
             # Piotroski F-Score Calculation (0 to 9)
+            # skip fundamental Pscore caluclation 
+            f_data['f_score_calc'] = False
             piotroski_res = calculate_piotroski_f_score(f_data)
             p_score = piotroski_res["piotroski_score"]
             p_label = piotroski_res["label"]
             
-            '''
             # Hard Filter Guardrail: Exclude companies with weak Piotroski Scores (< 4)
-            if p_score < 4: continue
-             '''   
+            if p_score < 4:
+                print(f"[WARRNING] P Score {p_score} is lessthan 4 for the symbol {symbol}") 
+                continue
+               
             fund_score_res = calculate_screener_growth_score(f_data)
             fund_growth_score = fund_score_res["growth_score"]
             
@@ -665,8 +694,8 @@ def scan_and_research():
                 "Stoch_K": f"{round(latest['Stoch_K'], 2)} D-({round(latest['Stoch_D'], 2)})",
                 "MACD": f"{round(latest['MACD_Hist'], 2)} (s-{round(latest['MACD_Signal'], 2)}, l-{round(latest['MACD_Line'], 2)})",
                 "Ultimate_Osc": f"{round(latest['Ultimate_Osc'], 2)}",
-                "Aroon_Osc": f"{round(latest['Aroon_Osc'], 2)})",
-                "BOP": f"{round(latest['BOP'], 2)} )",
+                "Aroon_Osc": f"{round(latest['Aroon_Osc'], 2)}",
+                "BOP": f"{round(latest['BOP'], 2)}",
                 "CCI": f"{round(latest['CCI'], 2)}",
                 "Williams_R": f"{round(latest['Williams_R'], 2)} )",
                 "Momentum": f"{round(latest['Momentum'], 2)}",
@@ -680,6 +709,8 @@ def scan_and_research():
             continue
             
     final_picks = sorted(candidates, key=lambda x: x["Opt_Score"], reverse=True)[:15]
+    time_string = datetime.now().strftime("%y_%m_%d_%H_%M_%S")
+    save_to_csv(final_picks, f"./data/Analyzed_{time_string}.csv")
     if not final_picks: return get_offline_fallback_data()
     return final_picks
 

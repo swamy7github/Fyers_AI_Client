@@ -224,3 +224,4 @@ __marimo__/
 http_internet_cache.sqlite
 *.temp
 *.tmp
+data/

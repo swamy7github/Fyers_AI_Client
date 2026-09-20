@@ -261,17 +261,18 @@ if __name__ == "__main__":
     PASSWORD = "Swamy@0684"
     
     screener = ScreenerClient(USERNAME, PASSWORD)
-    exit()
+
     if screener.login():
         print("\n--- Fetching Basic Fundamentals ---")
-        hal_data = screener.get_stock_info("HAL")
-        
+        hal_data = screener.get_stock_info("GVT&D")
+        '''
         if hal_data:
             for key, value in hal_data.items():
                 print(f"{key}: {value}")
+        '''
                 
         print("\n--- Fetching Advanced Quick Ratios & Shareholding ---")
-        hal_advanced = screener.get_quick_ratios("HAL")
+        hal_advanced = screener.get_quick_ratios("GVT&D")
         
         if hal_advanced:
             for key, value in hal_advanced.items():

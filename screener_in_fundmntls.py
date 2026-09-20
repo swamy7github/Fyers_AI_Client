@@ -88,7 +88,8 @@ class ScreenerClient:
         """
         Fetches key financial metrics for a specific NSE symbol.
         """
-        clean_symbol = symbol.replace("&", "").replace("-", "").strip().upper()
+        #clean_symbol = symbol.replace("&", "").replace("-", "").strip().upper()
+        clean_symbol = symbol
         sleep(2)
         url = f"https://www.screener.in/company/{clean_symbol}/consolidated/"
         
@@ -113,7 +114,7 @@ class ScreenerClient:
             if name_elem and val_elem:
                 name = name_elem.text.strip()
                 val = val_elem.text.strip().replace(",", "")
-                ratios[name] = round(float(val), 2)
+                ratios[name] = round(float(val) if val is not None and val != "" else 0.0, 2)
         # Search Profit & Loss or Quarters table for OPM % and Sales Growth
         tables = soup.find_all('table', class_='ranges-table')
         return_on_equity = 0
