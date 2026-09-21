@@ -90,7 +90,7 @@ class ScreenerClient:
         """
         #clean_symbol = symbol.replace("&", "").replace("-", "").strip().upper()
         clean_symbol = symbol
-        sleep(2)
+        sleep(0.5)
         url = f"https://www.screener.in/company/{clean_symbol}/consolidated/"
         
         response = self.session.get(url)

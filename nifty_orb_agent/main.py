@@ -160,9 +160,9 @@ def main():
     state["data_service"] = FyersDataService(access_token)
     # One-off, informational: run once immediately regardless of the clock
     job_global_sentiment()
-
+    return
     scheduler = BackgroundScheduler(timezone=TZ)
-    '''
+   
     scheduler.add_job(job_sector_scan, _cron_from_hms(config.SECTOR_SCAN_TIME),
                        id="sector_scan", misfire_grace_time=60)
     scheduler.add_job(job_opening_range_scan, _cron_from_hms(config.OPENING_RANGE_SCAN_TIME),
@@ -173,12 +173,12 @@ def main():
                        id="check_signals", misfire_grace_time=30)
     scheduler.add_job(job_square_off_and_report, _cron_from_hms(config.SQUARE_OFF_TIME),
                        id="square_off", misfire_grace_time=60)
-                       '''
+    '''
     scheduler.add_job(job_sector_scan)
     scheduler.add_job(job_opening_range_scan)
     scheduler.add_job(job_check_signals)
     scheduler.add_job(job_square_off_and_report)
-    
+     '''
     
     scheduler.start()
     logger.info("Scheduler started. Waiting for scheduled jobs (Ctrl+C to stop)...")

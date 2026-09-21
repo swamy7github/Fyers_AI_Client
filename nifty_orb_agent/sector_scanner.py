@@ -43,13 +43,15 @@ def scan_sectors(data_service: FyersDataService) -> pd.DataFrame:
     sector_map = load_sector_map()
     symbols = sector_map["symbol"].tolist()
 
-    quotes_response = data_service.get_quotes(symbols)
-    quote_lookup = {q["n"]: q["v"] for q in quotes_response.get("d", [])}
+    # Batched, rate-limited: safe even once this map covers the full ~500-stock
+    # universe rather than the small illustrative sample it ships with.
+    quote_lookup = data_service.get_quotes_batched(symbols)
 
     rows = []
     for _, row in sector_map.iterrows():
         quote = quote_lookup.get(row["symbol"])
-        if not quote:
+        logger.info(f" ========== >> Tbc {row.get('TbC')} for {row.get('symbol')}")
+        if not quote or row.get('TbC') == 'N':
             continue
         prev_close = quote.get("prev_close_price")
         ltp = quote.get("lp")  # last traded / pre-open indicative price

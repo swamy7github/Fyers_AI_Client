@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 import screener_in_fundmntls
 from utilities import get_nifty_stock_universe
-DB_NAME = "nse_whole_fundamentals.sqlite"
+DB_NAME = "./data/nse_universe_fundamentals.sqlite"
 NSE_ALL_URL = "https://archives.nseindia.com/content/equities/EQUITY_L.csv"
 NSE_250_URL = "https://archives.nseindia.com/content/indices/ind_niftylargemidcap250list.csv"
 NSE_LMS500_URL = "https://archives.nseindia.com/content/indices/ind_nifty500LargeMidSmallEqualCapWeighted_list.csv"

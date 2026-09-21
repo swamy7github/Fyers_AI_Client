@@ -1,48 +1,48 @@
-symbol,Index Name,sector
-NSE:NIFTY50-INDEX,Nifty 50,Broad Market (Benchmark)
-NSE:NIFTYIT-INDEX,Nifty IT,Information Technology
-NSE:NIFTYBANK-INDEX,Nifty Bank,Banking & Financial Services
-NSE:NIFTYMIDCAP50-INDEX,Nifty Midcap 50,Broad Market (Mid Cap)
-NSE:INDIAVIX-INDEX,India VIX,Market Volatility / Sentiment Gauge
-NSE:NIFTYINFRA-INDEX,Nifty Infrastructure,Thematic (Infrastructure & Core Sectors)
-NSE:NIFTYPSE-INDEX,Nifty PSE,Thematic (Public Sector Enterprises)
-NSE:NIFTY100-INDEX,Nifty 100,Broad Market (Large Cap)
-NSE:NIFTY200-INDEX,Nifty 200,Broad Market (Large & Mid Cap)
-NSE:NIFTY500-INDEX,Nifty 500,Broad Market (Multi Cap)
-NSE:NIFTYAUTO-INDEX,Nifty Auto,Automobiles & Auto Components
-NSE:NIFTYCOMMODITIES-INDEX,Nifty Commodities,Thematic (Commodities/Materials)
-NSE:NIFTYCONSUMPTION-INDEX,Nifty Consumption,Thematic (Domestic Consumption)
-NSE:NIFTYNXT50-INDEX,Nifty Next 50,Broad Market (Large Cap - Next 50)
-NSE:NIFTYENERGY-INDEX,Nifty Energy,"Energy, Power & Utilities"
-NSE:FINNIFTY-INDEX,Nifty Financial Services,"Financial Services (Banks, NBFCs, Insurance)"
-NSE:NIFTYFMCG-INDEX,Nifty FMCG,Fast-Moving Consumer Goods
-NSE:NIFTYGROWSECT15-INDEX,Nifty Growth Sectors 15,Thematic / Strategy (Growth-oriented Sectors)
-NSE:NIFTYGS10YR-INDEX,Nifty 10 yr Benchmark G-Sec,Fixed Income (10-Year Govt. Bonds)
-NSE:NIFTYGS10YRCLN-INDEX,Nifty 10 yr Benchmark G-Sec (Clean),Fixed Income (Clean Price Bond Index)
-NSE:NIFTYGS1115YR-INDEX,Nifty G-Sec 11-15 Yr,Fixed Income (Long-term Govt. Bonds)
-NSE:NIFTYGS15YRPLUS-INDEX,Nifty G-Sec 15 Yr Plus,Fixed Income (Ultra Long-term Govt. Bonds)
-NSE:NIFTYGS48YR-INDEX,Nifty G-Sec 4-8 Yr,Fixed Income (Medium-term Govt. Bonds)
-NSE:NIFTYGS813YR-INDEX,Nifty G-Sec 8-13 Yr,Fixed Income (Medium to Long Govt. Bonds)
-NSE:NIFTYGSCOMPSITE-INDEX,Nifty G-Sec Composite,Fixed Income (All Government Securities)
-NSE:NIFTYMEDIA-INDEX,Nifty Media,"Media, Entertainment & Broadcasting"
-NSE:NIFTYMETAL-INDEX,Nifty Metal,Metals & Mining
-NSE:NIFTYMIDLIQ15-INDEX,Nifty Midcap Liquid 15,Strategy (Liquid Mid-Cap Stocks)
-NSE:NIFTYMIDCAP100-INDEX,Nifty Midcap 100,Broad Market (Mid Cap)
-NSE:NIFTYMNC-INDEX,Nifty MNC,Thematic (Multinational Corporations)
-NSE:NIFTYPHARMA-INDEX,Nifty Pharma,Pharmaceuticals & Healthcare
-NSE:NIFTYPSUBANK-INDEX,Nifty PSU Bank,Banking (Public Sector/State-Owned)
-NSE:NIFTYPVTBANK-INDEX,Nifty Private Bank,Banking (Private Sector)
-NSE:NIFTYQUALITY30-INDEX,Nifty Quality 30,Strategy (High-Quality Factor)
-NSE:NIFTYREALTY-INDEX,Nifty Realty,Real Estate & Property Development
-NSE:NIFTYSERVSECTOR-INDEX,Nifty Services Sector,Thematic (Service Sector Industries)
-NSE:NIFTYSMLCAP100-INDEX,Nifty Smallcap 100,Broad Market (Small Cap)
-NSE:NIFTY100LIQ15-INDEX,Nifty 100 Liquid 15,Strategy (Liquid Large-Cap Stocks)
-NSE:NIFTY50DIVPOINT-INDEX,Nifty 50 Dividend Points,Strategy (Dividend Yield Trackers)
-NSE:NIFTY50PR1XINV-INDEX,Nifty 50 PR 1X Inverse,Structured / Strategy (Shorting/Inverse)
-NSE:NIFTY50PR2XLEV-INDEX,Nifty 50 PR 2X Leveraged,Structured / Strategy (2x Leveraged Price Return)
-NSE:NIFTY50TR1XINV-INDEX,Nifty 50 TR 1X Inverse,Structured / Strategy (Inverse Total Return)
-NSE:NIFTY50 TR 2X LEV-INDEX,Nifty 50 TR 2X Leveraged,Structured / Strategy (2x Leveraged Total Return)
-NSE:NIFTY50VALUE20-INDEX,Nifty 50 Value 20,Strategy (Value/Undervalued Large Caps)
-NSE:NIFTYALPHA50-INDEX,Nifty Alpha 50,Strategy (High Momentum / High Alpha)
-NSE:NIFTYINDDEFENCE-INDEX,Nifty India Defence,Thematic / Sectoral (Defence Manufacturing)
-NSE:NIFTYDIVOPPS50-INDEX,Nifty Dividend Opportunities 50,strategy (High Dividend Opportunities)
+symbol,Index Name,sector,TbC
+NSE:NIFTY50-INDEX,Nifty 50,Broad Market (Benchmark),N
+NSE:NIFTYIT-INDEX,Nifty IT,Information Technology,Y
+NSE:NIFTYBANK-INDEX,Nifty Bank,Banking & Financial Services,Y
+NSE:NIFTYMIDCAP50-INDEX,Nifty Midcap 50,Broad Market (Mid Cap),N
+NSE:INDIAVIX-INDEX,India VIX,Market Volatility / Sentiment Gauge,N
+NSE:NIFTYINFRA-INDEX,Nifty Infrastructure,Thematic (Infrastructure & Core Sectors),Y
+NSE:NIFTYPSE-INDEX,Nifty PSE,Thematic (Public Sector Enterprises),Y
+NSE:NIFTY100-INDEX,Nifty 100,Broad Market (Large Cap),N
+NSE:NIFTY200-INDEX,Nifty 200,Broad Market (Large & Mid Cap),N
+NSE:NIFTY500-INDEX,Nifty 500,Broad Market (Multi Cap),N
+NSE:NIFTYAUTO-INDEX,Nifty Auto,Automobile and Auto Components,Y
+NSE:NIFTYCOMMODITIES-INDEX,Nifty Commodities,Thematic (Commodities/Materials),Y
+NSE:NIFTYCONSUMPTION-INDEX,Nifty Consumption,Thematic (Domestic Consumption),Y
+NSE:NIFTYNXT50-INDEX,Nifty Next 50,Broad Market (Large Cap - Next 50),N
+NSE:NIFTYENERGY-INDEX,Nifty Energy,"Energy, Power & Utilities",Y
+NSE:FINNIFTY-INDEX,Nifty Financial Services,"Financial Services (Banks, NBFCs, Insurance)",Y
+NSE:NIFTYFMCG-INDEX,Nifty FMCG,Fast-Moving Consumer Goods,Y
+NSE:NIFTYGROWSECT15-INDEX,Nifty Growth Sectors 15,Thematic / Strategy (Growth-oriented Sectors),N
+NSE:NIFTYGS10YR-INDEX,Nifty 10 yr Benchmark G-Sec,Fixed Income (10-Year Govt. Bonds),N
+NSE:NIFTYGS10YRCLN-INDEX,Nifty 10 yr Benchmark G-Sec (Clean),Fixed Income (Clean Price Bond Index),N
+NSE:NIFTYGS1115YR-INDEX,Nifty G-Sec 11-15 Yr,Fixed Income (Long-term Govt. Bonds),N
+NSE:NIFTYGS15YRPLUS-INDEX,Nifty G-Sec 15 Yr Plus,Fixed Income (Ultra Long-term Govt. Bonds),N
+NSE:NIFTYGS48YR-INDEX,Nifty G-Sec 4-8 Yr,Fixed Income (Medium-term Govt. Bonds),N
+NSE:NIFTYGS813YR-INDEX,Nifty G-Sec 8-13 Yr,Fixed Income (Medium to Long Govt. Bonds),N
+NSE:NIFTYGSCOMPSITE-INDEX,Nifty G-Sec Composite,Fixed Income (All Government Securities),N
+NSE:NIFTYMEDIA-INDEX,Nifty Media,"Media, Entertainment & Broadcasting",Y
+NSE:NIFTYMETAL-INDEX,Nifty Metal,Metals & Mining,Y
+NSE:NIFTYMIDLIQ15-INDEX,Nifty Midcap Liquid 15,Strategy (Liquid Mid-Cap Stocks),N
+NSE:NIFTYMIDCAP100-INDEX,Nifty Midcap 100,Broad Market (Mid Cap),N
+NSE:NIFTYMNC-INDEX,Nifty MNC,Thematic (Multinational Corporations),Y
+NSE:NIFTYPHARMA-INDEX,Nifty Pharma,Healthcare,Y
+NSE:NIFTYPSUBANK-INDEX,Nifty PSU Bank,Banking (Public Sector/State-Owned),Y
+NSE:NIFTYPVTBANK-INDEX,Nifty Private Bank,Banking (Private Sector),Y
+NSE:NIFTYQUALITY30-INDEX,Nifty Quality 30,Strategy (High-Quality Factor),N
+NSE:NIFTYREALTY-INDEX,Nifty Realty,Real Estate & Property Development,Y
+NSE:NIFTYSERVSECTOR-INDEX,Nifty Services Sector,Thematic (Service Sector Industries),N
+NSE:NIFTYSMLCAP100-INDEX,Nifty Smallcap 100,Broad Market (Small Cap),N
+NSE:NIFTY100LIQ15-INDEX,Nifty 100 Liquid 15,Strategy (Liquid Large-Cap Stocks),N
+NSE:NIFTY50DIVPOINT-INDEX,Nifty 50 Dividend Points,Strategy (Dividend Yield Trackers),N
+NSE:NIFTY50PR1XINV-INDEX,Nifty 50 PR 1X Inverse,Structured / Strategy (Shorting/Inverse),N
+NSE:NIFTY50PR2XLEV-INDEX,Nifty 50 PR 2X Leveraged,Structured / Strategy (2x Leveraged Price Return),N
+NSE:NIFTY50TR1XINV-INDEX,Nifty 50 TR 1X Inverse,Structured / Strategy (Inverse Total Return),N
+NSE:NIFTY50 TR 2X LEV-INDEX,Nifty 50 TR 2X Leveraged,Structured / Strategy (2x Leveraged Total Return),N
+NSE:NIFTY50VALUE20-INDEX,Nifty 50 Value 20,Strategy (Value/Undervalued Large Caps),N
+NSE:NIFTYALPHA50-INDEX,Nifty Alpha 50,Strategy (High Momentum / High Alpha),N
+NSE:NIFTYINDDEFENCE-INDEX,Nifty India Defence,Thematic / Sectoral (Defence Manufacturing),Y
+NSE:NIFTYDIVOPPS50-INDEX,Nifty Dividend Opportunities 50,strategy (High Dividend Opportunities),N

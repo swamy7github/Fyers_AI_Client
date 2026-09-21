@@ -372,6 +372,7 @@ def fetch_stock_news_sentiment(symbol):
             if headlines:
                 combined_text = " ".join(headlines)
                 score, label = analyze_text_sentiment(combined_text)
+                print(f"[INFO] headline: {headlines[0]}, score: {round(score, 2)}, label: {label}")
                 return {"headline": headlines[0], "score": round(score, 2), "label": label}
     except Exception as e:
         print(f"fetch_stock_news_sentiment failed ({e})")
@@ -554,9 +555,6 @@ def scan_and_research():
     stock_fundamentals = sff.StockFundamentalsDB()
     stock_universe = get_nifty_stock_universe(url=sff.NSE_LMS500_URL)
     candidates = []
-    from itertools import islice
-    #stock_universe = dict(islice(stock_universe.items(), 0, 15))
-    
     count = 0
     if not use_fyers: 
         print(" Can not be used fyers API with out ACCESS_TOKEN and APP_ID")
@@ -610,7 +608,7 @@ def scan_and_research():
             
             # Piotroski F-Score Calculation (0 to 9)
             # skip fundamental Pscore caluclation 
-            f_data['f_score_calc'] = False
+            f_data['f_score_calc'] = True
             piotroski_res = calculate_piotroski_f_score(f_data)
             p_score = piotroski_res["piotroski_score"]
             p_label = piotroski_res["label"]
@@ -708,11 +706,11 @@ def scan_and_research():
             print(f"Faled scan_and_research() for {symbol} -> {e}")
             continue
             
-    final_picks = sorted(candidates, key=lambda x: x["Opt_Score"], reverse=True)[:15]
+    final_picks = sorted(candidates, key=lambda x: x["Opt_Score"], reverse=True)
     time_string = datetime.now().strftime("%y_%m_%d_%H_%M_%S")
     save_to_csv(final_picks, f"./data/Analyzed_{time_string}.csv")
     if not final_picks: return get_offline_fallback_data()
-    return final_picks
+    return final_picks[:15]
 
 def get_offline_fallback_data():
     return [
@@ -882,7 +880,7 @@ def send_email():
         #erver.sendmail(SENDER_EMAIL, RECIPIENT_EMAIL, msg.as_string())
         server.sendmail(SENDER_EMAIL, RECIPIENT_EMAIL, msg.as_string())
         server.quit()
-        with open("stock_email_preview.html", "w", encoding="utf-8") as f:
+        with open("./data/stock_email_preview.html", "w", encoding="utf-8") as f:
             f.write(html_content)
         
         print(f"[SUCCESS] Piotroski F-Score integrated scan compiled and emailed to {RECIPIENT_EMAIL}!")

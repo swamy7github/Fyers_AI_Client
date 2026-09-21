@@ -68,7 +68,7 @@ TRADE_LOG_CSV = os.path.join(LOG_DIR, "trade_book_{date}.csv")
 # Timing (all times are IST / Asia/Kolkata, weekdays only)
 # ----------------------------------------------------------------------------
 TIMEZONE = "Asia/Kolkata"
-
+'''
 SECTOR_SCAN_TIME = "17:00:00"           # pre-open sector snapshot (see caveat in sector_scanner.py)
 OPENING_RANGE_SCAN_TIME = "17:20:00"    # 2s buffer after the 09:15-09:20 candle closes
 SIGNAL_ENGINE_LAST_RUN = "19:00:00"    # stop looking for NEW signals after this time
@@ -78,7 +78,7 @@ SECTOR_SCAN_TIME = "09:10:00"           # pre-open sector snapshot (see caveat i
 OPENING_RANGE_SCAN_TIME = "09:20:02"    # 2s buffer after the 09:15-09:20 candle closes
 SIGNAL_ENGINE_LAST_RUN = "15:10:00"     # stop looking for NEW signals after this time
 SQUARE_OFF_TIME = "15:10:30"            # force-close any open paper positions
-'''
+
 CANDLE_INTERVAL_MINUTES = 5
 
 # ----------------------------------------------------------------------------
@@ -108,6 +108,19 @@ MAX_POSITION_ADDS = 1
 # Retry / resilience for API calls
 API_MAX_RETRIES = 3
 API_RETRY_BACKOFF_SECONDS = 2
+
+# Fyers caps API calls per second per account/plan (you mentioned 9/sec for
+# yours). Every single call FyersDataService makes - quotes, history,
+# retries included - goes through fyers_service.RateLimiter using this
+# value. Set it a little under your actual documented limit, not exactly at
+# it, to leave headroom for clock jitter and any other process sharing the
+# same API key (e.g. a separate WebSocket connection).
+FYERS_MAX_CALLS_PER_SECOND = 8
+
+# How many symbols to pack into a single batched /quotes call. Fyers caps
+# how many comma-separated symbols one quotes request accepts - verify the
+# current limit for your plan in the API docs before changing this.
+QUOTES_BATCH_SIZE = 50
 
 # Dry-run: when True (default) the agent only *simulates* trades in memory and
 # CSV, and NEVER calls fyers.place_order(). Only flip to False after you have

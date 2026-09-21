@@ -1,0 +1,26 @@
+symbol,index_name,category,is_sector_index
+NSE:NIFTY50-INDEX,Nifty 50,Broad Market (Benchmark),False
+NSE:NIFTYIT-INDEX,Nifty IT,Information Technology,True
+NSE:NIFTYBANK-INDEX,Nifty Bank,Banking & Financial Services,True
+NSE:NIFTYMIDCAP50-INDEX,Nifty Midcap 50,Broad Market (Mid Cap),False
+NSE:INDIAVIX-INDEX,India VIX,Market Volatility / Sentiment Gauge,False
+NSE:NIFTYINFRA-INDEX,Nifty Infrastructure,Thematic (Infrastructure & Core Sectors),True
+NSE:NIFTYPSE-INDEX,Nifty PSE,Thematic (Public Sector Enterprises),True
+NSE:NIFTY100-INDEX,Nifty 100,Broad Market (Large Cap),False
+NSE:NIFTY200-INDEX,Nifty 200,Broad Market (Large & Mid Cap),False
+NSE:NIFTY500-INDEX,Nifty 500,Broad Market (Multi Cap),False
+NSE:NIFTYAUTO-INDEX,Nifty Auto,Automobiles & Auto Components,True
+NSE:NIFTYCOMMODITIES-INDEX,Nifty Commodities,Thematic (Commodities/Materials),True
+NSE:NIFTYCONSUMPTION-INDEX,Nifty Consumption,Thematic (Domestic Consumption),True
+NSE:NIFTYNXT50-INDEX,Nifty Next 50,Broad Market (Large Cap - Next 50),False
+NSE:NIFTYENERGY-INDEX,Nifty Energy,"Energy, Power & Utilities",True
+NSE:FINNIFTY-INDEX,Nifty Financial Services,"Financial Services (Banks, NBFCs, Insurance)",True
+NSE:NIFTYFMCG-INDEX,Nifty FMCG,Fast-Moving Consumer Goods,True
+NSE:NIFTYGROWSECT15-INDEX,Nifty Growth Sectors 15,Thematic / Strategy (Growth-oriented Sectors),False
+NSE:NIFTYGS10YR-INDEX,Nifty 10 yr Benchmark G-Sec,Fixed Income (10-Year Govt. Bonds),False
+NSE:NIFTYGS10YRCLN-INDEX,Nifty 10 yr Benchmark G-Sec (Clean),Fixed Income (Clean Price Bond Index),False
+NSE:NIFTYGS1115YR-INDEX,Nifty G-Sec 11-15 Yr,Fixed Income (Long-term Govt. Bonds),False
+NSE:NIFTYGS15YRPLUS-INDEX,Nifty G-Sec 15 Yr Plus,Fixed Income (Ultra Long-term Govt. Bonds),False
+NSE:NIFTYGS48YR-INDEX,Nifty G-Sec 4-8 Yr,Fixed Income (Medium-term Govt. Bonds),False
+NSE:NIFTYGS813YR-INDEX,Nifty G-Sec 8-13 Yr,Fixed Income (Medium to Long Govt. Bonds),False
+NSE:NIFTYGSCOMPSITE-INDEX,Nifty G-Sec Composite,Fixed Income (All Government Securities),False

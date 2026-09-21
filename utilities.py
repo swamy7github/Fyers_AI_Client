@@ -12,7 +12,7 @@ import io
 NSE_ALL_URL = "https://archives.nseindia.com/content/equities/EQUITY_L.csv"
 
 
-def create_safe_session():
+def create_safe_session():  # is taken from safe_session_scraper.py
     """
     Creates a robust requests session with caching, rate limiting, and automatic retries.
     Optimized to handle connection drops, closed sockets, and fallback to stale cache.
@@ -272,7 +272,7 @@ def get_nifty_stock_universe(session=None, url=None, csv_file_path=None):
     """
     print(f" args = 1 {session}  2{url} 3{csv_file_path}")
     if url:
-        csv_file_path = os.path.basename(url.strip())
+        csv_file_path = f"./data/{os.path.basename(url.strip())}"
         print(f"====> {csv_file_path} ")
         print(f"URL ={url}")
         try:

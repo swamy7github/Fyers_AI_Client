@@ -35,7 +35,9 @@ any time and silently break it. Treat it as best-effort automation:
 from __future__ import annotations
 
 import logging
+import threading
 import time
+from collections import deque
 from datetime import datetime, timedelta
 
 import pyotp
@@ -45,6 +47,44 @@ from fyers_apiv3 import fyersModel
 import config
 
 logger = logging.getLogger("orb_agent.fyers")
+
+
+class RateLimiter:
+    """
+    Thread-safe sliding-window limiter: blocks (sleeps) as needed so that no
+    more than `max_calls_per_second` calls go out in any rolling 1-second
+    window, across ALL Fyers calls made through FyersDataService.
+
+    Fyers enforces a per-second cap on API calls (confirm the exact current
+    number for your account/plan in their API dashboard/docs - it can vary
+    by endpoint category and subscription). config.FYERS_MAX_CALLS_PER_SECOND
+    is intentionally set a little under the documented ceiling to leave
+    headroom for clock jitter and any calls made outside this codebase
+    (e.g. if you also have the Fyers WebSocket or another script running
+    against the same API key).
+    """
+
+    def __init__(self, max_calls_per_second: int):
+        self.max_calls_per_second = max_calls_per_second
+        self._lock = threading.Lock()
+        self._call_times: deque[float] = deque()
+
+    def acquire(self):
+        with self._lock:
+            while True:
+                now = time.monotonic()
+                # drop timestamps older than the 1-second window
+                while self._call_times and now - self._call_times[0] >= 1.0:
+                    self._call_times.popleft()
+
+                if len(self._call_times) < self.max_calls_per_second:
+                    self._call_times.append(now)
+                    return
+
+                sleep_for = 1.0 - (now - self._call_times[0])
+                if sleep_for > 0:
+                    time.sleep(sleep_for)
+                # loop again: re-check the window after sleeping
 
 
 class FyersAuthManager:
@@ -157,14 +197,17 @@ class FyersDataService:
             token=access_token,
             log_path=config.LOG_DIR,
         )
+        self._rate_limiter = RateLimiter(config.FYERS_MAX_CALLS_PER_SECOND)
 
     def _call_with_retry(self, fn, *args, **kwargs):
         last_exc = None
         for attempt in range(1, config.API_MAX_RETRIES + 1):
             try:
+                self._rate_limiter.acquire()  # blocks briefly if we're at the per-second cap
                 response = fn(*args, **kwargs)
                 if isinstance(response, dict) and response.get("s") == "error":
                     raise RuntimeError(response.get("message", "Unknown Fyers API error"))
+                logger.info(f" {response}")
                 return response
             except Exception as exc:  # broad on purpose: network, auth, and API-level errors all retry
                 last_exc = exc
@@ -175,11 +218,33 @@ class FyersDataService:
         raise last_exc
 
     def get_quotes(self, symbols: list[str]) -> dict:
-        """symbols like ['NSE:SBIN-EQ', 'NSE:IDEA-EQ']"""
+        """symbols like ['NSE:SBIN-EQ', 'NSE:IDEA-EQ']. Caller must respect Fyers' per-request symbol cap."""
         data = {"symbols": ",".join(symbols)}
         response = self._call_with_retry(self.client.quotes, data=data)
         logger.info("Fetched quotes for %d symbol(s).", len(symbols))
         return response
+
+    def get_quotes_batched(self, symbols: list[str]) -> dict[str, dict]:
+        """
+        Fetches quotes for an arbitrarily large symbol list by chunking it
+        into config.QUOTES_BATCH_SIZE-sized requests (each of which still
+        goes through the shared rate limiter). Returns a flat
+        {symbol: quote_dict} lookup merged across all batches.
+
+        This is the low-call-count path: use it instead of looping
+        get_5min_candle()/get_previous_close() per symbol whenever a
+        quotes-derived OHLCV proxy is good enough (see
+        opening_range_scanner.py for exactly when that's true).
+        """
+        merged: dict[str, dict] = {}
+        for i in range(0, len(symbols), config.QUOTES_BATCH_SIZE):
+            batch = symbols[i:i + config.QUOTES_BATCH_SIZE]
+            response = self.get_quotes(batch)
+            for item in response.get("d", []):
+                merged[item["n"]] = item.get("v", {})
+        logger.info("Fetched batched quotes for %d symbol(s) across %d request(s).",
+                    len(symbols), (len(symbols) + config.QUOTES_BATCH_SIZE - 1) // config.QUOTES_BATCH_SIZE)
+        return merged
 
     def get_5min_candle(self, symbol: str, date_str: str, from_epoch: int, to_epoch: int) -> list:
         """Returns the raw candle list [[epoch, o, h, l, c, v], ...] for one 5-min window."""

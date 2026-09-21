@@ -4,21 +4,46 @@ opening_range_scanner.py
 At 09:20:02 (a 2-second buffer after the first 5-min candle, 09:15-09:20,
 closes), this module:
 
-  1. Pulls that 09:15 candle's O/H/L/C/V for every stock in the universe.
-  2. Computes % change of that candle's close vs. the previous day's close
-     (i.e. how far the stock has moved so far today, gap included).
+  1. Pulls a proxy for that 09:15 candle's O/H/L/C/V for every stock in the
+     universe, via ONE batched /quotes call per ~50 symbols (see "why
+     quotes, not history" below) - roughly 10 API calls for a 500-stock
+     universe, instead of ~1,000.
+  2. Computes % change of that close vs. the previous day's close (i.e. how
+     far the stock has moved so far today, gap included).
   3. Keeps stocks whose gain falls in (MIN_GAIN_PCT, MAX_GAIN_PCT].
   4. Returns the top N by gain%, as a DataFrame, for the signal engine to
      track for the rest of the session.
+
+Why quotes, not the historical-candle endpoint
+-------------------------------------------------
+Calling get_5min_candle() + get_previous_close() once per stock (2 calls x
+500 stocks = ~1,000 calls) blows straight through Fyers' per-second call cap
+and would take minutes to work through even with a rate limiter - far too
+slow for a job that needs to finish well before the next candle closes.
+
+The trick: at 09:20:02, the exchange's cumulative "day so far" OHLC for a
+stock IS the 09:15 candle - only one 5-minute bar has traded. The /quotes
+endpoint returns exactly that (open_price/high_price/low_price/lp = the
+day's running O/H/L/last-price, plus prev_close_price and volume) for many
+symbols in a single batched call, via FyersDataService.get_quotes_batched().
+
+This equivalence only holds for the FIRST candle of the day - don't reuse
+this shortcut for any later candle (the signal engine correctly uses the
+real historical-candle endpoint for that, since by then "day so far" and
+"latest 5-min candle" are no longer the same thing).
+
+Note: exact field names below (open_price, high_price, low_price, lp,
+prev_close_price, volume) are standard Fyers quotes response keys - print
+one raw response for your account once to confirm they match before relying
+on this in production, since response shapes can shift between API
+versions.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 
 import pandas as pd
-import pytz
 
 import config
 from fyers_service import FyersDataService
@@ -37,28 +62,22 @@ def load_universe() -> list[str]:
     return [f"NSE:{str(s).strip()}-EQ" for s in df[symbol_col].tolist()]
 
 
-def _today_915_window_epochs() -> tuple[int, int]:
-    tz = pytz.timezone(config.TIMEZONE)
-    now = datetime.now(tz)
-    start = tz.localize(datetime(now.year, now.month, now.day, 9, 15, 0))
-    end = tz.localize(datetime(now.year, now.month, now.day, 9, 20, 0))
-    return int(start.timestamp()), int(end.timestamp())
-
-
 def scan_opening_range(data_service: FyersDataService) -> pd.DataFrame:
     symbols = load_universe()
-    from_epoch, to_epoch = _today_915_window_epochs()
-    today_str = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
+    quote_lookup = data_service.get_quotes_batched(symbols)
 
     rows = []
     for symbol in symbols:
+        quote = quote_lookup.get(symbol)
+        if not quote:
+            continue
         try:
-            candles = data_service.get_5min_candle(symbol, today_str, from_epoch, to_epoch)
-            if not candles:
-                continue
-            _, o, h, l, c, v = candles[0]  # exactly one 5-min candle in this window
-
-            prev_close = data_service.get_previous_close(symbol)
+            o = quote["open_price"]
+            h = quote["high_price"]
+            l = quote["low_price"]
+            c = quote["lp"]                    # last price so far today == the 09:15 candle's close
+            v = quote.get("volume", 0)
+            prev_close = quote.get("prev_close_price")
             if not prev_close:
                 continue
 
@@ -68,8 +87,8 @@ def scan_opening_range(data_service: FyersDataService) -> pd.DataFrame:
                     "symbol": symbol, "open": o, "high": h, "low": l, "close": c,
                     "volume": v, "prev_close": prev_close, "pct_change": round(pct_change, 2),
                 })
-        except Exception as exc:
-            logger.error("Opening-range fetch failed for %s: %s", symbol, exc)
+        except (KeyError, TypeError) as exc:
+            logger.error("Unexpected quote shape for %s (%s) - skipping.", symbol, exc)
             continue
 
     df = pd.DataFrame(rows)

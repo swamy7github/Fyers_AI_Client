@@ -81,6 +81,45 @@ scoring with an optional Claude-powered read on qualitative news.
    Logs stream to the console and to `logs/orb_agent.log`. The day's trade
    book is written to `logs/trade_book_<YYYYMMDD>.csv`.
 
+## Stop-loss, position sizing, and the "weakness event" rule
+
+On top of the original single-candle exit, the engine now uses one shared
+detector for both adding to a position and stopping it out:
+
+- **Weakness event** = two *consecutive* candles that each close below VWAP
+  **and** each have volume above a fast 2-period volume average
+  (`VOLUME_SMA_STOPLOSS_PERIOD` in `config.py`) — deliberately quicker to
+  react than the 20-period average used for entries.
+- **1st weakness event** on an open position → **add** to the position
+  (`entry_type="ADD"` in the trade book) instead of exiting, up to
+  `config.MAX_POSITION_ADDS` times (default 1).
+- **Any weakness event after that** → **full square-off**: every open row
+  for that symbol (the initial buy plus every add) closes together at the
+  same price/time.
+
+This was my best-effort read of a somewhat ambiguous instruction — if you
+actually meant something different (e.g. add on a plain single close below
+VWAP, and reserve the two-candle+volume rule purely for the exit), it's a
+small, localized change in `signal_engine.SignalEngine._check_weakness_and_act`.
+Set `MAX_POSITION_ADDS = 0` to disable adding entirely and stop out on the
+very first weakness event instead.
+
+## API rate limits
+
+Every call `FyersDataService` makes goes through a shared `RateLimiter`
+(`config.FYERS_MAX_CALLS_PER_SECOND`, default 8 — set a little under
+whatever your account's actual documented ceiling is, not exactly at it).
+
+More importantly, the opening-range scan no longer loops per-stock calls at
+all: at 09:20:02 the exchange's cumulative "day so far" OHLC for each stock
+*is* the 09:15 candle (only 5 minutes have traded), so
+`opening_range_scanner.py` fetches it via `FyersDataService.get_quotes_batched()`
+— one `/quotes` call per ~50 symbols (`config.QUOTES_BATCH_SIZE`), i.e.
+roughly 10 calls for a 500-stock universe instead of ~1,000. `sector_scanner.py`
+uses the same batched path. Double-check `QUOTES_BATCH_SIZE` and the quote
+response field names (`open_price`, `high_price`, `low_price`, `lp`,
+`prev_close_price`, `volume`) against your account before relying on this.
+
 ## Why the timing lines up the way it does
 
 - The 09:15 candle *is* the opening range (09:15–09:20). The scan for it
