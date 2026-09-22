@@ -589,10 +589,10 @@ def scan_and_research():
             print(f"[INFO] Buy_signals_count is  {buy_signals_count} for {symbol}")
             
             # skip pinny stocks cmp < 50
-            if cmp < sma_200:
+            if cmp < sma_50:
                 print(f"[INFO] Price {cmp} below SMA_200 = {sma_200} so skipping the {symbol}")
                 continue
-            if buy_signals_count < 6:
+            if buy_signals_count < 5:
                 print(f"[INFO] Buy_signals_count should > 6, It is {buy_signals_count} so skipping the {symbol}") 
                 continue
             

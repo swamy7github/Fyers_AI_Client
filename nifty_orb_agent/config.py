@@ -26,6 +26,10 @@ LOG_DIR = os.path.join(BASE_DIR, "logs")
 current_path = Path(BASE_DIR)
 # Add the directory containing your module to the search path
 
+os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(LOG_DIR, exist_ok=True)
+#STOCK_UNIVERSE_CSV = os.path.join(DATA_DIR, "ind_nifty500list.csv")     # see README for download link
+STOCK_UNIVERSE_CSV = Path(__file__).parent / 'data' / 'ind_nifty500list.csv'
 
 load_dotenv(".env.example")  # loads variables from a local .env file, if present
 
@@ -57,9 +61,6 @@ TOKEN_FILE = os.getenv("TOKEN_FILE")
 # sentiment helper in global_sentiment.get_llm_news_sentiment()
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
-os.makedirs(DATA_DIR, exist_ok=True)
-#STOCK_UNIVERSE_CSV = os.path.join(DATA_DIR, "ind_nifty500list.csv")     # see README for download link
-STOCK_UNIVERSE_CSV = Path(__file__).parent / 'data' / 'ind_nifty500list.csv'
 SECTOR_INDEX_MAP_CSV = os.path.join(DATA_DIR, "sector_index_map.csv")  # symbol -> sector mapping
 LOG_FILE = os.path.join(LOG_DIR, "orb_agent.log")
 TRADE_LOG_CSV = os.path.join(LOG_DIR, "trade_book_{date}.csv")
@@ -68,18 +69,28 @@ TRADE_LOG_CSV = os.path.join(LOG_DIR, "trade_book_{date}.csv")
 # Timing (all times are IST / Asia/Kolkata, weekdays only)
 # ----------------------------------------------------------------------------
 TIMEZONE = "Asia/Kolkata"
-'''
-SECTOR_SCAN_TIME = "17:00:00"           # pre-open sector snapshot (see caveat in sector_scanner.py)
-OPENING_RANGE_SCAN_TIME = "17:20:00"    # 2s buffer after the 09:15-09:20 candle closes
-SIGNAL_ENGINE_LAST_RUN = "19:00:00"    # stop looking for NEW signals after this time
-SQUARE_OFF_TIME = "23:10:30"            # force-close any open paper positions
-'''
+
 SECTOR_SCAN_TIME = "09:10:00"           # pre-open sector snapshot (see caveat in sector_scanner.py)
+SECTOR_SCAN_TIME_POSTOPEN = "09:16:00"  # re-run shortly after the normal session starts, for real numbers
 OPENING_RANGE_SCAN_TIME = "09:20:02"    # 2s buffer after the 09:15-09:20 candle closes
 SIGNAL_ENGINE_LAST_RUN = "15:10:00"     # stop looking for NEW signals after this time
 SQUARE_OFF_TIME = "15:10:30"            # force-close any open paper positions
-
 CANDLE_INTERVAL_MINUTES = 5
+
+# NSE's actual normal-session hours. Used only to decide whether a late
+# application startup falls "within trading hours" for the catch-up logic in
+# main.py - does NOT account for NSE trading holidays, which is a separate
+# concern this scaffold doesn't cover (a holiday calendar check would need
+# to be layered on top before relying on this for unattended daily runs).
+MARKET_OPEN_TIME = "09:15:00"
+MARKET_CLOSE_TIME = "15:30:00"
+
+# job_opening_range_scan() uses the fast quotes-proxy method (valid only
+# right at 09:20:02, see opening_range_scanner.py) when called within this
+# many seconds of OPENING_RANGE_SCAN_TIME, and automatically falls back to
+# the slower-but-always-correct historical-candle method otherwise (e.g. on
+# a late/catch-up start). See job_opening_range_scan in main.py.
+OPENING_RANGE_FAST_PATH_TOLERANCE_SECONDS = 180
 
 # ----------------------------------------------------------------------------
 # Strategy parameters
@@ -115,7 +126,7 @@ API_RETRY_BACKOFF_SECONDS = 2
 # value. Set it a little under your actual documented limit, not exactly at
 # it, to leave headroom for clock jitter and any other process sharing the
 # same API key (e.g. a separate WebSocket connection).
-FYERS_MAX_CALLS_PER_SECOND = 8
+FYERS_MAX_CALLS_PER_SECOND = 5
 
 # How many symbols to pack into a single batched /quotes call. Fyers caps
 # how many comma-separated symbols one quotes request accepts - verify the

@@ -207,7 +207,7 @@ class FyersDataService:
                 response = fn(*args, **kwargs)
                 if isinstance(response, dict) and response.get("s") == "error":
                     raise RuntimeError(response.get("message", "Unknown Fyers API error"))
-                logger.info(f" {response}")
+                # logger.info(f" {response}")
                 return response
             except Exception as exc:  # broad on purpose: network, auth, and API-level errors all retry
                 last_exc = exc

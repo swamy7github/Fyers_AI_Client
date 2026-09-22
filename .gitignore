@@ -224,4 +224,6 @@ __marimo__/
 http_internet_cache.sqlite
 *.temp
 *.tmp
+*.md.bak
+
 stock_email_preview.html

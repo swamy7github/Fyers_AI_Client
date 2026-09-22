@@ -37,12 +37,14 @@ scoring with an optional Claude-powered read on qualitative news.
 | `config.py` | All settings: credentials (via `.env`), file paths, timing, strategy thresholds |
 | `fyers_service.py` | Fyers login (auto TOTP + manual fallback) and a retrying, logged data wrapper |
 | `global_sentiment.py` | Global bullish/bearish scoring + optional Claude-based news sentiment |
-| `sector_scanner.py` | 09:10 sector strength/weakness snapshot |
-| `opening_range_scanner.py` | 09:20:02 top-5 opening-range gainer shortlist |
+| `sector_scanner.py` | 09:10 / 09:16 sector strength/weakness snapshot, queried directly from NSE index symbols |
+| `opening_range_scanner.py` | Filters the universe by sector, then builds the top-5 opening-range gainer shortlist |
 | `signal_engine.py` | VWAP + volume-MA(20) buy/sell logic, trade book, P&L |
-| `main.py` | Wires it all together with APScheduler and starts the day |
+| `main.py` | Wires it all together with APScheduler, including late-startup catch-up |
+| `build_sector_map.py` | Optional: builds a per-STOCK sector tag file from NSE data, if you want that for something other than the sector leaderboard (see note below) |
+| `test_updates.py` | Standalone tests for sector/universe filtering and the late-startup scheduler decisions |
 | `data/ind_nifty500list.csv` | **You provide this** — Nifty 500 constituents (see below) |
-| `data/sector_index_map.csv` | Sample symbol→sector mapping — expand it to your full universe |
+| `data/sector_index_map.csv` | Reference list of NSE index symbols (sector + broader-market + VIX + G-Sec), an editable `is_sector_index` flag, and a `sector` column used for universe filtering — ships pre-filled, verify against your Fyers account and your `Industry` text (see below) |
 | `.env.example` | Template for your credentials |
 
 ## Setup
@@ -68,18 +70,100 @@ scoring with an optional Claude-powered read on qualitative news.
 4. **Download the Nifty 500 constituent list** from the NSE indices archive
    (search "ind_nifty500list.csv" on nseindia.com/niftyindices.com — the
    exact URL changes periodically) and save it as
-   `data/ind_nifty500list.csv`. It needs at minimum a `Symbol` column.
+   `data/ind_nifty500list.csv`. It needs a `Symbol` column, and — for the
+   sector-based universe filtering described in step 5 — an `Industry`
+   column too; if that column is missing, filtering is skipped automatically
+   (with a logged warning) and the full universe is scanned instead, so
+   nothing breaks if your download doesn't have it.
 
-5. **Expand `data/sector_index_map.csv`** to cover your full universe with
-   a `symbol,sector` row per stock. The sample file only has a handful of
-   illustrative rows per sector.
+5. **Verify `data/sector_index_map.csv` against your own Fyers symbol
+   access, and against your actual `Industry` column text.** This file does
+   two separate jobs, via two separate columns — don't conflate them:
+   - `is_sector_index` (True/False) controls which rows count toward the
+     "top gaining/losing sector" **leaderboard**. `sector_scanner.py` quotes
+     NSE's index symbols directly (e.g. `NSE:NIFTYIT-INDEX`), so there's no
+     per-stock mapping to build for this part.
+   - `sector` (a short label like `IT`, `Banks`, `Automobiles`) controls
+     which stocks are even **eligible for the opening-range scan** in the
+     first place: `opening_range_scanner.py` keeps only universe rows whose
+     `Industry` matches one of these labels (case-insensitive, trimmed).
+     Rows with a blank `sector` (broad-market indices, VIX, G-Secs,
+     cross-sector baskets like Nifty PSE/Commodities/Consumption) are
+     intentionally excluded from filtering — not a mistake, they were never
+     meant to correspond to one single `Industry` value.
+
+   Two things to check before relying on either: (a) confirm each `symbol`
+   actually resolves in your Fyers account — not every data vendor exposes
+   every index, especially the G-Sec ones, and the code logs a warning and
+   skips gracefully for any that don't; (b) **the `sector` values shipped in
+   this file (IT, Banks, Automobiles, FMCG, Energy, Infrastructure,
+   Financial Services) are my best guess at plausible NSE `Industry` text —
+   I have not verified them against an actual downloaded
+   `ind_nifty500list.csv`.** `opening_range_scanner.py` logs how many stocks
+   matched each sector and warns loudly about any sector matching zero
+   stocks — check that log the first time you run this (or run
+   `python test_updates.py`, which exercises the same matching logic
+   against sample data) and fix any row that comes back at zero by editing
+   the `sector` column to match your file's actual text. Feel free to also
+   flip any `is_sector_index` value if you disagree with a default.
+   `build_sector_map.py` still exists if you separately want a per-STOCK
+   sector tag for something other than either of the above.
 
 6. **Run it** on a trading day, ideally started a few minutes before 09:00 IST:
    ```bash
    python main.py
    ```
    Logs stream to the console and to `logs/orb_agent.log`. The day's trade
-   book is written to `logs/trade_book_<YYYYMMDD>.csv`.
+   book is written to `logs/trade_book_<YYYYMMDD>.csv`. If you start the
+   process late (anywhere from just after market open to shortly before
+   close), it detects this and catches up automatically — see "Late-startup
+   catch-up" below for exactly what it does and doesn't do in that case.
+
+   To check the filtering and late-startup logic without touching your
+   Fyers account at all, run the test script:
+   ```bash
+   python test_updates.py
+   ```
+
+## Late-startup catch-up
+
+If `main.py` starts mid-session instead of before market open, the jobs
+whose scheduled time has already passed today no longer just sit idle until
+tomorrow's cron trigger:
+
+- **Before market hours** (e.g. started at 08:00): no catch-up — the normal
+  cron schedule handles everything as usual.
+- **Mid-session** (e.g. started at 10:00): the post-open sector scan and the
+  opening-range scan both run immediately, once — the opening-range scan
+  automatically uses the slower-but-always-correct historical-candle method
+  instead of its normal quotes shortcut (see the next paragraph for why),
+  since "day so far" no longer equals "the 09:15 candle" this late. A signal
+  check then also runs immediately.
+- **After market close** (e.g. started at 16:00): no catch-up — there's
+  nothing useful left to do today.
+- **A narrower edge case worth knowing**: if you start between the 15:10
+  signal-checking cutoff and the 15:30 market close, the market is
+  technically still open, but a fresh opening-range/sector catch-up is
+  deliberately skipped — starting a brand-new tracked position minutes
+  before close, after today's square-off trigger has already fired (or been
+  skipped) uneventfully, would leave that position with nothing to close it
+  out. See `_within_signal_window()`'s docstring in `main.py` for the exact
+  reasoning.
+
+Two mechanisms work together here, not one: an explicit, controlled
+one-time catch-up at startup (`scheduler.add_job(..., next_run_time=...)`,
+gated by the pure decision functions in `main.py`), plus
+`coalesce=True` + `max_instances=1` on every recurring job as an ongoing
+safety net for transient delays *while the process is already running*
+(e.g. a slow API call briefly blocking the loop) — so a short delay never
+causes a burst of every individually-missed 5-minute slot firing back to
+back. `test_updates.py` covers the decision functions directly with
+injected timestamps for all of the scenarios above, without needing a real
+clock or a live APScheduler run.
+
+This does not account for NSE trading holidays (a stock exchange holiday
+calendar is a separate concern this scaffold doesn't cover) — it only
+checks weekday + time-of-day.
 
 ## Stop-loss, position sizing, and the "weakness event" rule
 
@@ -120,6 +204,15 @@ uses the same batched path. Double-check `QUOTES_BATCH_SIZE` and the quote
 response field names (`open_price`, `high_price`, `low_price`, `lp`,
 `prev_close_price`, `volume`) against your account before relying on this.
 
+This fast path only holds true right around 09:20:02, though — if the scan
+runs significantly later (a late-startup catch-up, see below),
+`job_opening_range_scan()` in `main.py` detects this and automatically
+switches to `scan_opening_range_accurate()`, which fetches the real
+historical 09:15-09:20 candle per stock instead. That's back to one-ish
+call per stock, so it's slower (bounded by the rate limiter — a minute or
+two for a full universe), but it's the only way to get correct numbers once
+"day so far" has drifted away from "the actual 09:15 candle."
+
 ## Why the timing lines up the way it does
 
 - The 09:15 candle *is* the opening range (09:15–09:20). The scan for it
@@ -137,11 +230,18 @@ response field names (`open_price`, `high_price`, `low_price`, `lp`,
 
 ## Known limitations (please read before trusting the numbers)
 
-- **Sector snapshot at 09:10 is a proxy.** Exchange-computed sector indices
-  don't update during the 09:00–09:15 pre-open window — only individual
-  stocks get an indicative price. `sector_scanner.py` approximates a sector
-  move by averaging its constituents' pre-open indicative prices vs.
-  previous close. Full details are in the module's docstring.
+- **Sector snapshot at 09:10 will likely show ~0% change.** NSE doesn't
+  recompute any index's value (sectoral or otherwise) during the 09:00–09:15
+  pre-open window — this is an exchange-side limitation, true whether you
+  query the index symbol directly (as this module now does) or reconstruct
+  it from constituents (as it used to). The scheduled 09:16 re-run (see
+  `config.SECTOR_SCAN_TIME_POSTOPEN`) is where the real numbers show up.
+  Full details are in `sector_scanner.py`'s docstring.
+- **Not every symbol in `sector_index_map.csv` is guaranteed to resolve on
+  your Fyers account** — particularly the seven G-Sec bond indices, which
+  aren't always exposed by equity-focused data feeds. The code logs a
+  warning and skips any symbol with no quote rather than failing the whole
+  scan; check the logs once to see what's actually available to you.
 - **REST polling, not tick-by-tick streaming.** The signal engine re-fetches
   the latest closed candle every 5 minutes via the historical-data endpoint
   rather than aggregating live ticks from the Fyers WebSocket feed. This is
