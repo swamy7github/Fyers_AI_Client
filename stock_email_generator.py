@@ -135,9 +135,9 @@ def generate_stock_email_html(stock_data_list):
                         <table style="width: 100%; font-size: 12px; border-collapse: collapse; text-align: left;">
                             <tr style="background-color: #f8fafc;">
                                 <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">SMA 50</td>
-                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">{{ data.get('SMA_50', '-') }}</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">{{ data.get('EMA_50', '-') }}</td>
                                 <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">SMA 200</td>
-                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">{{ data.get('SMA_200', '-') }}</td>
+                                <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">{{ data.get('EMA_20', '-') }}</td>
                             </tr>
                             <tr>
                                 <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; background-color: #f8fafc;">Vol SMA 20</td>
@@ -244,8 +244,8 @@ if __name__ == "__main__":
             'Opt_Score': np.float64(65.1),
             
             # Expanded Technicals
-            'SMA_50': '1290.4',
-            'SMA_200': '1110.2',
+            'EMA_50': '1290.4',
+            'EMA_20': '1110.2',
             'Vol_SMA_20': '1.2M',
             'Swing_Low_10': '1290.0',
             'Swing_High_20': '1410.5',
@@ -286,8 +286,8 @@ if __name__ == "__main__":
             'Opt_Score': 78.5,
             
             # Expanded Technicals
-            'SMA_50': '47200',
-            'SMA_200': '41000',
+            'EMA_50': '47200',
+            'EMA_20': '41000',
             'Vol_SMA_20': '35.5K',
             'Swing_Low_10': '46800',
             'Swing_High_20': '49500',

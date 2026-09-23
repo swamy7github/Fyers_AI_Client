@@ -199,7 +199,8 @@ class FiveMinBreakoutBacktester:
             "Profit Factor": round(profit_factor, 2) if not np.isnan(profit_factor) else "Inf",
             "Max Portfolio Drawdown (%)": f"{max_drawdown_pct:.2f}%",
             "Avg Points Captured / Trade": round(tdf["pnl_points"].mean(), 2),
-            "Avg Realized Cash / Trade": f"{tdf['realized_pnl'].mean():+,.2f}"
+            "Avg Realized Cash / Trade": f"{tdf['realized_pnl'].mean():+,.2f}",
+            "Status": f"{total_trades} trades triggered"
         }
         return metrics
 
@@ -273,18 +274,8 @@ if __name__ == "__main__":
     
     fyres = get_fyers_session_handle()
     total_Trades = total_gain = 0.0
-    stocks = [
-    "POONAWALLA",
-    "FINCABLES",
-    "APARINDS",
-    "AEGISLOG",
-    "ACMESOLAR",
-    "CAPLIPOINT",
-    "AIIL",
-    "MUTHOOTFIN",
-    "HDFCAMC"
-]
-    for symbol in stocks[:5]:
+    stocks = ["AEGISLOG", "TATACHEM", "GRAPHITE", "ACMESOLAR", "CARBORUNIV"]
+    for symbol in stocks:
         synthetic_data = fetch_fyers_historical_data(fyres, symbol=f"NSE:{symbol}-EQ", time_frame="5")
         # Initialize Backtester with 2,00,000 INR
         INITIAL_CAPITAL = 200000.0
@@ -296,7 +287,11 @@ if __name__ == "__main__":
 
         trade_log = backtester.run(synthetic_data, symbol="NSE:SYRMA-EQ")
         summary = backtester.generate_performance_metrics()
-
+        status = summary['Status']
+        if status == "No trades triggered":
+            print(f"\n========================= NO TRADE EXECUTION for {status} =========================")
+            continue
+        
         print("\n========================= TRADE EXECUTION LOG =========================")
         if not trade_log.empty:
             display_cols = [

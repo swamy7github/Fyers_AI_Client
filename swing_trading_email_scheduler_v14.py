@@ -424,8 +424,12 @@ def fetch_data_yfinance(symbol):
 # =============================================================================
 def calculate_indicators(df):
     if len(df) < 50: return None
+    df['SMA_20'] = df['Close'].rolling(window=20).mean()
+    df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
     df['SMA_50'] = df['Close'].rolling(window=50).mean()
+    df['EMA_50'] = df['Close'].ewm(span=50, adjust=False).mean()
     df['SMA_200'] = df['Close'].rolling(window=200).mean()
+    df['EMA_200'] = df['Close'].ewm(span=200, adjust=False).mean()
     
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
@@ -539,7 +543,7 @@ def calculate_trade_optimization_index(raw_score, potential_pct, rr_val):
 # =============================================================================
 # 8. EXECUTIVE SCANNER ENGINE WITH PIOTROSKI F-SCORE INTEGRATION
 # =============================================================================
-def scan_and_research():
+def scan_and_research(only_tech_scan: bool, nse_symbols):
     #fyers_app_id = os.environ.get("FYERS_APP_ID")
     #fyers_access_token = os.environ.get("FYERS_ACCESS_TOKEN")
     from fyers_auto_login_v2 import APP_ID, get_fyers_session_handle 
@@ -553,16 +557,16 @@ def scan_and_research():
     use_fyers = bool(fyers_app_id and fyers_access_token)
 
     stock_fundamentals = sff.StockFundamentalsDB()
-    stock_universe = get_nifty_stock_universe(url=sff.NSE_LMS500_URL)
+
     candidates = []
     count = 0
     if not use_fyers: 
         print(" Can not be used fyers API with out ACCESS_TOKEN and APP_ID")
         return None
     #stock_universe = {'GVT&D': 'Power'}
-    for symbol, sector in stock_universe.items():
+    for symbol, sector in nse_symbols.items():
         count += 1
-            
+        score = 0    
         try:
             df = None
             if use_fyers: df = fetch_data_fyers(symbol, fyers_app_id, fyers_access_token)
@@ -575,8 +579,8 @@ def scan_and_research():
             latest = df.iloc[-1]
             cmp = round(latest['Close'], 2)
             volume = latest['Volume']
-            sma_50 = latest['SMA_50']
-            sma_200 = latest['SMA_200']
+            ema_50 = latest['EMA_50']
+            ema_20 = latest['EMA_20']
             atr = latest['ATR']
             swing_low = latest['Swing_Low_10']
             swing_high = latest['Swing_High_20']
@@ -589,42 +593,52 @@ def scan_and_research():
             print(f"[INFO] Buy_signals_count is  {buy_signals_count} for {symbol}")
             
             # skip pinny stocks cmp < 50
-            if cmp < sma_50:
-                print(f"[INFO] Price {cmp} below SMA_200 = {sma_200} so skipping the {symbol}")
+            if cmp < ema_50:
+                print(f"[INFO] Price {cmp} below EMA_50 = {ema_50} so skipping the {symbol}")
                 continue
-            if buy_signals_count < 5:
-                print(f"[INFO] Buy_signals_count should > 6, It is {buy_signals_count} so skipping the {symbol}") 
-                continue
-            
-            #if cmp < 50 or cmp < sma_200 or buy_signals_count < 4: continue   
-            # Screener.in Fundamentals
-            #f_data = fetch_fundamental_data_screener(symbol)
-            f_data = stock_fundamentals.get_update_fundamentals(symbol)
-            print(f"[DEBUG] Fundamentals ==> {f_data}")
-            #print(f"keys  in f_data = {f_data.keys()}")
-            
-            #if f_data["pe"] < 0 or f_data["de"] > 1.5 or f_data["return_on_equity_3y"] < 5.0: continue
-            if f_data.get("pe", 0) < 0 or f_data.get("return_on_equity_3y", 5) < 5.0: continue
-            
-            # Piotroski F-Score Calculation (0 to 9)
-            # skip fundamental Pscore caluclation 
-            f_data['f_score_calc'] = True
-            piotroski_res = calculate_piotroski_f_score(f_data)
-            p_score = piotroski_res["piotroski_score"]
-            p_label = piotroski_res["label"]
-            
-            # Hard Filter Guardrail: Exclude companies with weak Piotroski Scores (< 4)
-            if p_score < 4:
-                print(f"[WARRNING] P Score {p_score} is lessthan 4 for the symbol {symbol}") 
-                continue
-               
-            fund_score_res = calculate_screener_growth_score(f_data)
-            fund_growth_score = fund_score_res["growth_score"]
-            
-            news_eval = fetch_stock_news_sentiment(symbol)
-            news_score = news_eval["score"]
-            if news_score <= -0.50: continue
+            if not only_tech_scan:
+                if buy_signals_count < 5:
+                    print(f"[INFO] Buy_signals_count should > 6, It is {buy_signals_count} so skipping the {symbol}") 
+                    continue
+                #if cmp < 50 or cmp < ema_200 or buy_signals_count < 4: continue   
+                # Screener.in Fundamentals
+                #f_data = fetch_fundamental_data_screener(symbol)
+                f_data = stock_fundamentals.get_update_fundamentals(symbol)
+                print(f"[DEBUG] Fundamentals ==> {f_data}")
+                #print(f"keys  in f_data = {f_data.keys()}")
                 
+                #if f_data["pe"] < 0 or f_data["de"] > 1.5 or f_data["return_on_equity_3y"] < 5.0: continue
+                if f_data.get("pe", 0) < 0 or f_data.get("return_on_equity_3y", 5) < 5.0: continue
+                
+                # Piotroski F-Score Calculation (0 to 9)
+                # skip fundamental Pscore caluclation 
+                f_data['f_score_calc'] = True
+                piotroski_res = calculate_piotroski_f_score(f_data)
+                p_score = piotroski_res["piotroski_score"]
+                p_label = piotroski_res["label"]
+                
+                # Hard Filter Guardrail: Exclude companies with weak Piotroski Scores (< 4)
+                if p_score < 4:
+                    print(f"[WARRNING] P Score {p_score} is lessthan 4 for the symbol {symbol}") 
+                    continue
+                
+                fund_score_res = calculate_screener_growth_score(f_data)
+                fund_growth_score = fund_score_res["growth_score"]
+                
+                news_eval = fetch_stock_news_sentiment(symbol)
+                news_score = news_eval["score"]
+                if news_score <= -0.50: 
+                    print("[INFO] stock news sentimet is bullish")
+                    continue
+                            # Base Composite Score incorporating Piotroski F-Score Bonus (+15 pts for F-Score >= 7)
+                score = fund_growth_score
+                if news_score >= 0.50: score += 20
+                elif news_score >= 0.20: score += 10
+                '''
+                if p_score >= 8: score += 15
+                elif p_score >= 6: score += 10
+                '''
+                    
             entry_range = f"{round(cmp * 0.99, 2):,} - {round(cmp * 1.01, 2):,}"
             stop_loss = round(min(swing_low, cmp - (1.5 * atr)), 2)
             risk = cmp - stop_loss
@@ -634,32 +648,25 @@ def scan_and_research():
                 
             target = round(max(swing_high, cmp + (1.5 * risk)), 2)
             potential = round(((target - cmp) / cmp) * 100, 2)
-            if potential < 4.0: continue
+            if not only_tech_scan and potential < 4.0: 
+                print(f"[INFO] potential = {potential} which is lessthan 4.0 Skipping")
+                continue
                 
             rr_val = round((target - cmp) / (cmp - stop_loss), 2)
             rr_ratio = f"1 : {rr_val}"
             est_hold_days = int(max(5, min(25, round((target - cmp) / (1.2 * atr)))))
-            
-            # Base Composite Score incorporating Piotroski F-Score Bonus (+15 pts for F-Score >= 7)
-            score = fund_growth_score
-            '''
-            if p_score >= 8: score += 15
-            elif p_score >= 6: score += 10
-            '''
-            if cmp > sma_50: score += 15
-            if sma_50 > sma_200: score += 10
+        
+            if cmp > ema_20: score += 15
+            if ema_20 > ema_50: score += 10
             score += (buy_signals_count * 10)
             
             if volume > 1.2 * vol_sma: score += 15
             elif volume > vol_sma: score += 5
             
-            if news_score >= 0.50: score += 20
-            elif news_score >= 0.20: score += 10
-            
             # TRIPLE-OPTIMIZED TRADE EFFICIENCY INDEX (Score + Potential + R:R)
             opt_index = calculate_trade_optimization_index(score, potential, rr_val)
             
-            candidates.append({
+            candidate = {
                 "Symbol": symbol,
                 "Sector": sector,
                 "CMP (₹)": cmp,
@@ -672,18 +679,8 @@ def scan_and_research():
                 "RR_Val": rr_val,
                 "Est_Hold_Days": f"{est_hold_days} Days",
                 "Buy_Signals": tech_eval["confluence_ratio"],
-                "Fund_Score": f"{fund_growth_score}/100 Pts",
-                "Piotroski_Score": f"{p_score}/9 ({p_label})",
-                "3Y_Profit_Growth": f"{f_data['comp_profit_grt_3y']}%",
-                "3Y_Sales_Growth": f"{f_data['comp_sales_grt_3y']}%",
-                "3Y_ROE_Avg": f"{f_data['return_on_equity_3y']}%",
-                "3Y_Stock_CAGR": f"{f_data['stock_CAGR_3y']}%",
-                "PE": f_data["pe"],
-                #"DE": f_data["de"],
-                "News_Label": f"{news_eval['label']} ({news_score:+.2f})",
-                "News_Headline": news_eval["headline"],
-                "SMA_50" : f"{round(latest['SMA_50'], 2)}",
-                "SMA_200" : f"{round(latest['SMA_200'], 2)}",
+                "EMA_50" : f"{round(latest['EMA_50'], 2)}",
+                "EMA_20" : f"{round(latest['EMA_20'], 2)}",
                 "Vol_SMA_20" : f"{round(latest['Vol_SMA_20'], 2)}",
                 "Swing_Low_10" : f"{round(latest['Swing_Low_10'], 2)}",
                 "Swing_High_20" : f"{round(latest['Swing_High_20'], 2)}",
@@ -699,7 +696,21 @@ def scan_and_research():
                 "Momentum": f"{round(latest['Momentum'], 2)}",
                 "Raw_Score": score,
                 "Opt_Score": opt_index
-            })
+            }
+            if not only_tech_scan:
+                candidate.update({
+                    "Fund_Score": f"{fund_growth_score}/100 Pts",
+                    "Piotroski_Score": f"{p_score}/9 ({p_label})",
+                    "3Y_Profit_Growth": f"{f_data['comp_profit_grt_3y']}%",
+                    "3Y_Sales_Growth": f"{f_data['comp_sales_grt_3y']}%",
+                    "3Y_ROE_Avg": f"{f_data['return_on_equity_3y']}%",
+                    "3Y_Stock_CAGR": f"{f_data['stock_CAGR_3y']}%",
+                    "PE": f_data["pe"],
+                    #"DE": f_data["de"],
+                    "News_Label": f"{news_eval['label']} ({news_score:+.2f})",
+                    "News_Headline": news_eval["headline"]
+                })
+            candidates.append(candidate)
             #if len(candidates) > 15:
             #    break
         except Exception as e:
@@ -707,7 +718,7 @@ def scan_and_research():
             continue
             
     final_picks = sorted(candidates, key=lambda x: x["Opt_Score"], reverse=True)
-    time_string = datetime.now().strftime("%y_%m_%d_%H_%M_%S")
+    time_string = datetime.now().strftime("%Y_%M_%d_%H_%M_%S")
     save_to_csv(final_picks, f"./data/Analyzed_{time_string}.csv")
     if not final_picks: return get_offline_fallback_data()
     return final_picks[:15]
@@ -847,13 +858,26 @@ def generate_html_table(data):
 # =============================================================================
 # 10. EMAIL DISPATCH PIPELINE
 # =============================================================================
-def send_email():
+def send_email(only_tech_scan=True):
     SMTP_SERVER = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
     SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
     SENDER_EMAIL = os.environ.get("SENDER_EMAIL")
     SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD")
     RECIPIENT_EMAIL = os.environ.get("RECIPIENT_EMAIL")
-    watchlist_data = scan_and_research()
+    
+    stock_universe = get_nifty_stock_universe(url=sff.NSE_LMS500_URL)
+    nse_symbols = dict(zip(stock_universe["Symbol"], stock_universe["Industry"]))
+    # Convert keys to uppercase
+    nse_symbols = {
+        key.upper(): value for key, value in nse_symbols.items()
+    }
+    print(f"[SUCCESS] Successfully loaded {len(nse_symbols)} tickers from local CSV file.")
+    
+    watchlist_data = scan_and_research(only_tech_scan=only_tech_scan,nse_symbols=nse_symbols)
+    if watchlist_data is None:
+        print(f"[INFO] scan is failed and no data in watchlist_data")
+        return
+        
     print(f"{watchlist_data[0]}")
     if not all([SENDER_EMAIL, SENDER_PASSWORD, RECIPIENT_EMAIL]):
         print("[ERROR] Missing email credentials in Environment Variables!")
@@ -888,6 +912,6 @@ def send_email():
     except Exception as e:
         print(f"[ERROR] Failed to send email: {str(e)}")
         return False
-
-if __name__ == "__main__":
+import sys
+if __name__ == "__main__":    
     send_email()

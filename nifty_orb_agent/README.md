@@ -39,8 +39,11 @@ scoring with an optional Claude-powered read on qualitative news.
 | `global_sentiment.py` | Global bullish/bearish scoring + optional Claude-based news sentiment |
 | `sector_scanner.py` | 09:10 / 09:16 sector strength/weakness snapshot, queried directly from NSE index symbols |
 | `opening_range_scanner.py` | Filters the universe by sector, then builds the top-5 opening-range gainer shortlist |
-| `signal_engine.py` | VWAP + volume-MA(20) buy/sell logic, trade book, P&L |
+| `signal_engine.py` | VWAP + volume-MA(20) buy/sell logic, trade book, P&L; `feed_candle()` is the public replay entry point backtest.py uses |
 | `main.py` | Wires it all together with APScheduler, including late-startup catch-up |
+| `backtest.py` | Replays the same live strategy against historical data over a date range; run with `python backtest.py --start ... --end ...` |
+| `backtest_strategy_picks.py` | Separate tool: backtests an external daily stock-picks CSV (buy-at-open/sell-at-close, equal-weight) — see "Backtesting an external daily stock-picks strategy" below |
+| `test_backtest_strategy_picks.py` | Tests for the above, including hand-verified tear-sheet math |
 | `build_sector_map.py` | Optional: builds a per-STOCK sector tag file from NSE data, if you want that for something other than the sector leaderboard (see note below) |
 | `test_updates.py` | Standalone tests for sector/universe filtering and the late-startup scheduler decisions |
 | `data/ind_nifty500list.csv` | **You provide this** — Nifty 500 constituents (see below) |
@@ -166,6 +169,160 @@ calendar is a separate concern this scaffold doesn't cover) — it only
 checks weekday + time-of-day.
 
 ## Stop-loss, position sizing, and the "weakness event" rule
+
+## Backtesting
+
+`backtest.py` replays the exact same strategy — unmodified — against
+historical Fyers data. It doesn't reimplement the rules: `SignalEngine` gets
+a new public `feed_candle()` method that lets historical candles be pushed
+through the identical VWAP/volume/weakness-event logic `main.py` uses live,
+so a backtest can't silently drift out of sync with what live trading
+actually does. If you change the strategy in `signal_engine.py`, both live
+trading and the backtest pick it up automatically.
+
+Run it directly:
+```bash
+python backtest.py --start 2026-06-01 --end 2026-08-31 --out backtest_trades.csv
+```
+It prints a per-day summary and an overall total (trades, points, win
+rate), and optionally saves the combined trade log as CSV.
+
+**How it stays fast**: rather than one API call per stock per day (500
+stocks × N days), it fetches each universe symbol's full intraday and daily
+price history for the whole requested range **once**, chunked to respect
+Fyers' actual documented per-request limits (confirmed via their docs and
+community forum — 100 days per request for intraday resolutions, ~365 days
+for daily), then slices out each day's opening-range candle and previous
+close from that in memory. Total API calls end up roughly proportional to
+universe size × chunks, not universe size × trading days — backtesting 5
+days costs about the same as backtesting 60. It logs an estimated call
+count and time before starting the (still slow, it's still rate-limited)
+pre-fetch.
+
+**Read this before trusting the numbers**:
+- **No slippage, brokerage, STT, or spread** — real fills will be worse.
+- **No NSE holiday calendar** — only weekends are skipped; a holiday just
+  comes back with no shortlist for that day (logged, not a crash).
+- **Survivorship bias** — it filters using *today's*
+  `ind_nifty500list.csv` and `sector_index_map.csv`, so stocks since
+  removed from the index, or reclassified, are backtested as if today's
+  universe always applied. This tends to inflate apparent historical
+  performance.
+- A subtle bug I caught while building this, worth knowing about even
+  though it's fixed: `SignalEngine.square_off_all()` originally always
+  stamped end-of-day exits with the real current wall-clock time — fine
+  live, wrong for a backtest (it would've shown the time you happened to
+  run the backtest, not the historical trading day). It now takes an
+  optional `at_time_str`, which `backtest.py` sets to the replayed day's
+  own last-seen candle time; `main.py`'s live call site is unchanged
+  (defaults to real "now" as before).
+
+Tested end-to-end with synthetic multi-day candle data covering: sector
+filtering feeding into the shortlist, the 20-candle volume-MA warm-up, a
+BUY trigger, riding to EOD square-off with a correctly-timestamped exit, a
+day with no qualifying stocks (shortlist empty, day skipped), and a symbol
+with no returned data (skipped, not a crash). This isn't yet folded into
+`test_updates.py` as a standalone test — worth adding there if you extend
+this further.
+
+## Backtesting an external daily stock-picks strategy
+
+`backtest_strategy_picks.py` is a **different, separate tool** from
+`backtest.py` above — don't confuse the two. `backtest.py` replays *this
+project's own* opening-range/VWAP signal strategy. `backtest_strategy_picks.py`
+instead backtests *any* daily stock-picking strategy you already have picks
+for: give it a `strategy_picks.csv` with `date` and `stocks` (comma-separated
+Fyers symbols) columns, and it simulates buying each day's picks at the open
+and selling at the close, equal-weighted across capital, with configurable
+slippage/brokerage — it doesn't know or care how the picks were chosen.
+
+```bash
+python backtest_strategy_picks.py   # edit the history_provider stub near the bottom first
+```
+
+It appends three columns back into the **same** CSV
+(`daily_net_profit`, `daily_return_pct`, `stock_performance_details` as a
+JSON string per stock) and prints the tear-sheet shown at the top of this
+section. Plug in your active Fyers session via the stub at the bottom of
+the file — either this project's own `FyersAuthManager`/`FyersDataService`
+(recommended: already rate-limited and retrying), or a ~5-line adapter
+around a raw `fyersModel.FyersModel()` instance you already have running
+elsewhere; both are spelled out in the stub's comments.
+
+**How the numbers are computed** (worth knowing before trusting them):
+- **Equal weight is across that day's *tradable* picks, not the full list**
+  — a pick with no candle for that date (holiday, data gap, delisting) or
+  an illiquid/invalid one (zero volume, non-positive price, NaN) is
+  dropped from that day's basket and logged with a reason, and the
+  remaining picks split the *full* day's capital rather than leaving some
+  sitting idle. If a day has zero tradable picks, it contributes exactly
+  zero P&L rather than crashing.
+- **Capital compounds day over day**: each day's allocation is based on
+  that day's *starting* capital (yesterday's close), not the original
+  initial capital every time.
+- **Costs are applied to the execution price on each side**, not
+  subtracted as a flat fee afterward — 0.05% per side means you effectively
+  buy at `open × 1.0005` and sell at `close × 0.9995`. The `entry`/`exit`
+  values written to `stock_performance_details` are still the *raw* open/close
+  though, so you can see the real market prices separately from the
+  cost-adjusted `return_pct`/`net_pnl`.
+- **No whole-share lot rounding** — allocation is treated as continuous
+  capital, not `floor(capital / price)` shares. Standard simplifying
+  assumption for a return-based backtest at this level; flag it if you need
+  lot-accurate P&L.
+- **Sharpe Ratio** is annualized from the *daily* return series
+  (`mean / sample_std × √252`, risk-free rate 0 by default — both the
+  annualization factor and risk-free rate are function parameters if you
+  want different ones), and reports `0.0` rather than crashing on fewer
+  than 2 days of data or exactly zero volatility.
+- **Max drawdown** and the equity curve itself are just `initial_capital`
+  plus a running sum of `daily_net_profit` — valid specifically *because*
+  this is intraday-only with no overnight exposure, so there's no
+  mark-to-market step needed between days.
+
+**Caching**: the whole point of pre-fetching per symbol rather than
+per-symbol-per-day is API-call efficiency — `DailyPriceCache` fetches each
+unique symbol's daily OHLC **once** for the full needed date range (chunked
+via `config.DAILY_HISTORY_MAX_DAYS_PER_CHUNK`, same Fyers-documented limits
+`backtest.py` uses) and writes it to a small CSV under
+`cache/strategy_picks_daily_ohlc/` per symbol. A second run covering the
+same symbols/date range makes **zero** new API calls — verified directly in
+`test_backtest_strategy_picks.py`.
+
+Tested with 12 cases: the full tear-sheet's numbers checked against an
+independently hand-calculated (and numpy-cross-checked) 3-day scenario to
+several decimal places — not just "doesn't crash" — plus the cost model,
+equal-weight allocation, missing-candle reallocation, illiquid-candle
+exclusion, a day with zero tradable picks, the CSV round-trip (including a
+`stocks` cell containing a comma and a JSON field containing quotes,
+re-parsed with the plain `csv` module, not just pandas, to confirm it's
+genuinely valid CSV), duplicate-date rows not cross-contaminating each
+other's results, and the caching behavior itself.
+
+
+## Nifty news + EMA bias (in job_global_sentiment)
+
+`global_sentiment.get_stock_news_ema_bias(yahoo_symbol, anthropic_api_key=...)`
+is a new, general-purpose function: it combines a classic EMA(12) vs EMA(26)
+crossover technical read with an LLM-scored read of that symbol's own recent
+news headlines (fetched via `yfinance`'s `.news`), into one combined verdict
+(`BULLISH` / `BEARISH` / `MIXED` / `NEUTRAL` / `UNKNOWN`). `job_global_sentiment()`
+now calls it once for Nifty 50 (`^NSEI`) alongside the existing global-cues
+score, printing both. Without `ANTHROPIC_API_KEY` set, the news half is
+skipped automatically and it falls back to the EMA-only read - it still
+runs either way.
+
+It takes a Yahoo Finance symbol, not a Fyers one - use the included
+`fyers_symbol_to_yahoo()` helper to convert (`NSE:TCS-EQ` -> `TCS.NS`) if
+you want to point it at an individual stock later (e.g. the opening-range
+shortlist) rather than just Nifty 50; that wiring isn't done here, only the
+function itself and its use in `job_global_sentiment()`. Two things to
+know: `yfinance`'s `.news` schema has shifted between versions and can
+return an empty list even when there's real recent news - the function
+handles this without raising, but check what you're actually getting for
+your `yfinance` version before relying on it; and this is a second
+heuristic layered on top of `score_global_bias()`'s global-cues score, not
+a replacement for it - both are informational, neither gates a trade.
 
 On top of the original single-candle exit, the engine now uses one shared
 detector for both adding to a position and stopping it out:

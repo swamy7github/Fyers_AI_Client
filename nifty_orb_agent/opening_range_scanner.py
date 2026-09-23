@@ -52,12 +52,21 @@ from datetime import datetime
 
 import pandas as pd
 import pytz
-
+from pathlib import Path
 import config
+import sys
 from fyers_service import FyersDataService
 from sector_scanner import load_sector_map
 
-logger = logging.getLogger("orb_agent.opening_range")
+# 1. Dynamically parse the parent path ('C:\NS\Fyers_AI_Client')
+# This gets the folder containing the current script and looks one level up
+project_root = Path(__file__).resolve().parent.parent
+
+# 2. Add 'C:\NS\Fyers_AI_Client' to Python's search path
+if str(project_root) not in sys.path:
+    sys.path.append(str(project_root))
+    
+logger = logging.getLogger("orb_agent.opening_range_scanner")
 
 
 def load_valid_sectors() -> set[str]:
@@ -78,7 +87,7 @@ def load_valid_sectors() -> set[str]:
     return set(sectors.str.upper())
 
 
-def load_universe() -> list[str]:
+def load_universe(top_sectors: pd.DataFrame) -> list[str]:
     """
     Reads the NSE Nifty 500 constituent CSV (see README for the download
     link), filters it down to stocks whose `Industry` matches a loaded
@@ -91,12 +100,33 @@ def load_universe() -> list[str]:
     the universe to zero stocks.
     """
     logger.info(f" STOCK_UNIVERSE_CSV file is @ {config.STOCK_UNIVERSE_CSV} ")
-    df = pd.read_csv(config.STOCK_UNIVERSE_CSV)
-    column_lookup = {c.strip().lower(): c for c in df.columns}
-    symbol_col = column_lookup.get("symbol", df.columns[0])
-    industry_col = column_lookup.get("industry")
+    dfsuc = pd.read_csv(config.STOCK_UNIVERSE_CSV)
+    column_lookup = {c.strip().lower(): c for c in dfsuc.columns}
+    #for 
+    symbol_col = column_lookup.get("symbol", dfsuc.columns[0])
+    sector_col = column_lookup.get("sector", dfsuc.columns[0])
 
-    total_universe = len(df)
+    total_universe = len(dfsuc)
+    sec_symbols = pd.DataFrame()
+    sectors = []
+    from utilities import get_nifty_stock_universe, save_to_csv
+    for top_sector in top_sectors.itertuples(index=True):  # for row in df.itertuples(index=True)
+        if top_sector.sector not in ["add all"]:
+            sectors.append(top_sector.sector)
+        else:
+            sec_symbols = pd.concat([sec_symbols, get_nifty_stock_universe(url=top_sector.sector_url)], ignore_index=True) 
+    
+    filtered_dfsuc = dfsuc[dfsuc[sector_col].isin(sectors)]
+    sec_symbols = pd.concat([sec_symbols, filtered_dfsuc], ignore_index=True)
+    sec_symbols.drop_duplicates(subset=[symbol_col], keep='last', inplace=True)
+                      
+    # 2. Overwrite old rows by keeping the last occurrence of the ID
+    # Filter the DataFrame
+    #keys 
+    #filtered_df = df[df['column_name'].isin(target_values)]
+    #df_combined.drop_duplicates(subset=['id'], keep='last', inplace=True)
+    
+    '''
     valid_sectors = load_valid_sectors()
     logger.info("Loaded %d valid sector(s) from %s for universe filtering: %s",
                 len(valid_sectors), config.SECTOR_INDEX_MAP_CSV, sorted(valid_sectors))
@@ -133,8 +163,19 @@ def load_universe() -> list[str]:
 
     logger.info("Stock universe: %d total -> %d retained after sector filtering.",
                 total_universe, len(filtered))
-
-    symbols = [f"NSE:{str(s).strip()}-EQ" for s in filtered[symbol_col].dropna().tolist()]
+'''
+    from swing_trading_email_scheduler_v14 import scan_and_research 
+    sec_symbols = dict(zip(sec_symbols[symbol_col], sec_symbols[sector_col]))
+        # Convert keys to uppercase
+    nse_symbols = {
+        key.upper(): value for key, value in sec_symbols.items()
+    }
+    print(f"[SUCCESS] Successfully loaded {len(sec_symbols)} tickers from the sectors constitu")   
+    sec_symbols = scan_and_research(only_tech_scan=True, nse_symbols=nse_symbols)
+    symbols = []
+    if sec_symbols:
+        symbols = [item[symbol_col] for item in sec_symbols]
+        symbols = [f"NSE:{str(s).strip()}-EQ" for s in symbols]
     return symbols
 
 
@@ -158,9 +199,10 @@ def _apply_gain_filter(rows: list[dict]) -> pd.DataFrame:
     return top_n
 
 
-def scan_opening_range(data_service: FyersDataService) -> pd.DataFrame:
+def scan_opening_range(state) -> pd.DataFrame:
     """Fast path: valid only right around config.OPENING_RANGE_SCAN_TIME - see module docstring."""
-    symbols = load_universe()
+    data_service: FyersDataService = state['data_service']
+    symbols = load_universe(state['top5_gaining_sectors'])
     quote_lookup = data_service.get_quotes_batched(symbols)
 
     rows = []

@@ -290,15 +290,7 @@ def get_nifty_stock_universe(session=None, url=None, csv_file_path=None):
             # Using csv.DictReader is safer because it maps the exact column headers you specified 
             # ("Company Name,Industry,Symbol,Series,ISIN Code") and handles commas inside company names safely.
              # DictReader maps the information in each row to a dict whose keys are the header names
-            df = pd.read_csv(csv_file_path)
-            nse_stock_symbols = dict(zip(df["Symbol"], df["Industry"]))
-
-            # Convert keys to uppercase
-            nse_stock_symbols = {
-                key.upper(): value for key, value in nse_stock_symbols.items()
-            }
-            print(f"[SUCCESS] Successfully loaded {len(nse_stock_symbols)} tickers from local CSV file.")
-            return nse_stock_symbols
+            nse_stock_symbols = pd.read_csv(csv_file_path)
             
         except Exception as e:
             print(f"[ERROR] Failed to read from {csv_file_path}: {str(e)}")

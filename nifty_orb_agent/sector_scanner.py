@@ -68,7 +68,7 @@ import pandas as pd
 import config
 from fyers_service import FyersDataService
 
-logger = logging.getLogger("orb_agent.sector")
+logger = logging.getLogger("orb_agent.sector_scanner")
 
 
 def load_sector_map() -> pd.DataFrame:
@@ -82,7 +82,7 @@ def load_sector_map() -> pd.DataFrame:
     the file is missing or malformed, so a single bad CSV doesn't take down
     the whole scan - callers already handle an empty DataFrame gracefully.
     """
-    expected_columns = ["symbol", "index_name", "category", "is_sector_index", "sector"]
+    expected_columns = ["symbol", "index_name", "sector", "is_sector_index", "sector"]
     try:
         df = pd.read_csv(config.SECTOR_INDEX_MAP_CSV)
     except (FileNotFoundError, pd.errors.EmptyDataError, pd.errors.ParserError) as exc:
@@ -114,16 +114,17 @@ def load_sector_map() -> pd.DataFrame:
     try:
         symbol = _get_text_column("symbol")
         index_name = _get_text_column("index_name")
-        category = _get_text_column("category", required=False)
         is_sector_index = _get_raw_column("is_sector_index").astype(bool)
         sector = _get_text_column("sector")
+        sector_url = _get_text_column("sector_url")
+
     except KeyError as exc:
         logger.error("%s - sector mapping unavailable.", exc)
         return pd.DataFrame(columns=expected_columns)
 
     return pd.DataFrame({
-        "symbol": symbol, "index_name": index_name, "category": category,
-        "is_sector_index": is_sector_index, "sector": sector,
+        "symbol": symbol, "index_name": index_name, 
+        "is_sector_index": is_sector_index, "sector": sector, "sector_url": sector_url,
     })
 
 
@@ -154,9 +155,10 @@ def get_index_snapshot(data_service: FyersDataService) -> pd.DataFrame:
         pct_change = (ltp - prev_close) / prev_close * 100
         rows.append({
             "symbol": row["symbol"], "index_name": row["index_name"],
-            "category": row["category"], "is_sector_index": row["is_sector_index"],
+            "is_sector_index": row["is_sector_index"],
             "sector": row["sector"],
             "prev_close": prev_close, "ltp": ltp, "pct_change": round(pct_change, 2),
+            "sector_url": row['sector_url'],
         })
 
     df = pd.DataFrame(rows)

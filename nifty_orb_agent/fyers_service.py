@@ -46,7 +46,7 @@ from fyers_apiv3 import fyersModel
 
 import config
 
-logger = logging.getLogger("orb_agent.fyers")
+logger = logging.getLogger("orb_agent.fyers_service")
 
 
 class RateLimiter:

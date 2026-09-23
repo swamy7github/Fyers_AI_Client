@@ -46,18 +46,29 @@ SECTOR_SYMBOLS = [
     "NSE:NIFTYMETAL-INDEX",
     "NSE:NIFTYPHARMA-INDEX",
     "NSE:NIFTYREALTY-INDEX",
-    "NSE:NIFTYENERGY-INDEX"
+    "NSE:NIFTYENERGY-INDEX",
+    "NSE:NIFTYINDDEFENCE-INDEX",
+    "NSE:NIFTYINFRA-INDEX",
+    "NSE:NIFTYPSE-INDEX",
+    "NSE:NIFTYCONSUMPTION-INDEX",
+    "NSE:FINNIFTY-INDEX",
+    "NSE:NIFTYMEDIA-INDEX",
 ]
 
 # Predefined Stock Universe (Add your full Nifty 500 / Liquid basket here)
 STOCK_UNIVERSE = [
-    "NSE:RELIANCE-EQ", "NSE:TCS-EQ", "NSE:HDFCBANK-EQ", "NSE:INFY-EQ",
-    "NSE:ICICIBANK-EQ", "NSE:HINDUNILVR-EQ", "NSE:ITC-EQ", "NSE:SBIN-EQ",
-    "NSE:BHARTIARTL-EQ", "NSE:KOTAKBANK-EQ", "NSE:LT-EQ", "NSE:AXISBANK-EQ",
-    "NSE:ASIANPAINT-EQ", "NSE:MARUTI-EQ", "NSE:SUNPHARMA-EQ", "NSE:TITAN-EQ",
-    "NSE:BAJFINANCE-EQ", "NSE:TATASTEEL-EQ", "NSE:TATAMOTORS-EQ", "NSE:ADANIENT-EQ"
+    "AEGISLOG", "TATACHEM", "GRAPHITE", "ACMESOLAR", "CARBORUNIV", 
+    "FINCABLES", "CHENNPETRO", "JYOTICNC", "NIACL", "APARINDS", 
+    "ENGINERSIN", "GABRIEL", "JSWINFRA", "MEESHO", "PFOCUS", 
+    "SYRMA", "TEGA", "USHAMART", "PVRINOX", "PINELABS", 
+    "BRIGADE", "URBANCO", "WELCORP", "PATANJALI", "WELSPUNLIV", 
+    "ACE", "ABDL", "BANDHANBNK", "HOMEFIRST", "MANKIND", 
+    "CYIENT", "BEML", "PCBL", "TATAINVEST", "SPLPETRO", 
+    "JUBLPHARMA", "AEGISVOPAK", "BELRISE", "SOLARINDS", "WOCKPHARMA", 
+    "KIRLOSENG", "PAYTM", "DLF", "CEMPRO", "OBEROIRLTY", 
+    "CAPLIPOINT", "SWANCORP", "IKS", "CPPLUS"
 ]
-
+STOCK_UNIVERSE = [f"NSE:{s}-EQ" for s in  STOCK_UNIVERSE]
 # =====================================================================
 # 2. FYERS API CLIENT WRAPPER
 # =====================================================================
@@ -196,7 +207,8 @@ class QuantTradingAgent:
     def run_920am_first_candle_scan(self):
         logger.info("========== RUNNING 09:20:02 AM FIRST CANDLE SCAN ==========")
         first_candle_records = []
-
+        if not self.top_5_stocks:
+            self.run_910am_scan()
         for sym in self.top_5_stocks:
             df = self.client.get_5m_candles(sym)
             if df.empty or len(df) < 1:

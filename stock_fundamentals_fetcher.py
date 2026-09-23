@@ -171,8 +171,13 @@ if __name__ == "__main__":
         'return_on_equity': 15.6 
     }
     
-    nse_symbols = get_nifty_stock_universe(session=db.screener.session, url=NSE_ALL_URL)  # get_nifty_stock_universe(url = "https://archives.nseindia.com/content/equities/EQUITY_L.csv")
-    print(f"[INFO] {len(nse_symbols)} stocks to be checked ")
+    nse_stock_symbols = get_nifty_stock_universe(session=db.screener.session, url=NSE_ALL_URL)  # get_nifty_stock_universe(url = "https://archives.nseindia.com/content/equities/EQUITY_L.csv")
+    nse_symbols = dict(zip(nse_stock_symbols["Symbol"], nse_stock_symbols["Industry"]))
+    # Convert keys to uppercase
+    nse_symbols = {
+        key.upper(): value for key, value in nse_symbols.items()
+    }
+    print(f"[SUCCESS] Successfully loaded {len(nse_symbols)} tickers from local CSV file.")
     
     for symbol in nse_symbols:
         martics = db.get_update_fundamentals(symbol)

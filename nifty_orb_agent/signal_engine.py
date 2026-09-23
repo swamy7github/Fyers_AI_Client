@@ -52,7 +52,7 @@ import pytz
 import config
 from fyers_service import FyersDataService
 
-logger = logging.getLogger("orb_agent.signals")
+logger = logging.getLogger("orb_agent.signals_engine")
 
 
 @dataclass
