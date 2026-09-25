@@ -274,7 +274,7 @@ if __name__ == "__main__":
     
     fyres = get_fyers_session_handle()
     total_Trades = total_gain = 0.0
-    stocks = ["AEGISLOG", "TATACHEM", "GRAPHITE", "ACMESOLAR", "CARBORUNIV"]
+    stocks = ["OBEROIRLTY", "APOLLOTYRE", "MCX", "MARUTI", "BERGEPAINT", "ASIANPAINT", "APOLLOTYRE", "TMCV"]
     for symbol in stocks:
         synthetic_data = fetch_fyers_historical_data(fyres, symbol=f"NSE:{symbol}-EQ", time_frame="5")
         # Initialize Backtester with 2,00,000 INR

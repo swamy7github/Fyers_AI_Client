@@ -6,6 +6,7 @@ def generate_stock_email_html(stock_data_list):
     """
     Generates a responsive HTML email string from a list of stock dictionaries.
     Handles mixed data types (str, float, int, np.float64) safely and defaults missing keys to '-'.
+    Accurately maps all technical, fundamental, and trade setups from the provided candidate dictionary.
     """
     
     html_template = """
@@ -35,6 +36,7 @@ def generate_stock_email_html(stock_data_list):
                         <thead>
                             <tr style="background-color: #f8fafc; border-bottom: 2px solid #cbd5e1; color: #475569;">
                                 <th style="padding: 10px 5px;">Symbol</th>
+                                <th style="padding: 10px 5px;">Type</th>
                                 <th style="padding: 10px 5px;">Sector</th>
                                 <th style="padding: 10px 5px;">CMP</th>
                                 <th style="padding: 10px 5px;">Entry</th>
@@ -48,6 +50,7 @@ def generate_stock_email_html(stock_data_list):
                             {% for data in stocks %}
                             <tr style="border-bottom: 1px solid #e2e8f0; background-color: {{ loop.cycle('#ffffff', '#f8fafc') }};">
                                 <td style="padding: 10px 5px; font-weight: bold; color: #1e3c72;">{{ data.get('Symbol', '-') }}</td>
+                                <td style="padding: 10px 5px; font-weight: bold; color: {% if data.get('Type') == 'LONG' %}#16a34a{% elif data.get('Type') == 'SHORT' %}#dc2626{% else %}#64748b{% endif %};">{{ data.get('Type', 'LONG') }}</td>
                                 <td style="padding: 10px 5px; color: #64748b;">{{ data.get('Sector', '-') }}</td>
                                 <td style="padding: 10px 5px;">₹{{ data.get('CMP (₹)', '-') }}</td>
                                 <td style="padding: 10px 5px;">₹{{ data.get('Entry Range (₹)', '-') }}</td>
@@ -77,7 +80,10 @@ def generate_stock_email_html(stock_data_list):
                     <!-- Card Header -->
                     <div style="background-color: #f1f5f9; padding: 12px 15px; border-bottom: 1px solid #e2e8f0; display: table; width: 100%; box-sizing: border-box;">
                         <div style="display: table-cell; vertical-align: middle;">
-                            <h3 style="margin: 0; font-size: 18px; color: #0f172a;">{{ data.get('Symbol', '-') }} <span style="font-size: 14px; color: #64748b; font-weight: normal;">| {{ data.get('Sector', '-') }}</span></h3>
+                            <h3 style="margin: 0; font-size: 18px; color: #0f172a;">
+                                {{ data.get('Symbol', '-') }} 
+                                <span style="font-size: 14px; color: #64748b; font-weight: normal;">| {{ data.get('Sector', '-') }} | <strong style="color: {% if data.get('Type') == 'LONG' %}#16a34a{% else %}#dc2626{% endif %};">{{ data.get('Type', 'LONG') }}</strong></span>
+                            </h3>
                         </div>
                         <div style="display: table-cell; vertical-align: middle; text-align: right;">
                             <span style="background-color: #3b82f6; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-left: 5px;">Opt: {{ data.get('Opt_Score', '-') }}</span>
@@ -96,11 +102,13 @@ def generate_stock_email_html(stock_data_list):
                                 <td><strong>Potential:</strong><br><span style="color: #16a34a; font-weight: bold;">{{ data.get('Potential (%)', '-') }}</span></td>
                                 <td><strong>R:R:</strong><br>{{ data.get('R:R Ratio', '-') }}</td>
                                 <td><strong>Hold:</strong><br>{{ data.get('Est_Hold_Days', '-') }}</td>
+                                <td><strong>Signals:</strong><br><span style="color: #3b82f6; font-weight: bold;">{{ data.get('Buy_Signals', '-') }}</span></td>
                             </tr>
                         </table>
                     </div>
 
                     <!-- Fundamentals -->
+                    {% if data.get('Fund_Score') %}
                     <div style="padding: 15px;">
                         <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">🏢 Fundamental Snapshot</h4>
                         
@@ -128,15 +136,16 @@ def generate_stock_email_html(stock_data_list):
                             </tr>
                         </table>
                     </div>
+                    {% endif %}
 
                     <!-- Technical Indicators -->
                     <div style="padding: 0 15px 15px 15px;">
                         <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📊 Technical Indicators</h4>
                         <table style="width: 100%; font-size: 12px; border-collapse: collapse; text-align: left;">
                             <tr style="background-color: #f8fafc;">
-                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">SMA 50</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">EMA 50</td>
                                 <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">{{ data.get('EMA_50', '-') }}</td>
-                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">SMA 200</td>
+                                <td style="padding: 6px; font-weight: bold; border: 1px solid #e2e8f0; width: 25%;">EMA 20</td>
                                 <td style="padding: 6px; border: 1px solid #e2e8f0; width: 25%;">{{ data.get('EMA_20', '-') }}</td>
                             </tr>
                             <tr>
@@ -183,6 +192,7 @@ def generate_stock_email_html(stock_data_list):
                     </div>
 
                     <!-- News & Sentiment -->
+                    {% if data.get('News_Label') %}
                     <div style="padding: 0 15px 15px 15px;">
                         <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #1e3c72; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px;">📰 Latest News & Sentiment</h4>
                         <div style="background-color: #f8fafc; border-left: 4px solid #3b82f6; padding: 12px; font-size: 13px;">
@@ -193,10 +203,12 @@ def generate_stock_email_html(stock_data_list):
                             <i style="color: #475569;">"{{ data.get('News_Headline', '-') }}"</i>
                         </div>
                     </div>
+                    {% endif %}
 
                 </div>
                 {% endfor %}
 
+                <!-- Footer -->
                 <div style="text-align: center; margin-top: 30px; font-size: 11px; color: #94a3b8;">
                     <p>Generated by Automated Analysis Engine</p>
                     <p>Disclaimer: This data is for informational purposes only and does not constitute financial advice.</p>
@@ -216,9 +228,10 @@ def generate_stock_email_html(stock_data_list):
 # ==========================================
 if __name__ == "__main__":
     
-    # Real-world data sample provided featuring np.float64 values 
+    # Matching the exact formatting generated by your Python dictionary output
     sample_data_list = [
         {
+            'Type': 'LONG',
             'Symbol': 'AEGISLOG', 
             'Sector': 'Oil Gas & Consumable Fuels', 
             'CMP (₹)': np.float64(1353.6), 
@@ -243,7 +256,7 @@ if __name__ == "__main__":
             'Raw_Score': 170, 
             'Opt_Score': np.float64(65.1),
             
-            # Expanded Technicals
+            # Exact Technical indicator dictionary values as requested
             'EMA_50': '1290.4',
             'EMA_20': '1110.2',
             'Vol_SMA_20': '1.2M',
@@ -251,16 +264,17 @@ if __name__ == "__main__":
             'Swing_High_20': '1410.5',
             'ATR': '25.4',
             'RSI': '62.4',
-            'Stoch_K': '75.1 (BUY)',
+            'Stoch_K': '75.1 D-(72.3)',
             'MACD': '2.45 (s-1.1, l-0.5)',
             'Ultimate_Osc': '58.2',
-            'Aroon_Osc': '100.0)',
-            'BOP': '0.35 )',
+            'Aroon_Osc': '100.0',
+            'BOP': '0.35',
             'CCI': '125.6',
-            'Williams_R': '-15.4 )',
-            'Momentum': '14.5)'
+            'Williams_R': '-15.4',
+            'Momentum': '14.5'
         },
         {
+            'Type': 'LONG',
             'Symbol': 'BOSCHLTD', 
             'Sector': 'Auto Components', 
             'CMP (₹)': 48385.0, 
@@ -293,14 +307,14 @@ if __name__ == "__main__":
             'Swing_High_20': '49500',
             'ATR': '850.5',
             'RSI': '55.2',
-            'Stoch_K': '60.5 (NEUTRAL)',
+            'Stoch_K': '60.5 D-(58.1)',
             'MACD': '450.2 (s-300, l-150.2)',
             'Ultimate_Osc': '52.1',
-            'Aroon_Osc': '65 (STRONG)',
-            'BOP': '0.15 )',
+            'Aroon_Osc': '65',
+            'BOP': '0.15',
             'CCI': '95.2',
-            'Williams_R': '-45.5 )',
-            'Momentum': 'BULLISH)'
+            'Williams_R': '-45.5',
+            'Momentum': '12.0'
         }
     ]
 
