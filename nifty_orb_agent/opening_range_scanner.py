@@ -104,7 +104,7 @@ def load_universe(top_sectors: pd.DataFrame) -> list[str]:
     column_lookup = {c.strip().lower(): c for c in dfsuc.columns}
     #for 
     symbol_col = column_lookup.get("symbol", dfsuc.columns[0])
-    sector_col = column_lookup.get("sector", dfsuc.columns[0])
+    sector_col = column_lookup.get("industry", dfsuc.columns[0])
 
     total_universe = len(dfsuc)
     sec_symbols = pd.DataFrame()
@@ -233,17 +233,17 @@ def scan_opening_range(state) -> pd.DataFrame:
     return _apply_gain_filter(rows)
 
 
-def scan_opening_range_accurate(data_service: FyersDataService) -> pd.DataFrame:
+def scan_opening_range_accurate(state) -> pd.DataFrame:
     """
     Slow-but-always-correct path: fetches the REAL 09:15-09:20 historical
     candle per stock, regardless of what time it's actually called. Use
     this instead of scan_opening_range() for any late/catch-up start,
     where "day so far" no longer equals "the 09:15 candle".
     """
-    symbols = load_universe()
+    symbols = load_universe(state['top5_gaining_sectors'])
     from_epoch, to_epoch = _today_915_window_epochs()
     today_str = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
-
+    data_service = state['data_service']
     rows = []
     for symbol in symbols:
         try:

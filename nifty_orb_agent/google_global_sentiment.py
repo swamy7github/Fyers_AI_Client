@@ -83,7 +83,7 @@ def _scrape_google_finance_change(ticker_code: str, session: requests.Session) -
     return None
 
 
-def fetch_global_snapshot() -> dict[str, float]:
+def google_fetch_global_snapshot() -> dict[str, float]:
     """
     Returns {name: % change} for all tracked tickers using Google Finance.
     """
@@ -93,13 +93,12 @@ def fetch_global_snapshot() -> dict[str, float]:
             pct_change = _scrape_google_finance_change(ticker_code, session)
             if pct_change is not None:
                 snapshot[name] = round(pct_change, 2)
-            else:
-                logger.warning("Could not extract % change for %s (%s)", name, ticker_code)
+                logger.warning(f"Extracted % change for {name}-{ticker_code}= ({pct_change})")
 
     return snapshot
 
 
-def score_global_bias(snapshot: dict[str, float]) -> tuple[str, float]:
+def google_score_global_bias(snapshot: dict[str, float]) -> tuple[str, float]:
     """
     Calculates weighted directional bias score normalized by available indicators.
     """

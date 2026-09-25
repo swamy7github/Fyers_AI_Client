@@ -43,8 +43,8 @@ from apscheduler.triggers.cron import CronTrigger
 
 import config
 from fyers_service import FyersAuthManager, FyersDataService
-#from global_sentiment import fetch_global_snapshot, score_global_bias
-from google_global_sentiment import fetch_global_snapshot, score_global_bias
+from global_sentiment import fetch_global_snapshot, score_global_bias
+#from google_global_sentiment import fetch_global_snapshot, score_global_bias
 from sector_scanner import get_index_snapshot, get_sector_leaderboard
 from opening_range_scanner import scan_opening_range, scan_opening_range_accurate
 from signal_engine import SignalEngine
@@ -147,8 +147,16 @@ def job_global_sentiment():
     logger.info("Global cues bias: %s (score %.2f) | Snapshot: %s", label, score, snapshot)
     print(f"\n=== Global Market Bias: {label} (score {score:.2f}) ===")
     print(snapshot)
-    state['global_sentiment'] = (label,score)
-
+    state['global_sentiment'] = (label, score)
+    
+    from google_global_sentiment import google_fetch_global_snapshot, google_score_global_bias
+    logger.info("Running pre-market google global sentiment check...")
+    gsnapshot = google_fetch_global_snapshot()
+    glabel, gscore = google_score_global_bias(snapshot)
+    logger.info("Google Global cues bias: %s (score %.2f) | Snapshot: %s", glabel, gscore, gsnapshot)
+    print(f"\n===Google Global Market Bias: {glabel} (score {gscore:.2f}) ===")
+    print(gsnapshot)
+    state['g_global_sentiment'] = (glabel, gscore)
 
 def job_sector_scan(label: str = ""):
     logger.info("Running sector scan (%s)...", label or "unlabeled")
@@ -160,8 +168,8 @@ def job_sector_scan(label: str = ""):
      
     if not leaderboard.empty:
         print("\n=== Top Gaining Sectors ===")
-        state["top5_gaining_sectors"] = leaderboard.head(5) 
-        print(leaderboard.head(5).to_string(index=False))
+        state["top5_gaining_sectors"] = leaderboard.head(5)
+        print(state["top5_gaining_sectors"])
         print("\n=== Top Losing Sectors ===")
         state["top5_losing_sectors"] = leaderboard.tail(5)
         print(leaderboard.tail(5).to_string(index=False))
@@ -178,13 +186,17 @@ def job_opening_range_scan():
     now = datetime.now(TZ)
     if _should_use_fast_opening_range_path(now):
         logger.info("Running opening-range scan (on-time, quotes-proxy path)...")
+        if state["top5_gaining_sectors"] is None:
+            job_sector_scan()
         shortlist = scan_opening_range(state)
     else:
         logger.info("Running opening-range scan (late/catch-up start at %s IST - using the "
                     "slower but always-correct historical-candle path instead of the "
                     "quotes-proxy shortcut, which is only valid right at %s)...",
                     now.strftime("%H:%M:%S"), config.OPENING_RANGE_SCAN_TIME)
-        shortlist = scan_opening_range_accurate(state["data_service"])
+        if state["top5_gaining_sectors"] is None:
+            job_sector_scan()
+        shortlist = scan_opening_range_accurate(state)
 
     if shortlist.empty:
         logger.warning("No stocks matched the opening-range gain filter today.")
@@ -251,9 +263,9 @@ def main():
 
     # One-off, informational: run once immediately regardless of the clock
     job_global_sentiment()
-    #job_sector_scan()
-    #scan_opening_range(state)
-    return
+    job_sector_scan()
+    job_opening_range_scan()
+    job_check_signals()
     now = datetime.now(TZ)
     if not _is_market_open_now(now):
         logger.info("Starting outside trading hours (%s IST) - no catch-up needed, "

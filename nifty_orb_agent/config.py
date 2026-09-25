@@ -29,7 +29,7 @@ current_path = Path(BASE_DIR)
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(LOG_DIR, exist_ok=True)
 #STOCK_UNIVERSE_CSV = os.path.join(DATA_DIR, "ind_nifty500list.csv")     # see README for download link
-STOCK_UNIVERSE_CSV = Path(__file__).parent / 'data' / 'ind_nifty500list.csv'
+STOCK_UNIVERSE_CSV = Path(__file__).parent / 'data' / 'ind_niftytotalmarket_list.csv'
 
 load_dotenv(".env.example")  # loads variables from a local .env file, if present
 
@@ -70,7 +70,7 @@ TRADE_LOG_CSV = os.path.join(LOG_DIR, "trade_book_{date}.csv")
 # ----------------------------------------------------------------------------
 TIMEZONE = "Asia/Kolkata"
 
-SECTOR_SCAN_TIME = "09:10:00"           # pre-open sector snapshot (see caveat in sector_scanner.py)
+SECTOR_SCAN_TIME = "09:12:00"           # pre-open sector snapshot (see caveat in sector_scanner.py)
 SECTOR_SCAN_TIME_POSTOPEN = "09:16:00"  # re-run shortly after the normal session starts, for real numbers
 OPENING_RANGE_SCAN_TIME = "09:20:02"    # 2s buffer after the 09:15-09:20 candle closes
 SIGNAL_ENGINE_LAST_RUN = "15:10:00"     # stop looking for NEW signals after this time

@@ -225,5 +225,7 @@ http_internet_cache.sqlite
 *.temp
 *.tmp
 *.md.bak
+data/Analyzed*
+nifty_orb_agent/data/Analyzed*
 
 stock_email_preview.html
