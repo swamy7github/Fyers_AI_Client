@@ -162,9 +162,27 @@ class SignalEngine:
             except Exception as exc:
                 logger.error("Signal check failed for %s: %s", symbol, exc)
 
+    def feed_candle(self, symbol: str, candle: list, now_str: str):
+        """
+        Public entry point for feeding ONE already-fetched candle for ONE
+        symbol directly, bypassing check_all()'s live data fetch entirely.
+
+        This exists so backtest.py can replay historical candles through
+        exactly the same signal logic used live, without either duplicating
+        that logic or reaching into a private method. If you change the
+        strategy in this file, both live trading and any backtest built on
+        this method pick up the change automatically - there's only one
+        place the rules live.
+        """
+        tracker = self.trackers.get(symbol)
+        if tracker is None:
+            raise KeyError(f"{symbol!r} is not one of this engine's tracked symbols "
+                            f"({list(self.trackers)}).")
+        self._update_tracker_and_check_signal(tracker, candle, now_str)
+
     def _update_tracker_and_check_signal(self, tracker: StockTracker, candle: list, now_str: str):
         _, o, h, l, c, v = candle
-        typical_price = (h + l + c + o) / 4 # vwap ohlc4 
+        typical_price = (h + l + c) / 3
         tracker.candles.append(candle)
         tracker.cum_pv += typical_price * v
         tracker.cum_vol += v
@@ -237,10 +255,19 @@ class SignalEngine:
             tracker.position_open = False
             tracker.weakness_events_on_position = 0
 
-    def square_off_all(self):
-        """Force-close any still-open paper positions (initial + any adds) at the last
-        known close, end of day."""
-        now_str = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%H:%M:%S")
+    def square_off_all(self, at_time_str: str | None = None):
+        """
+        Force-close any still-open paper positions (initial + any adds) at
+        the last known close.
+
+        at_time_str defaults to the real current wall-clock time, which is
+        correct for live use (main.py's EOD job calls this with no
+        argument). backtest.py passes the replayed day's own last-seen
+        candle time instead - without this, a backtest would stamp every
+        exit with whenever the backtest script happened to actually run,
+        not the historical trading day being replayed.
+        """
+        now_str = at_time_str or datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%H:%M:%S")
         for symbol, tracker in self.trackers.items():
             if tracker.position_open and tracker.candles:
                 last_close = tracker.candles[-1][4]

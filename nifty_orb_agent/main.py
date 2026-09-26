@@ -43,7 +43,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 import config
 from fyers_service import FyersAuthManager, FyersDataService
-from global_sentiment import fetch_global_snapshot, score_global_bias
+from global_sentiment import fetch_global_snapshot, score_global_bias, get_stock_news_ema_bias
 #from google_global_sentiment import fetch_global_snapshot, score_global_bias
 from sector_scanner import get_index_snapshot, get_sector_leaderboard
 from opening_range_scanner import scan_opening_range, scan_opening_range_accurate
@@ -147,16 +147,21 @@ def job_global_sentiment():
     logger.info("Global cues bias: %s (score %.2f) | Snapshot: %s", label, score, snapshot)
     print(f"\n=== Global Market Bias: {label} (score {score:.2f}) ===")
     print(snapshot)
-    state['global_sentiment'] = (label, score)
-    
-    from google_global_sentiment import google_fetch_global_snapshot, google_score_global_bias
-    logger.info("Running pre-market google global sentiment check...")
-    gsnapshot = google_fetch_global_snapshot()
-    glabel, gscore = google_score_global_bias(snapshot)
-    logger.info("Google Global cues bias: %s (score %.2f) | Snapshot: %s", glabel, gscore, gsnapshot)
-    print(f"\n===Google Global Market Bias: {glabel} (score {gscore:.2f}) ===")
-    print(gsnapshot)
-    state['g_global_sentiment'] = (glabel, gscore)
+
+    # NEW: Nifty 50's own combined news + EMA bias (see global_sentiment.get_stock_news_ema_bias) -
+    # complements the global-cues score above with an India-specific technical + news read.
+    # anthropic_api_key blank -> the news half is skipped automatically, EMA-only still runs.
+    nifty_bias = get_stock_news_ema_bias("^NSEI", anthropic_api_key=config.ANTHROPIC_API_KEY)
+    logger.info("Nifty 50 news+EMA bias: %s (ema=%s, news=%s)",
+                nifty_bias["combined_bias"], nifty_bias["ema_bias"], nifty_bias["news_bias"])
+    print(f"\n=== Nifty 50 News + EMA Bias: {nifty_bias['combined_bias']} ===")
+    print(f"EMA: {nifty_bias['ema_bias']} {nifty_bias['ema_detail']}")
+    if nifty_bias["news_bias"]:
+        print(f"News: {nifty_bias['news_bias']} - {nifty_bias['news_reason']}")
+        print(f"(from {len(nifty_bias['headlines_used'])} headline(s))")
+    else:
+        print("News: skipped (no ANTHROPIC_API_KEY configured, or no headlines returned)")
+
 
 def job_sector_scan(label: str = ""):
     logger.info("Running sector scan (%s)...", label or "unlabeled")

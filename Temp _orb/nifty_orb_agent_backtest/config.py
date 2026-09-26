@@ -68,6 +68,17 @@ MARKET_CLOSE_TIME = "15:30:00"
 # a late/catch-up start). See job_opening_range_scan in main.py.
 OPENING_RANGE_FAST_PATH_TOLERANCE_SECONDS = 180
 
+# Fyers' documented per-request limits for the historical /history endpoint
+# (confirmed via their own API docs and community forum, including an
+# actual -339 error for exceeding the daily one): up to 100 days per request
+# for intraday resolutions (1/2/3/5/10/15/20/30/45/60/120/180/240 min), and
+# up to ~365-366 days per request for daily ('D') resolution. backtest.py
+# chunks any longer requested range into calls no larger than these.
+# Verify against your own account/plan before relying on it for a long
+# backtest - these are Fyers-side limits that could change.
+INTRADAY_HISTORY_MAX_DAYS_PER_CHUNK = 90
+DAILY_HISTORY_MAX_DAYS_PER_CHUNK = 270
+
 # ----------------------------------------------------------------------------
 # Strategy parameters
 # ----------------------------------------------------------------------------

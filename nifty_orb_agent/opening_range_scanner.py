@@ -171,17 +171,19 @@ def load_universe(top_sectors: pd.DataFrame) -> list[str]:
         key.upper(): value for key, value in sec_symbols.items()
     }
     print(f"[SUCCESS] Successfully loaded {len(sec_symbols)} tickers from the sectors constitu")   
-    sec_symbols = scan_and_research(only_tech_scan=True, nse_symbols=nse_symbols)
+    #sec_symbols = scan_and_research(only_tech_scan=True, nse_symbols=nse_symbols)
     symbols = []
     if sec_symbols:
-        symbols = [item[symbol_col] for item in sec_symbols]
+        #symbols = [item[symbol_col] for item in sec_symbols]
+        symbols = sec_symbols.keys()
         symbols = [f"NSE:{str(s).strip()}-EQ" for s in symbols]
     return symbols
 
 
-def _today_915_window_epochs() -> tuple[int, int]:
+def _today_915_window_epochs(now) -> tuple[int, int]:
     tz = pytz.timezone(config.TIMEZONE)
-    now = datetime.now(tz)
+    #now = datetime.now(tz)
+    
     start = tz.localize(datetime(now.year, now.month, now.day, 9, 15, 0))
     end = tz.localize(datetime(now.year, now.month, now.day, 9, 20, 0))
     return int(start.timestamp()), int(end.timestamp())
@@ -194,6 +196,8 @@ def _apply_gain_filter(rows: list[dict]) -> pd.DataFrame:
                         config.MIN_GAIN_PCT, config.MAX_GAIN_PCT)
         return df
     df = df.sort_values("pct_change", ascending=False)
+    # select only grean candles 
+    df = df[df['open'] < df['close']]
     top_n = df.head(config.TOP_N_STOCKS).reset_index(drop=True)
     logger.info("Opening-range shortlist (top %d):\n%s", config.TOP_N_STOCKS, top_n.to_string(index=False))
     return top_n
@@ -241,8 +245,12 @@ def scan_opening_range_accurate(state) -> pd.DataFrame:
     where "day so far" no longer equals "the 09:15 candle".
     """
     symbols = load_universe(state['top5_gaining_sectors'])
-    from_epoch, to_epoch = _today_915_window_epochs()
-    today_str = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
+    from utilities import get_last_traded_day
+    today_str = get_last_traded_day()
+    
+    from_epoch, to_epoch = _today_915_window_epochs(datetime.strptime(today_str, "%Y-%m-%d"))
+    #today_str = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
+        
     data_service = state['data_service']
     rows = []
     for symbol in symbols:

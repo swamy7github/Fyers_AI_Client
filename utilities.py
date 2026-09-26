@@ -298,3 +298,32 @@ def get_nifty_stock_universe(session=None, url=None, csv_file_path=None):
         print(f"[ERROR] The local fallback file '{csv_file_path}' was not found in the current directory.")
 
     return nse_stock_symbols
+
+def get_last_traded_day():
+    from datetime import datetime
+    import pytz
+    import pandas_market_calendars as mcal
+
+    # 1. Get today's date
+    tz = pytz.timezone("Asia/Kolkata")
+    today_str = datetime.now(tz).strftime("%Y-%m-%d")
+
+    # 2. Fetch the market calendar (e.g., NYSE, NASDAQ, LSE)
+    nyse = mcal.get_calendar('NSE')
+
+    # 3. Look back slightly further than today to catch holidays/weekends
+    schedule = nyse.schedule(start_date='2020-01-01', end_date=today_str)
+
+    # 4. Get the last valid trading day before or including today
+    # (Filter out today if the market hasn't closed/opened yet, or keep it if it's currently a trading day)
+    valid_days = schedule.index.strftime('%Y-%m-%d').tolist()
+
+    # If today is in the list but you specifically want the PREVIOUS completed session:
+    #if today_str in valid_days:
+    #    valid_days.remove(today_str)
+
+    last_traded_str = valid_days[-1]
+    return last_traded_str
+
+if __name__ == "__main__":
+    print(f"{get_last_traded_day()}")

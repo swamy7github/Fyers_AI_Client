@@ -260,6 +260,30 @@ class FyersDataService:
         logger.info("Fetched %d x 5-min candle(s) for %s on %s.", len(candles), symbol, date_str)
         return candles
 
+    def get_candles_range(self, symbol: str, resolution: str, range_from_date: str, range_to_date: str) -> list:
+        """
+        Generic historical range fetch using date-string range_from/range_to
+        (YYYY-MM-DD, date_format=1) - works for both intraday resolutions
+        ('5', '15', ...) and daily ('D'). Used by backtest.py to pull a
+        symbol's full history for a date range in as few calls as possible.
+
+        Fyers caps how far a single call can span - see
+        config.INTRADAY_HISTORY_MAX_DAYS_PER_CHUNK and
+        config.DAILY_HISTORY_MAX_DAYS_PER_CHUNK. This method does NOT chunk
+        for you; callers requesting a longer range should split it
+        themselves (backtest.py does this) - exceeding the limit here
+        raises via _call_with_retry after Fyers returns an error response.
+        """
+        data = {
+            "symbol": symbol, "resolution": resolution, "date_format": "1",
+            "range_from": range_from_date, "range_to": range_to_date, "cont_flag": "1",
+        }
+        response = self._call_with_retry(self.client.history, data=data)
+        candles = response.get("candles", [])
+        logger.info("Fetched %d %s-resolution candle(s) for %s (%s to %s).",
+                    len(candles), resolution, symbol, range_from_date, range_to_date)
+        return candles
+
     def get_previous_close(self, symbol: str) -> float | None:
         """Fetches the previous trading day's daily close, used for gain% calculations."""
         data = {
