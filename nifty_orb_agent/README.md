@@ -39,13 +39,18 @@ scoring with an optional Claude-powered read on qualitative news.
 | `global_sentiment.py` | Global bullish/bearish scoring + optional Claude-based news sentiment |
 | `sector_scanner.py` | 09:10 / 09:16 sector strength/weakness snapshot, queried directly from NSE index symbols |
 | `opening_range_scanner.py` | Filters the universe by sector, then builds the top-5 opening-range gainer shortlist |
-| `signal_engine.py` | VWAP + volume-MA(20) buy/sell logic, trade book, P&L; `feed_candle()` is the public replay entry point backtest.py uses |
-| `main.py` | Wires it all together with APScheduler, including late-startup catch-up |
+| `signal_engine.py` | VWAP + volume-MA(20) candle logic, tick-level SL/target/trailing-SL (`check_tick_for_exit`), broker position adoption (`adopt_broker_position`); `feed_candle()` is the shared replay/live entry point both `backtest.py` and `bootstrap.py` use |
+| `bootstrap.py` | Market-phase detection + the late-startup catch-up pipeline: `bootstrap_and_catchup()`, historical replay, broker reconciliation — see "Late-startup catch-up" below |
+| `live_tick_stream.py` | WebSocket tick feed → `SignalEngine.check_tick_for_exit()` hand-off — see "Live hand-off" below |
+| `main.py` | Wires it all together with APScheduler; calls `bootstrap_and_catchup()` once at startup, then runs the ongoing 5-min candle checks and starts `LiveTickStream` |
 | `backtest.py` | Replays the same live strategy against historical data over a date range; run with `python backtest.py --start ... --end ...` |
 | `backtest_strategy_picks.py` | Separate tool: backtests an external daily stock-picks CSV (buy-at-open/sell-at-close, equal-weight) — see "Backtesting an external daily stock-picks strategy" below |
 | `test_backtest_strategy_picks.py` | Tests for the above, including hand-verified tear-sheet math |
+| `test_signal_engine.py` | Tests for tick-level SL/target/trailing-SL, broker position adoption, and the `is_backfill` gate |
+| `test_bootstrap.py` | Tests for historical replay, broker reconciliation, and a full end-to-end `bootstrap_and_catchup()` run |
+| `test_live_tick_stream.py` | Tests for tick routing/validation, without a real WebSocket |
 | `build_sector_map.py` | Optional: builds a per-STOCK sector tag file from NSE data, if you want that for something other than the sector leaderboard (see note below) |
-| `test_updates.py` | Standalone tests for sector/universe filtering and the late-startup scheduler decisions |
+| `test_updates.py` | Standalone tests for sector/universe filtering and market-phase detection |
 | `data/ind_nifty500list.csv` | **You provide this** — Nifty 500 constituents (see below) |
 | `data/sector_index_map.csv` | Reference list of NSE index symbols (sector + broader-market + VIX + G-Sec), an editable `is_sector_index` flag, and a `sector` column used for universe filtering — ships pre-filled, verify against your Fyers account and your `Industry` text (see below) |
 | `.env.example` | Template for your credentials |
@@ -128,47 +133,116 @@ scoring with an optional Claude-powered read on qualitative news.
    python test_updates.py
    ```
 
-## Late-startup catch-up
+## Late-startup catch-up (bootstrap.py)
 
-If `main.py` starts mid-session instead of before market open, the jobs
-whose scheduled time has already passed today no longer just sit idle until
-tomorrow's cron trigger:
+If the process starts mid-session instead of before market open,
+`bootstrap.bootstrap_and_catchup()` — called once at the top of `main.main()`,
+before the scheduler starts — handles it as a single, ordered pipeline
+rather than the previous per-job `next_run_time` patching this project used
+in an earlier iteration:
 
-- **Before market hours** (e.g. started at 08:00): no catch-up — the normal
-  cron schedule handles everything as usual.
-- **Mid-session** (e.g. started at 10:00): the post-open sector scan and the
-  opening-range scan both run immediately, once — the opening-range scan
-  automatically uses the slower-but-always-correct historical-candle method
-  instead of its normal quotes shortcut (see the next paragraph for why),
-  since "day so far" no longer equals "the 09:15 candle" this late. A signal
-  check then also runs immediately.
-- **After market close** (e.g. started at 16:00): no catch-up — there's
-  nothing useful left to do today.
-- **A narrower edge case worth knowing**: if you start between the 15:10
-  signal-checking cutoff and the 15:30 market close, the market is
-  technically still open, but a fresh opening-range/sector catch-up is
-  deliberately skipped — starting a brand-new tracked position minutes
-  before close, after today's square-off trigger has already fired (or been
-  skipped) uneventfully, would leave that position with nothing to close it
-  out. See `_within_signal_window()`'s docstring in `main.py` for the exact
-  reasoning.
+1. **Market phase detection** (`detect_market_phase`): `PRE_OPEN` (before
+   09:15), `POST_OPEN` (09:15–15:30), or `POST_CLOSE` (after 15:30 or a
+   weekend) — weekday + time-of-day only, no NSE holiday calendar.
+   - `PRE_OPEN` → logs and returns immediately; the normal cron schedule in
+     `main.py` handles everything from here.
+   - `POST_CLOSE` → logs and exits; nothing useful left to do today.
+   - `POST_OPEN` **but past the 15:10 signal-checking cutoff**
+     (`_within_signal_window` is `False`) → also returns immediately,
+     deliberately more conservative than a plain "is the market open" check:
+     starting a brand-new tracked position minutes before close, after
+     today's square-off trigger has already fired uneventfully, would leave
+     that position with nothing to close it out.
+2. **Sector/breadth snapshot + gap-up screen**: `sector_scanner.get_index_snapshot()` /
+   `compute_market_breadth()`, then `opening_range_scanner.scan_opening_range_accurate()`
+   — always the historical-candle path here, never the quotes shortcut
+   (which is only valid within ~3 minutes of 09:20:02 and would silently
+   return wrong numbers at any other time).
+3. **Historical replay** (`_replay_intraday_history`): every fully-closed
+   5-minute candle from 09:15 up to now, for every shortlisted symbol, fed
+   through the *exact same* `SignalEngine.feed_candle()` used for live
+   candles — same VWAP accumulation, same volume-MA warm-up, same
+   2-consecutive-candle BUY/weakness-event logic — with `is_backfill=True`.
+   That flag does exactly one thing: it stops `_maybe_place_live_order()`
+   from ever placing a real order for a signal reconstructed from history
+   (the entry price has likely moved on by now) — it does *not* change
+   whether the signal fires, so a reconstructed BUY still opens
+   `position_open=True` and is still fully risk-managed (stop-loss/target/
+   trailing-SL) going forward from this point.
+4. **Broker reconciliation** (`_reconcile_broker_state`): fetches the
+   broker's actual open positions and adopts/clears local state to match —
+   see "Broker position sync" below.
+5. Returns a `BootstrapResult` (phase, populated `SignalEngine` or `None`,
+   sector leaderboard, market breadth) that `main.py` hands off to the
+   ongoing 5-minute candle-check scheduler and to `LiveTickStream` for
+   tick-level risk management from this point forward.
 
-Two mechanisms work together here, not one: an explicit, controlled
-one-time catch-up at startup (`scheduler.add_job(..., next_run_time=...)`,
-gated by the pure decision functions in `main.py`), plus
-`coalesce=True` + `max_instances=1` on every recurring job as an ongoing
-safety net for transient delays *while the process is already running*
-(e.g. a slow API call briefly blocking the loop) — so a short delay never
-causes a burst of every individually-missed 5-minute slot firing back to
-back. `test_updates.py` covers the decision functions directly with
-injected timestamps for all of the scenarios above, without needing a real
-clock or a live APScheduler run.
+`coalesce=True` + `max_instances=1` on every recurring APScheduler job
+remain as a *separate*, ongoing safety net for transient delays while the
+process is already running (a slow API call briefly blocking the loop) —
+not the mechanism for the initial late start, which bootstrap.py now
+handles explicitly and in the correct order.
 
-This does not account for NSE trading holidays (a stock exchange holiday
-calendar is a separate concern this scaffold doesn't cover) — it only
-checks weekday + time-of-day.
+## Broker position sync
 
-## Stop-loss, position sizing, and the "weakness event" rule
+`_reconcile_broker_state()` (in `bootstrap.py`, using
+`FyersDataService.get_positions()`) is what closes the single biggest gap
+in a **history-replay-only** catch-up: replay reconstructs what *should*
+have happened from candles, but it can't know about a position that
+already exists at the broker for another reason (the process crashed and
+restarted mid-day with a real position still open, or was started against
+an account with a manual trade already in it). Reconciliation runs after
+replay and always lets broker truth win:
+- Broker shows a position replay didn't reconstruct → **adopt** it
+  (`SignalEngine.adopt_broker_position()`), using the broker's real average
+  price and quantity, immediately under full stop-loss/target/trailing-SL
+  management.
+- Replay reconstructed a position the broker doesn't confirm → **clear**
+  it locally rather than manage a position that doesn't actually exist.
+- Both agree → left untouched (replay's own entry price is kept, not
+  second-guessed).
+- Broker API call fails → logged, replay-only state is kept as a fallback,
+  and it says so explicitly — verify manually against your broker terminal
+  before trusting that session with live orders.
+- A broker position in a symbol outside today's shortlist is logged, not
+  adopted (out of scope for this engine — you still hold it for real;
+  manage it separately).
+
+## Live hand-off (live_tick_stream.py)
+
+Once `bootstrap_and_catchup()` returns a populated engine, `main.py` starts
+`LiveTickStream`, a thin wrapper around Fyers' WebSocket tick feed
+(`fyers_apiv3.FyersWebsocket.data_ws`) that routes every tick for a tracked
+symbol straight into `SignalEngine.check_tick_for_exit()` — fast,
+tick-level stop-loss/target/trailing-SL, quicker to react than the 5-minute
+candle-close weakness-event checks. This is a genuinely new capability, not
+a rename of the existing 5-minute REST polling: the two run *alongside*
+each other — 5-minute candles still drive BUY/weakness-event detection,
+ticks drive the tighter risk exits once a position is open. Testable
+without a real socket via `on_tick_override` (see `test_live_tick_stream.py`);
+verify the tick message field names (`symbol`, `ltp`) against your installed
+`fyers_apiv3` version before relying on this — broker WebSocket message
+shapes are exactly the kind of thing that changes between SDK versions.
+
+## Stop-loss, target, and trailing-SL (tick-level)
+
+`SignalEngine.check_tick_for_exit()` runs on every tick for an open
+position: `config.STOP_LOSS_PCT` / `TARGET_PCT` / `TRAILING_SL_PCT` (all %
+from entry, trailing measured from the highest price seen since entry, not
+from entry). One property worth knowing, confirmed by
+`test_signal_engine.py` rather than assumed: on the tick that first sets a
+new high, the trailing-stop level is always strictly below that new high
+(`new_high × (1 - trail%) < new_high`), so the stop check can never
+preempt the target check on that same tick — meaning **target is
+effectively a hard ceiling**, however large a single move is; the trailing
+stop can never "overtake" an unreached target on the way up. An initial
+hypothesis that it could was tested directly and found to be wrong before
+this was documented as fact — see that test's docstring for the full
+reasoning. `config.DRY_RUN=True` (default) logs every exit instead of
+placing it; flipping it to `False` reaches a clearly-marked
+`[LIVE ORDER PLACEHOLDER]` log line, not a real order — `fyers.place_order()`
+itself is intentionally not wired in yet (see `_maybe_place_live_order`'s
+TODO in `signal_engine.py`).
 
 ## Backtesting
 
@@ -324,7 +398,9 @@ your `yfinance` version before relying on it; and this is a second
 heuristic layered on top of `score_global_bias()`'s global-cues score, not
 a replacement for it - both are informational, neither gates a trade.
 
-On top of the original single-candle exit, the engine now uses one shared
+## Candle-level position sizing: the "weakness event" add/square-off rule
+
+On top of the original single-candle exit, the engine uses one shared
 detector for both adding to a position and stopping it out:
 
 - **Weakness event** = two *consecutive* candles that each close below VWAP

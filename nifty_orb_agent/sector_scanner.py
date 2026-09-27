@@ -185,3 +185,50 @@ def scan_sectors(data_service: FyersDataService) -> pd.DataFrame:
         logger.info("Top gaining sectors:\n%s", leaderboard.head(5).to_string(index=False))
         logger.info("Top losing sectors:\n%s", leaderboard.tail(5).to_string(index=False))
     return leaderboard
+
+
+def compute_market_breadth(data_service: FyersDataService, symbols: list[str]) -> dict:
+    """
+    Advance/decline market breadth across `symbols` (typically the same
+    universe opening_range_scanner.load_universe() filters to), using each
+    stock's day-so-far quote (current price vs previous close) - one
+    batched /quotes call per ~50 symbols, same approach as everywhere else
+    in this module, so this costs about one more round of calls, not one
+    call per symbol.
+
+    Returns a dict with advancers/decliners/unchanged counts and an
+    advance/decline ratio (None if there's no data at all, float('inf') if
+    there are advancers but zero decliners).
+    """
+    if not symbols:
+        return {"advancers": 0, "decliners": 0, "unchanged": 0,
+                "total_with_data": 0, "universe_size": 0, "advance_decline_ratio": None}
+
+    quote_lookup = data_service.get_quotes_batched(symbols)
+    advancers = decliners = unchanged = 0
+    for symbol in symbols:
+        quote = quote_lookup.get(symbol)
+        if not quote:
+            continue
+        prev_close = quote.get("prev_close_price")
+        ltp = quote.get("lp")
+        if not prev_close or ltp is None:
+            continue
+        if ltp > prev_close:
+            advancers += 1
+        elif ltp < prev_close:
+            decliners += 1
+        else:
+            unchanged += 1
+
+    total_with_data = advancers + decliners + unchanged
+    if decliners:
+        ratio = round(advancers / decliners, 2)
+    else:
+        ratio = float("inf") if advancers else None
+
+    return {
+        "advancers": advancers, "decliners": decliners, "unchanged": unchanged,
+        "total_with_data": total_with_data, "universe_size": len(symbols),
+        "advance_decline_ratio": ratio,
+    }

@@ -48,6 +48,20 @@ import config
 
 logger = logging.getLogger("orb_agent.fyers_service")
 
+# Fyers doesn't document one single consistent field for "this was a rate-limit
+# rejection specifically" - different endpoints have been observed returning this as
+# an HTTP 429, or as a normal {"s": "error", ...} response body with a message
+# mentioning it. This checks the message text defensively; verify against what your
+# own account actually gets back (log a raw rejected response once) rather than
+# trusting this exhaustively - a message-text check is inherently a little fragile.
+_RATE_LIMIT_MESSAGE_MARKERS = ("rate limit", "too many request", "429")
+
+
+def _looks_like_rate_limit_error(response: dict) -> bool:
+    message = str(response.get("message", "")).lower()
+    code = response.get("code")
+    return any(marker in message for marker in _RATE_LIMIT_MESSAGE_MARKERS) or code == 429
+
 
 class RateLimiter:
     """
@@ -199,13 +213,40 @@ class FyersDataService:
         )
         self._rate_limiter = RateLimiter(config.FYERS_MAX_CALLS_PER_SECOND)
 
-    def _call_with_retry(self, fn, *args, **kwargs):
+    def _call_with_retry(self, fn, *args, rate_limit_max_retries: int | None = None, **kwargs):
+        """
+        rate_limit_max_retries: when Fyers' response looks like a rate-limit
+        rejection specifically (as opposed to any other error), retry up to
+        this many times with its OWN exponential backoff, separate from the
+        generic API_MAX_RETRIES/linear-backoff path below. Defaults to
+        config.RATE_LIMIT_MAX_RETRIES. This matters most for the morning
+        bulk historical fetch (see get_candles_bulk()): the proactive
+        RateLimiter above should prevent most 429s outright, but if the
+        account is also used elsewhere at the same time (another script, a
+        live WebSocket, the broker's own app), a rejection can still slip
+        through - a fixed short linear backoff often isn't enough time for
+        a per-minute-style limit to actually clear, where a longer
+        exponential one is.
+        """
+        rate_limit_max_retries = (config.RATE_LIMIT_MAX_RETRIES if rate_limit_max_retries is None
+                                   else rate_limit_max_retries)
         last_exc = None
+        rate_limit_attempt = 0
+
         for attempt in range(1, config.API_MAX_RETRIES + 1):
             try:
                 self._rate_limiter.acquire()  # blocks briefly if we're at the per-second cap
                 response = fn(*args, **kwargs)
                 if isinstance(response, dict) and response.get("s") == "error":
+                    if _looks_like_rate_limit_error(response) and rate_limit_attempt < rate_limit_max_retries:
+                        rate_limit_attempt += 1
+                        backoff = config.RATE_LIMIT_BACKOFF_BASE_SECONDS * (2 ** (rate_limit_attempt - 1))
+                        logger.warning("Rate-limit-style rejection from Fyers (attempt %d/%d for this call): "
+                                       "%s - backing off %.1fs before retrying.",
+                                       rate_limit_attempt, rate_limit_max_retries,
+                                       response.get("message", response), backoff)
+                        time.sleep(backoff)
+                        continue  # doesn't consume one of the generic API_MAX_RETRIES attempts
                     raise RuntimeError(response.get("message", "Unknown Fyers API error"))
                 # logger.info(f" {response}")
                 return response
@@ -302,3 +343,98 @@ class FyersDataService:
             logger.warning("Not enough daily candles to determine previous close for %s.", symbol)
             return None
         return candles[-2][4]  # candles[-1] is today (still forming); candles[-2] is the prior close
+
+    # ------------------------------------------------------------------
+    # Broker state sync (positions / pending orders)
+    # ------------------------------------------------------------------
+    def get_positions(self) -> list[dict]:
+        """
+        Returns Fyers' own reported list of current net positions (the
+        'netPositions' entries from their /positions response) - the source
+        of truth for "do I already hold this for real", used by
+        bootstrap.py to reconcile a late-started process's local state
+        against reality before doing anything else with a symbol that
+        looks like it has an open setup.
+        """
+        response = self._call_with_retry(self.client.positions)
+        positions = response.get("netPositions", []) if isinstance(response, dict) else []
+        logger.info("Fetched %d broker position(s).", len(positions))
+        return positions
+
+    def get_orders(self) -> list[dict]:
+        """Returns Fyers' own reported order book for today (all statuses) - pending
+        orders matter for catch-up too: an order placed just before a crash/restart
+        may still be sitting live at the broker even though this process forgot about it."""
+        response = self._call_with_retry(self.client.orderbook)
+        orders = response.get("orderBook", []) if isinstance(response, dict) else []
+        logger.info("Fetched %d broker order(s).", len(orders))
+        return orders
+
+    # ------------------------------------------------------------------
+    # Bulk historical fetch, for the morning catch-up/warm-up pipeline
+    # ------------------------------------------------------------------
+    def get_candles_bulk(self, symbols: list[str], resolution: str,
+                          range_from_date: str, range_to_date: str,
+                          max_days_per_chunk: int | None = None) -> dict[str, list]:
+        """
+        Fetches `resolution` candles for MANY symbols over the same date
+        range, one get_candles_range() call per (symbol, chunk) - chunked
+        via config.INTRADAY_HISTORY_MAX_DAYS_PER_CHUNK /
+        DAILY_HISTORY_MAX_DAYS_PER_CHUNK (same limits backtest.py uses).
+
+        This is the "prevent rate limits when fetching morning historical
+        data in bulk" entry point: every call already goes through
+        RateLimiter (proactive throttling) AND _call_with_retry's
+        rate-limit-specific exponential backoff (reactive, if a rejection
+        slips through anyway). On top of that, ONE symbol failing
+        permanently (all retries exhausted) does NOT abort the whole bulk
+        fetch - it's logged and that symbol comes back with an empty list,
+        so 499 good symbols aren't held hostage by 1 bad one.
+
+        Returns {symbol: [[epoch, o, h, l, c, v], ...]} - symbols with no
+        data (permanently failed, or genuinely no candles in range) map to
+        an empty list, never a missing key, so callers can always safely
+        index by symbol without a KeyError.
+        """
+        if resolution == "D":
+            chunk_days = max_days_per_chunk or config.DAILY_HISTORY_MAX_DAYS_PER_CHUNK
+        else:
+            chunk_days = max_days_per_chunk or config.INTRADAY_HISTORY_MAX_DAYS_PER_CHUNK
+
+        start = datetime.strptime(range_from_date, "%Y-%m-%d").date()
+        end = datetime.strptime(range_to_date, "%Y-%m-%d").date()
+        chunks: list[tuple[date, date]] = []
+        chunk_start = start
+        while chunk_start <= end:
+            chunk_end = min(chunk_start + timedelta(days=chunk_days - 1), end)
+            chunks.append((chunk_start, chunk_end))
+            chunk_start = chunk_end + timedelta(days=1)
+
+        results: dict[str, list] = {}
+        failed_symbols: list[str] = []
+        for idx, symbol in enumerate(symbols, start=1):
+            symbol_candles: list = []
+            symbol_failed = False
+            for chunk_start_d, chunk_end_d in chunks:
+                try:
+                    symbol_candles.extend(self.get_candles_range(
+                        symbol, resolution, str(chunk_start_d), str(chunk_end_d)))
+                except Exception as exc:
+                    # get_candles_range already retried (generic + rate-limit-specific)
+                    # internally via _call_with_retry - this is a genuine, final failure
+                    # for this one chunk. Log it and move on rather than losing every
+                    # other symbol's data too.
+                    logger.error("Giving up on %s [%s, %s] after all retries: %s",
+                                 symbol, chunk_start_d, chunk_end_d, exc)
+                    symbol_failed = True
+            results[symbol] = symbol_candles
+            if symbol_failed:
+                failed_symbols.append(symbol)
+            if idx % 50 == 0 or idx == len(symbols):
+                logger.info("Bulk historical fetch progress: %d/%d symbols.", idx, len(symbols))
+
+        if failed_symbols:
+            logger.warning("Bulk historical fetch: %d/%d symbol(s) had at least one permanently "
+                            "failed chunk (partial or no data for them): %s",
+                            len(failed_symbols), len(symbols), failed_symbols)
+        return results

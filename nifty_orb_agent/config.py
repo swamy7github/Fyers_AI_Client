@@ -130,6 +130,16 @@ MAX_POSITION_ADDS = 1
 API_MAX_RETRIES = 3
 API_RETRY_BACKOFF_SECONDS = 2
 
+# Rate-limit-SPECIFIC retry handling (see fyers_service._looks_like_rate_limit_error),
+# separate from the generic linear-backoff retries above - a rejection that's
+# genuinely "you're being rate limited" warrants more attempts with an exponentially
+# growing wait, since a short fixed backoff often isn't enough for a per-minute-style
+# limit to actually clear. This matters most during the morning bulk historical fetch
+# (fyers_service.FyersDataService.get_candles_bulk), where many symbols are fetched
+# back-to-back right after market open.
+RATE_LIMIT_MAX_RETRIES = 5
+RATE_LIMIT_BACKOFF_BASE_SECONDS = 3  # doubles each attempt: 3s, 6s, 12s, 24s, 48s
+
 # Fyers caps API calls per second per account/plan (you mentioned 9/sec for
 # yours). Every single call FyersDataService makes - quotes, history,
 # retries included - goes through fyers_service.RateLimiter using this
@@ -148,3 +158,18 @@ QUOTES_BATCH_SIZE = 50
 # paper-traded the logic for a good stretch and understand the risk involved
 # (see README "Before you go live").
 DRY_RUN = True
+
+# Placeholder order size used by SignalEngine._maybe_place_live_order()'s log
+# messages and, once you wire in a real order call, its qty= parameter. This
+# project has never done capital-based position sizing (see
+# backtest_strategy_picks.py for that, in a different tool) - replace this
+# with real sizing logic before DRY_RUN = False means anything.
+DEFAULT_ORDER_QTY = 1
+
+# ---- Tick-level stop-loss / target / trailing stop-loss ----
+# Separate from the 5-min-candle-close weakness-event exit in signal_engine.py -
+# these are checked on every incoming tick (see live_tick_stream.py), for faster
+# reaction than waiting for a candle to close. All as a % of the entry price.
+STOP_LOSS_PCT = 1.0        # exit if price falls this far below entry
+TARGET_PCT = 2.0           # exit if price rises this far above entry
+TRAILING_SL_PCT = 1.0      # once in profit, trail the stop this far below the highest price seen

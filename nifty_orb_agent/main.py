@@ -1,32 +1,35 @@
 """
 main.py
 --------
-Entry point. Wires together auth, data, sentiment, sector scan, opening-range
-scan and the signal engine, and schedules everything with APScheduler in IST.
+Entry point. Auth, one-shot bootstrap/catch-up, then hands off to the
+scheduler (for 5-min candle-level checks and the day's remaining one-off
+jobs) and the live tick WebSocket (for fast stop-loss/target/trailing-SL).
 
 Run with:  python main.py
 Stop with: Ctrl+C
 
-Timeline it sets up (weekdays only):
-  09:10:00        -> sector strength/weakness snapshot (pre-open, likely stale)
-  09:16:00        -> sector strength/weakness snapshot (post-open, real numbers)
-  09:20:02        -> opening-range scan -> builds the top-5 shortlist
-  every 5 min     -> signal engine checks each shortlisted stock's latest candle
-  15:10:00        -> stop looking for new signals
-  15:10:30        -> square off any open paper positions, print + save trade book
-
-Late-startup catch-up
------------------------
-If the process is started mid-session (e.g. 10:00 instead of before 09:00),
-the jobs above whose scheduled time has already passed today would
-otherwise sit idle until tomorrow's cron trigger. See _is_market_open_now(),
-_within_signal_window() and the _should_catch_up_* helpers below: each
-one-off job is given an immediate next_run_time on startup if its scheduled
-time has already passed AND we're still within a window where running it
-late is actually useful - see each helper's docstring for the exact
-reasoning, particularly around why the opening-range/sector catch-up is
-gated more conservatively than the plain "market is open" check used for
-job_check_signals itself.
+Startup flow
+-------------
+1. Authenticate, build the data service.
+2. Run the pre-market global sentiment check (informational, always runs once).
+3. bootstrap.bootstrap_and_catchup() - the ONE place that decides what phase
+   the market is in and, if started mid-session, synchronously does
+   EVERYTHING needed to start seamlessly from "now": sector/breadth
+   snapshot, gap-up shortlist, full 9:15-to-now candle replay, and broker
+   position/order reconciliation. See bootstrap.py's module docstring for
+   why this all needs to happen as one atomic step rather than the
+   scattered per-job catch-up main.py used before this file existed.
+4. If the market is closed, log why and exit - nothing left to do today.
+5. If bootstrap produced a signal engine (either because it caught up
+   mid-session, or because a previous run already had one - it doesn't,
+   since this is a fresh process, but the point stands for anything built
+   later that reuses this), start the live tick WebSocket for it
+   immediately, before anything else.
+6. Schedule the recurring/remaining jobs. Because bootstrap already handled
+   catch-up as a one-time synchronous step, there's no next_run_time
+   trickery needed here anymore - the one-off jobs just use their normal
+   cron times, which correctly resolve to "tomorrow" via APScheduler's own
+   semantics if today's occurrence has already passed.
 """
 
 from __future__ import annotations
@@ -42,8 +45,10 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 import config
+from bootstrap import MarketPhase, _time_from_hms, bootstrap_and_catchup
 from fyers_service import FyersAuthManager, FyersDataService
 from global_sentiment import fetch_global_snapshot, score_global_bias, get_stock_news_ema_bias
+from live_tick_stream import LiveTickStream
 #from google_global_sentiment import fetch_global_snapshot, score_global_bias
 from sector_scanner import get_index_snapshot, get_sector_leaderboard
 from opening_range_scanner import scan_opening_range, scan_opening_range_accurate
@@ -72,18 +77,12 @@ logger = logging.getLogger("orb_agent.main")
 TZ = pytz.timezone(config.TIMEZONE)
 
 # Shared mutable state the scheduled jobs read/write
-state = {"data_service": None, "signal_engine": None, "top5_gaining_sectors": None,
-         "top5_losing_sectors": None, "global_sentiment":tuple()}
+state = {"data_service": None, "signal_engine": None,
+		 "top5_gaining_sectors": None,
+         "top5_losing_sectors": None, "global_sentiment":tuple(),
+         "live_tick_stream": None}
 
 
-# ----------------------------------------------------------------------------
-# Pure time-decision helpers - deliberately take `now` as a parameter (rather
-# than calling datetime.now() internally) so they're independently testable
-# with injected timestamps. See test_updates.py.
-# ----------------------------------------------------------------------------
-def _time_from_hms(hms: str) -> dt_time:
-    h, m, s = map(int, hms.split(":"))
-    return dt_time(h, m, s)
 
 
 def _cron_from_hms(hms: str) -> CronTrigger:
@@ -94,44 +93,11 @@ def _cron_from_hms(hms: str) -> CronTrigger:
 #    return CronTrigger(hour=h, minute=m, second=s, day_of_week="mon-fri", timezone=TZ)
 
 
-def _is_market_open_now(now: datetime) -> bool:
-    """Weekday + within MARKET_OPEN_TIME..MARKET_CLOSE_TIME. Does NOT check NSE
-    trading holidays - see the caveat in config.py next to MARKET_OPEN_TIME."""
-    if now.weekday() >= 5:  # Saturday=5, Sunday=6
-        return False
-    return _time_from_hms(config.MARKET_OPEN_TIME) <= now.time() <= _time_from_hms(config.MARKET_CLOSE_TIME)
-
-
-def _within_signal_window(now: datetime) -> bool:
-    """Market open AND not yet past the signal-checking cutoff. Deliberately
-    narrower than _is_market_open_now(): this gates whether it's worth
-    bootstrapping a FRESH opening-range shortlist / signal-tracking position
-    on a late start. Creating a brand-new tracked position minutes before
-    close, after the day's SQUARE_OFF_TIME cron trigger has already fired
-    (or been skipped) uneventfully, would leave that position with no
-    square-off safety net for the rest of the day - so we simply don't
-    start anything new once we're past SIGNAL_ENGINE_LAST_RUN, even though
-    the market is technically still open."""
-    return _is_market_open_now(now) and now.time() <= _time_from_hms(config.SIGNAL_ENGINE_LAST_RUN)
-
-
-def _should_catch_up_sector_postopen(now: datetime) -> bool:
-    return _within_signal_window(now) and now.time() >= _time_from_hms(config.SECTOR_SCAN_TIME_POSTOPEN)
-
-
-def _should_catch_up_opening_range(now: datetime) -> bool:
-    return _within_signal_window(now) and now.time() >= _time_from_hms(config.OPENING_RANGE_SCAN_TIME)
-
-
-def _should_run_immediate_signal_check(now: datetime) -> bool:
-    # Deliberately the broader "market is open" check, matching the literal spec
-    # ("if started within trading hours, execute job_check_signals() immediately").
-    # job_check_signals() already no-ops internally once past SIGNAL_ENGINE_LAST_RUN,
-    # so firing it late/uselessly in the 15:10-15:30 window is harmless.
-    return _is_market_open_now(now)
-
 
 def _should_use_fast_opening_range_path(now: datetime) -> bool:
+    """job_opening_range_scan() only fires via its normal 09:20:02 cron trigger now (see
+    module docstring) - this stays as a safety net for the rare case where coalesce/
+    misfire_grace_time lets it fire a little late, e.g. under transient runtime delay."""
     t = _time_from_hms(config.OPENING_RANGE_SCAN_TIME)
     scheduled = now.replace(hour=t.hour, minute=t.minute, second=t.second, microsecond=0)
     return abs((now - scheduled).total_seconds()) <= config.OPENING_RANGE_FAST_PATH_TOLERANCE_SECONDS
@@ -148,9 +114,6 @@ def job_global_sentiment():
     print(f"\n=== Global Market Bias: {label} (score {score:.2f}) ===")
     print(snapshot)
 
-    # NEW: Nifty 50's own combined news + EMA bias (see global_sentiment.get_stock_news_ema_bias) -
-    # complements the global-cues score above with an India-specific technical + news read.
-    # anthropic_api_key blank -> the news half is skipped automatically, EMA-only still runs.
     nifty_bias = get_stock_news_ema_bias("^NSEI", anthropic_api_key=config.ANTHROPIC_API_KEY)
     logger.info("Nifty 50 news+EMA bias: %s (ema=%s, news=%s)",
                 nifty_bias["combined_bias"], nifty_bias["ema_bias"], nifty_bias["news_bias"])
@@ -170,7 +133,6 @@ def job_sector_scan(label: str = ""):
         return
 
     leaderboard = get_sector_leaderboard(snapshot)
-     
     if not leaderboard.empty:
         print("\n=== Top Gaining Sectors ===")
         state["top5_gaining_sectors"] = leaderboard.head(5)
@@ -187,7 +149,16 @@ def job_sector_scan(label: str = ""):
         print(context[["index_name", "ltp", "pct_change"]].to_string(index=False))
 
 
-def job_opening_range_scan():
+def _start_live_tick_stream(access_token: str, engine: SignalEngine) -> None:
+    stream = LiveTickStream(access_token, engine)
+    state["live_tick_stream"] = stream
+    stream.start()
+    logger.info("Live tick stream started for %d tracked symbol(s).", len(engine.trackers))
+
+
+def job_opening_range_scan(access_token: str):
+    """Only fires via its normal 09:20:02 cron trigger now - see main()'s docstring for why
+    the mid-session catch-up path no longer needs to call this directly."""
     now = datetime.now(TZ)
     if _should_use_fast_opening_range_path(now):
         logger.info("Running opening-range scan (on-time, quotes-proxy path)...")
@@ -195,20 +166,18 @@ def job_opening_range_scan():
             job_sector_scan()
         shortlist = scan_opening_range(state)
     else:
-        logger.info("Running opening-range scan (late/catch-up start at %s IST - using the "
-                    "slower but always-correct historical-candle path instead of the "
-                    "quotes-proxy shortcut, which is only valid right at %s)...",
-                    now.strftime("%H:%M:%S"), config.OPENING_RANGE_SCAN_TIME)
-        if state["top5_gaining_sectors"] is None:
-            job_sector_scan()
+        logger.info("Running opening-range scan (fired late at %s IST - using the "
+                    "slower but always-correct historical-candle path)...", now.strftime("%H:%M:%S"))
         shortlist = scan_opening_range_accurate(state)
 
     if shortlist.empty:
         logger.warning("No stocks matched the opening-range gain filter today.")
         return
-    state["signal_engine"] = SignalEngine(state["data_service"], shortlist)
+    engine = SignalEngine(state["data_service"], shortlist)
+    state["signal_engine"] = engine
     print(f"\n=== Opening Range Shortlist (Top {config.TOP_N_STOCKS}) ===")
     print(shortlist.to_string(index=False))
+    _start_live_tick_stream(access_token, engine)
 
 
 def job_check_signals():
@@ -232,6 +201,9 @@ def job_square_off_and_report():
         return
 
     engine.square_off_all()
+    if state["live_tick_stream"] is not None:
+        state["live_tick_stream"].stop()
+
     df = engine.trade_book.as_dataframe()
     summary = engine.trade_book.summary()
 
@@ -246,7 +218,7 @@ def job_square_off_and_report():
 
 
 # ----------------------------------------------------------------------------
-# Scheduler wiring
+# Bootstrap + scheduler wiring
 # ----------------------------------------------------------------------------
 def main():
     logger.info("Starting ORB scanning agent (DRY_RUN=%s)...", config.DRY_RUN)
@@ -266,76 +238,49 @@ def main():
 
     state["data_service"] = FyersDataService(access_token=fyres.token)
 
-    # One-off, informational: run once immediately regardless of the clock
     job_global_sentiment()
-    job_sector_scan()
-    job_opening_range_scan()
-    job_check_signals()
-    now = datetime.now(TZ)
-    if not _is_market_open_now(now):
-        logger.info("Starting outside trading hours (%s IST) - no catch-up needed, "
-                    "the regular cron schedule below will handle everything.",
-                    now.strftime("%H:%M:%S"))
-    elif not _within_signal_window(now):
-        logger.info("Starting at %s IST - market is open but past the %s signal-checking "
-                    "cutoff, so no fresh opening-range/sector catch-up will run today "
-                    "(see _within_signal_window's docstring for why).",
-                    now.strftime("%H:%M:%S"), config.SIGNAL_ENGINE_LAST_RUN)
-    else:
-        logger.info("Starting mid-session at %s IST - catching up on anything already due today.",
-                    now.strftime("%H:%M:%S"))
+    #job_sector_scan()
+    #job_opening_range_scan()
+    #job_check_signals()
+    
+    result = bootstrap_and_catchup(state["data_service"])
+    logger.info("Bootstrap result: phase=%s | %s", result.phase.value, result.message)
 
-    # coalesce=True + max_instances=1 on every job: if execution is delayed (e.g. a slow
-    # API call blocks the loop for a while), APScheduler runs the job ONCE to catch up
-    # rather than firing a burst of every individually-missed trigger, and never overlaps
-    # two runs of the same job. This is in addition to (not instead of) the explicit,
-    # controlled catch-up below - misfire_grace_time/coalesce here is a safety net for
-    # ONGOING transient delays, not the primary mechanism for a genuinely late startup.
+    if result.phase == MarketPhase.POST_CLOSE:
+        logger.info("Exiting - market is closed, nothing left to do today.")
+        return
+
+    if result.signal_engine is not None:
+        state["signal_engine"] = result.signal_engine
+        _start_live_tick_stream(access_token, result.signal_engine)
+
     common_kwargs = dict(coalesce=True, max_instances=1)
-    logger.info(f" common _ kwargs = {common_kwargs}")
     scheduler = BackgroundScheduler(timezone=TZ)
-    #return
 
-    # ---- sector scans ----
     scheduler.add_job(job_sector_scan, _cron_from_hms(config.SECTOR_SCAN_TIME),
                        id="sector_scan_preopen", misfire_grace_time=60,
                        kwargs={"label": "09:10 pre-open snapshot - likely stale, see sector_scanner.py caveat"},
                        **common_kwargs)
-    # (the pre-open scan is only ever useful right at 09:10 per its own docstring caveat -
-    # never worth an immediate catch-up run; just let it fire again tomorrow if missed today)
+    scheduler.add_job(job_sector_scan, _cron_from_hms(config.SECTOR_SCAN_TIME_POSTOPEN),
+                       id="sector_scan_postopen", misfire_grace_time=60,
+                       kwargs={"label": "09:16 post-open - real numbers"}, **common_kwargs)
 
-    postopen_kwargs = dict(id="sector_scan_postopen", misfire_grace_time=60,
-                            kwargs={"label": "09:16 post-open - real numbers"}, **common_kwargs)
-    if _should_catch_up_sector_postopen(now):
-        logger.info("Late start - running the post-open sector scan immediately, once.")
-        scheduler.add_job(job_sector_scan, _cron_from_hms(config.SECTOR_SCAN_TIME_POSTOPEN),
-                           next_run_time=now, **postopen_kwargs)
-    else:
-        scheduler.add_job(job_sector_scan, _cron_from_hms(config.SECTOR_SCAN_TIME_POSTOPEN), **postopen_kwargs)
+    # Only schedule the opening-range job if bootstrap DIDN'T already produce a shortlist -
+    # if it did (mid-session catch-up succeeded), today's shortlist is already built and
+    # tracked; if bootstrap ran and found nothing (phase POST_OPEN, empty shortlist), the
+    # underlying 09:15 candle is fixed and re-running this later today can't change that
+    # answer, so it's still correctly skipped. It only needs to actually run via cron for
+    # the normal PRE_OPEN-start case.
+    if result.signal_engine is None and result.phase == MarketPhase.PRE_OPEN:
+        scheduler.add_job(job_opening_range_scan, _cron_from_hms(config.OPENING_RANGE_SCAN_TIME),
+                           id="opening_range_scan", misfire_grace_time=30,
+                           kwargs={"access_token": access_token}, **common_kwargs)
 
-    # ---- opening-range scan ----
-    or_kwargs = dict(id="opening_range_scan", misfire_grace_time=30, **common_kwargs)
-    or_trigger = _cron_from_hms(config.OPENING_RANGE_SCAN_TIME)
-    if _should_catch_up_opening_range(now):
-        logger.info("Late start - running the opening-range scan immediately, once "
-                    "(job_opening_range_scan auto-selects the always-correct historical-candle path).")
-        scheduler.add_job(job_opening_range_scan, or_trigger, next_run_time=now, **or_kwargs)
-    else:
-        scheduler.add_job(job_opening_range_scan, or_trigger, **or_kwargs)
-
-    # ---- signal checking, every 5 min ----
     check_signals_trigger = CronTrigger(minute=f"*/{config.CANDLE_INTERVAL_MINUTES}", second=2,
                                          hour="9-15", day_of_week="mon-fri", timezone=TZ)
-    check_signals_kwargs = dict(id="check_signals", misfire_grace_time=45, **common_kwargs)
-    if _should_run_immediate_signal_check(now):
-        logger.info("Late start - running an immediate signal check in addition to the "
-                    "regular 5-minute cadence (no-ops internally if there's no shortlist yet, "
-                    "or if we're past the %s cutoff).", config.SIGNAL_ENGINE_LAST_RUN)
-        scheduler.add_job(job_check_signals, check_signals_trigger, next_run_time=now, **check_signals_kwargs)
-    else:
-        scheduler.add_job(job_check_signals, check_signals_trigger, **check_signals_kwargs)
+    scheduler.add_job(job_check_signals, check_signals_trigger,
+                       id="check_signals", misfire_grace_time=45, **common_kwargs)
 
-    # ---- EOD square-off ----
     scheduler.add_job(job_square_off_and_report, _cron_from_hms(config.SQUARE_OFF_TIME),
                        id="square_off", misfire_grace_time=60, **common_kwargs)
 
@@ -347,6 +292,8 @@ def main():
             time.sleep(1)
     except KeyboardInterrupt:
         logger.info("Shutting down...")
+        if state["live_tick_stream"] is not None:
+            state["live_tick_stream"].stop()
         scheduler.shutdown()
 
 

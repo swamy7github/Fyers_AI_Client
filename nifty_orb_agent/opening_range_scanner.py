@@ -240,9 +240,13 @@ def scan_opening_range(state) -> pd.DataFrame:
 def scan_opening_range_accurate(state) -> pd.DataFrame:
     """
     Slow-but-always-correct path: fetches the REAL 09:15-09:20 historical
-    candle per stock, regardless of what time it's actually called. Use
-    this instead of scan_opening_range() for any late/catch-up start,
-    where "day so far" no longer equals "the 09:15 candle".
+    candle per stock via the rate-limit-hardened bulk fetch
+    (FyersDataService.get_candles_bulk - proactive throttling, rate-limit-
+    specific exponential backoff, and per-symbol failure isolation so one
+    bad symbol can't take the rest down), regardless of what time it's
+    actually called. Use this instead of scan_opening_range() for any
+    late/catch-up start, where "day so far" no longer equals "the 09:15
+    candle".
     """
     symbols = load_universe(state['top5_gaining_sectors'])
     from utilities import get_last_traded_day
@@ -252,14 +256,16 @@ def scan_opening_range_accurate(state) -> pd.DataFrame:
     #today_str = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
         
     data_service = state['data_service']
+    candles_by_symbol = data_service.get_candles_bulk(symbols, "5", today_str, today_str)
+
     rows = []
     for symbol in symbols:
+        candles = candles_by_symbol.get(symbol, [])
+        window_candle = next((c for c in candles if from_epoch <= c[0] < to_epoch), None)
+        if window_candle is None:
+            continue
         try:
-            candles = data_service.get_5min_candle(symbol, today_str, from_epoch, to_epoch)
-            if not candles:
-                continue
-            _, o, h, l, c, v = candles[0]
-
+            _, o, h, l, c, v = window_candle
             prev_close = data_service.get_previous_close(symbol)
             if not prev_close:
                 continue
@@ -271,7 +277,7 @@ def scan_opening_range_accurate(state) -> pd.DataFrame:
                     "volume": v, "prev_close": prev_close, "pct_change": round(pct_change, 2),
                 })
         except Exception as exc:
-            logger.error("Opening-range (accurate) fetch failed for %s: %s", symbol, exc)
+            logger.error("Opening-range (accurate) processing failed for %s: %s", symbol, exc)
             continue
 
     return _apply_gain_filter(rows)

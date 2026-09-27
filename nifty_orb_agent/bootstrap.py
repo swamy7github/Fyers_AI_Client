@@ -1,0 +1,291 @@
+"""
+bootstrap.py
+-------------
+Market-phase detection and the catch-up/warm-up pipeline that lets main.py
+start at ANY time before market close and pick up seamlessly from there.
+
+This is the file signal_engine.py's docstrings already referred to
+(adopt_broker_position, is_backfill, feed_candle) before it existed - the
+hooks were built first; this wires them together.
+
+The core entry point is bootstrap_and_catchup(), which does ALL of the
+one-time, at-startup work synchronously, before the scheduler in main.py
+starts anything recurring:
+
+  1. detect_market_phase()      - PRE_OPEN / POST_OPEN / POST_CLOSE
+  2. sector leaderboard + market breadth snapshot (informational)
+  3. gap-up screen -> today's shortlist (via the always-correct historical
+     path, since we don't know how late "late" is)
+  4. _replay_intraday_history() - feeds every 5-min candle from market open
+     up to "now" through SignalEngine.feed_candle(is_backfill=True), so any
+     BUY/ADD/stop-loss that would have fired earlier today is reconstructed
+     into the engine's state WITHOUT placing a live order for it (that's
+     what is_backfill does - see signal_engine.py's
+     _maybe_place_live_order docstring for exactly why: a signal detected
+     in a replay is not a live decision, and the price that justified it
+     has moved on by the time we're replaying it)
+  5. _reconcile_broker_state()  - broker positions are the source of truth;
+     adopts anything the broker reports that replay missed, and clears
+     anything replay thinks is open that the broker says isn't
+
+Why this matters (see also the conversation this was written in for the
+full audit): a late start that skips steps 3-5 and just starts checking
+NEW candles from "now" forward - which is what main.py's catch-up used to
+do before this file existed - silently MISSES any breakout that already
+happened between market open and startup. That's not a hypothetical edge
+case for an intraday strategy; it's the normal case for any start after
+09:30.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from datetime import datetime, time as dt_time, timedelta
+from enum import Enum
+from typing import Optional
+
+import pandas as pd
+import pytz
+
+import config
+from fyers_service import FyersDataService
+from opening_range_scanner import load_universe, scan_opening_range_accurate
+from sector_scanner import compute_market_breadth, get_index_snapshot, get_sector_leaderboard
+from signal_engine import SignalEngine
+
+logger = logging.getLogger("orb_agent.bootstrap")
+
+TZ = pytz.timezone(config.TIMEZONE)
+
+
+class MarketPhase(Enum):
+    PRE_OPEN = "PRE_OPEN"      # before today's market open
+    POST_OPEN = "POST_OPEN"    # market is open and trading right now
+    POST_CLOSE = "POST_CLOSE"  # market has closed for the day (includes weekends)
+
+
+@dataclass
+class BootstrapResult:
+    phase: MarketPhase
+    signal_engine: Optional[SignalEngine]
+    sector_leaderboard: pd.DataFrame = field(default_factory=pd.DataFrame)
+    market_breadth: dict = field(default_factory=dict)
+    message: str = ""
+
+
+# ----------------------------------------------------------------------------
+# Pure time-decision helpers - take `now` as a parameter (rather than calling
+# datetime.now() internally) so they're independently testable with injected
+# timestamps. Moved here from main.py now that bootstrap.py owns "what phase
+# is it and is catch-up worth doing" as a single concern; main.py imports
+# these rather than redefining them.
+# ----------------------------------------------------------------------------
+def _time_from_hms(hms: str) -> dt_time:
+    h, m, s = map(int, hms.split(":"))
+    return dt_time(h, m, s)
+
+
+def detect_market_phase(now: datetime) -> MarketPhase:
+    """Does NOT check NSE trading holidays - see the caveat next to
+    config.MARKET_OPEN_TIME. A holiday will be misdetected as POST_OPEN if
+    it falls on a weekday within market hours; layer a holiday calendar on
+    top of this before relying on it for unattended daily runs."""
+    if now.weekday() >= 5:  # Saturday=5, Sunday=6
+        return MarketPhase.POST_CLOSE
+    t = now.time()
+    if t < _time_from_hms(config.MARKET_OPEN_TIME):
+        return MarketPhase.PRE_OPEN
+    if t > _time_from_hms(config.MARKET_CLOSE_TIME):
+        return MarketPhase.POST_CLOSE
+    return MarketPhase.POST_OPEN
+
+
+def _is_market_open_now(now: datetime) -> bool:
+    return detect_market_phase(now) == MarketPhase.POST_OPEN
+
+
+def _within_signal_window(now: datetime) -> bool:
+    """POST_OPEN AND not yet past the signal-checking cutoff. Deliberately
+    narrower than _is_market_open_now(): this gates whether it's worth
+    bootstrapping a FRESH shortlist / signal-tracking position on a late
+    start. Creating a brand-new tracked position minutes before close,
+    after today's SQUARE_OFF_TIME cron trigger has already fired (or been
+    skipped) uneventfully, would leave that position with no square-off
+    safety net for the rest of the day - so catch-up simply doesn't start
+    anything new once we're past SIGNAL_ENGINE_LAST_RUN, even though the
+    market is technically still open."""
+    return _is_market_open_now(now) and now.time() <= _time_from_hms(config.SIGNAL_ENGINE_LAST_RUN)
+
+
+# ----------------------------------------------------------------------------
+# Historical replay
+# ----------------------------------------------------------------------------
+def _replay_intraday_history(engine: SignalEngine, data_service: FyersDataService,
+                              symbols: list[str], now: datetime) -> int:
+    """
+    Fetches every symbol's 5-min candles for today in one rate-limit-hardened
+    bulk call, then feeds each FULLY CLOSED candle from market open up to
+    "now" through engine.feed_candle(is_backfill=True), in chronological
+    order per symbol. Returns how many candles were replayed in total.
+
+    "Fully closed" matters: a candle whose 5-minute window hasn't finished
+    yet (i.e. its close-time is still in the future relative to `now`) is
+    still forming - feeding a partial bar would corrupt VWAP/volume-MA
+    state with data that hasn't actually happened yet.
+    """
+    if not symbols:
+        return 0
+
+    today_str = now.strftime("%Y-%m-%d")
+    candles_by_symbol = data_service.get_candles_bulk(symbols, "5", today_str, today_str)
+
+    market_open_t = _time_from_hms(config.MARKET_OPEN_TIME)
+    market_open_dt = TZ.localize(datetime(now.year, now.month, now.day,
+                                           market_open_t.hour, market_open_t.minute, market_open_t.second))
+    candle_span = timedelta(minutes=config.CANDLE_INTERVAL_MINUTES)
+
+    replayed = 0
+    for symbol in symbols:
+        candles = sorted(candles_by_symbol.get(symbol, []), key=lambda c: c[0])
+        for candle in candles:
+            candle_open_time = datetime.fromtimestamp(candle[0], TZ)
+            candle_close_time = candle_open_time + candle_span
+            if candle_open_time < market_open_dt or candle_close_time > now:
+                continue  # before today's open, or not fully closed yet - skip
+            try:
+                engine.feed_candle(symbol, candle, candle_open_time.strftime("%H:%M:%S"), is_backfill=True)
+                replayed += 1
+            except KeyError:
+                # Shouldn't happen - candles_by_symbol was built from this same shortlist -
+                # but skip defensively rather than crash the whole catch-up over one symbol.
+                logger.error("Replay tried to feed a candle for untracked symbol %s - skipping.", symbol)
+
+    logger.info("Replayed %d historical candle(s) across %d symbol(s) for catch-up.", replayed, len(symbols))
+    return replayed
+
+
+# ----------------------------------------------------------------------------
+# Broker state reconciliation
+# ----------------------------------------------------------------------------
+def _reconcile_broker_state(engine: SignalEngine, data_service: FyersDataService) -> None:
+    """
+    Broker-reported positions are the source of truth, in BOTH directions:
+
+      - Broker reports an open position in a symbol replay did NOT
+        reconstruct as open (a different strategy version, a manual trade,
+        a gap in this engine's own detection rules, or a position that
+        survived a previous crash) -> adopt it via
+        engine.adopt_broker_position(), which enables full live tick-level
+        risk management for it immediately.
+      - Replay reconstructed a position as open, but the broker does NOT
+        report it -> someone/something already closed it for real (or it
+        never actually filled) - clear the local state rather than
+        managing a position that doesn't exist.
+
+    NOTE: pos.get("symbol")/("netQty")/("netAvg") below are Fyers v3's
+    documented netPositions field names as of when this was written -
+    print one raw get_positions() response for your account once to
+    confirm these match before trusting this in production; broker API
+    response shapes are exactly the kind of thing that shifts between SDK
+    versions without much warning.
+    """
+    try:
+        positions = data_service.get_positions()
+    except Exception as exc:
+        logger.error("Could not fetch broker positions during catch-up reconciliation: %s. "
+                     "Proceeding with replay-reconstructed state ONLY - verify manually against "
+                     "your broker terminal before trusting this session with live orders.", exc)
+        return
+
+    now_str = datetime.now(TZ).strftime("%H:%M:%S")
+    open_broker_symbols: set[str] = set()
+
+    for pos in positions:
+        symbol = pos.get("symbol")
+        net_qty = pos.get("netQty", 0)
+        avg_price = pos.get("netAvg") or pos.get("avgPrice")
+        if not symbol or not net_qty or not avg_price:
+            continue  # a flat/closed position line, or an unrecognized shape - skip, don't guess
+        open_broker_symbols.add(symbol)
+
+        tracker = engine.trackers.get(symbol)
+        if tracker is None:
+            continue  # adopt_broker_position() would log this same case clearly if we called it
+        if tracker.position_open:
+            logger.info("Broker confirms replay-reconstructed position in %s (broker avg=%.2f).",
+                        symbol, avg_price)
+            continue
+        logger.warning("Broker reports an OPEN position in %s that replay did NOT reconstruct - "
+                        "adopting the broker's version as the source of truth.", symbol)
+        engine.adopt_broker_position(symbol, float(avg_price), int(net_qty), now_str)
+
+    for symbol, tracker in engine.trackers.items():
+        if tracker.position_open and symbol not in open_broker_symbols:
+            logger.warning("Replay reconstructed an open position in %s that the broker does NOT "
+                            "report - marking it flat locally rather than managing a position "
+                            "that doesn't actually exist.", symbol)
+            tracker.position_open = False
+            tracker.weakness_events_on_position = 0
+            tracker.entry_price_for_risk = None
+            tracker.highest_price_since_entry = None
+
+
+# ----------------------------------------------------------------------------
+# Orchestration
+# ----------------------------------------------------------------------------
+def bootstrap_and_catchup(data_service: FyersDataService) -> BootstrapResult:
+    now = datetime.now(TZ)
+    phase = detect_market_phase(now)
+
+    if phase == MarketPhase.PRE_OPEN:
+        msg = (f"Started pre-open at {now:%H:%M:%S} IST - nothing to catch up on; "
+               f"the scheduled jobs in main.py will run at their normal times.")
+        logger.info(msg)
+        return BootstrapResult(phase, None, message=msg)
+
+    if phase == MarketPhase.POST_CLOSE:
+        day_kind = "a weekend" if now.weekday() >= 5 else "after today's market close"
+        msg = f"Market is closed ({day_kind}, {now:%Y-%m-%d %H:%M:%S} IST) - exiting, nothing to bootstrap."
+        logger.info(msg)
+        return BootstrapResult(phase, None, message=msg)
+
+    # phase == POST_OPEN
+    if not _within_signal_window(now):
+        msg = (f"Started at {now:%H:%M:%S} IST - market is open but past the "
+               f"{config.SIGNAL_ENGINE_LAST_RUN} signal-checking cutoff, so no fresh catch-up "
+               f"will run today (see _within_signal_window's docstring for why).")
+        logger.info(msg)
+        return BootstrapResult(phase, None, message=msg)
+
+    logger.info("=== ENTERING CATCH-UP MODE at %s IST ===", now.strftime("%H:%M:%S"))
+
+    # 1. Sector leaderboard + market breadth - informational, doesn't gate anything below
+    snapshot = get_index_snapshot(data_service)
+    leaderboard = get_sector_leaderboard(snapshot)
+    universe = load_universe()
+    breadth = compute_market_breadth(data_service, universe)
+    logger.info("Market breadth snapshot: %s", breadth)
+
+    # 2. Gap-up screen -> shortlist, via the always-correct historical path (we don't
+    #    know how late "late" is, so the quotes-proxy shortcut is never safe here)
+    shortlist = scan_opening_range_accurate(data_service)
+    if shortlist.empty:
+        msg = "Catch-up: no stocks matched the opening-range gain filter today - nothing to track."
+        logger.warning(msg)
+        return BootstrapResult(phase, None, leaderboard, breadth, msg)
+
+    engine = SignalEngine(data_service, shortlist)
+
+    # 3. Replay 9:15 -> now for every shortlisted symbol (backfill-flagged: reconstructs
+    #    state, never places a live order for what it finds)
+    _replay_intraday_history(engine, data_service, shortlist["symbol"].tolist(), now)
+
+    # 4. Broker truth overrides replay wherever they disagree
+    _reconcile_broker_state(engine, data_service)
+
+    open_count = sum(1 for t in engine.trackers.values() if t.position_open)
+    msg = (f"Catch-up complete: tracking {len(engine.trackers)} symbol(s), "
+           f"{open_count} with an open position reconstructed from today so far.")
+    logger.info(msg)
+    return BootstrapResult(phase, engine, leaderboard, breadth, msg)
