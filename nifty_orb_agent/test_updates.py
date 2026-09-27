@@ -36,7 +36,7 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
-
+import pandas as pd
 import pytz
 
 import config
@@ -56,22 +56,22 @@ class TestSectorMapAndUniverseFiltering(unittest.TestCase):
         # Small sector reference: two real sectors (IT, Banks) plus one blank-sector row
         # (mimicking a broad-market row that should never match anything).
         self.sector_csv.write_text(
-            "symbol,index_name,category,is_sector_index,sector\n"
-            "NSE:NIFTYIT-INDEX,Nifty IT,Information Technology,True,IT\n"
-            "NSE:NIFTYBANK-INDEX,Nifty Bank,Banking,True,Banks\n"
-            "NSE:NIFTY50-INDEX,Nifty 50,Broad Market,False,\n"
+            "symbol,index_name,category,is_sector_index,sector,sector_url\n"
+            "NSE:NIFTYIT-INDEX,Nifty IT,Information Technology,True,IT,n\n"
+            "NSE:NIFTYBANK-INDEX,Nifty Bank,Banking,True,Banks,m\n"
+            "NSE:NIFTY50-INDEX,Nifty 50,Broad Market,False\n"
         )
 
         # Universe: 5 stocks - 2 IT (one with mixed casing/whitespace, to test
         # normalization), 2 Banks (one differently-cased), 1 Pharma (no matching
         # sector -> should be dropped).
         self.universe_csv.write_text(
-            "Symbol,Company Name,Industry\n"
-            "TCS,Tata Consultancy Services,IT\n"
-            "INFY,Infosys Limited,  it  \n"
-            "HDFCBANK,HDFC Bank,Banks\n"
-            "ICICIBANK,ICICI Bank,BANKS\n"
-            "SUNPHARMA,Sun Pharma,Pharma\n"
+            "Symbol,Company Name,Industry,sector_url\n"
+            "TCS,Tata Consultancy Services,IT,m\n"
+            "INFY,Infosys Limited,  it ,n \n"
+            "HDFCBANK,HDFC Bank,Banks,s\n"
+            "ICICIBANK,ICICI Bank,BANKS,fd\n"
+            "SUNPHARMA,Sun Pharma,Pharma,df\n"
         )
 
         # Point config at the temp files for the duration of this test only.
@@ -92,7 +92,7 @@ class TestSectorMapAndUniverseFiltering(unittest.TestCase):
 
     def test_load_sector_map_handles_capitalized_header(self):
         self.sector_csv.write_text(
-            "symbol,index_name,category,is_sector_index,Sector\n"  # capital "Sector"
+            "symbol,index_name,category,is_sector_index,Sector,sector_url\n"  # capital "Sector"
             "NSE:NIFTYIT-INDEX,Nifty IT,Information Technology,True,  IT  \n"  # extra whitespace too
         )
         df = load_sector_map()
@@ -103,7 +103,7 @@ class TestSectorMapAndUniverseFiltering(unittest.TestCase):
         self.assertEqual(valid, {"IT", "BANKS"})
 
     def test_universe_filtering_matches_case_insensitively_and_drops_unmatched(self):
-        symbols = load_universe()
+        symbols = load_universe(pd.DataFrame([{"sector":"Information Technology"},{"sector": "Banking"}]))
         self.assertEqual(set(symbols), {
             "NSE:TCS-EQ", "NSE:INFY-EQ", "NSE:HDFCBANK-EQ", "NSE:ICICIBANK-EQ",
         })
