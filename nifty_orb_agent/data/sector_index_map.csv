@@ -3,7 +3,7 @@ NSE:NIFTYIT-INDEX,Nifty IT,Information Technology,Y,TRUE,https://www.niftyindice
 NSE:NIFTYBANK-INDEX,Nifty Bank,Financial Services,Y,TRUE,https://www.niftyindices.com//IndexConstituent/ind_niftybanklist.csv
 NSE:NIFTYINFRA-INDEX,Nifty Infrastructure,add all,Y,TRUE,https://www.niftyindices.com/IndexConstituent/ind_niftyinfralist.csv
 NSE:NIFTYAUTO-INDEX,Nifty Auto,Automobile and Auto Components,Y,TRUE,https://www.niftyindices.com//IndexConstituent/ind_niftyautolist.csv
-NSE:NIFTYCONSRDURBL-INDEX,Nifty Consumer Durables,Consumer Durables,N,TRUE,https://www.niftyindices.com/IndexConstituent/ind_niftyconsumerdurableslist.csv
+NSE:NIFTYCONSRDURBL-INDEX,Nifty Consumer Durables,Consumer Durables,Y,TRUE,https://www.niftyindices.com/IndexConstituent/ind_niftyconsumerdurableslist.csv
 NSE:NIFTYENERGY-INDEX,Nifty Energy,add all,Y,TRUE,https://www.niftyindices.com/IndexConstituent/ind_niftyenergylist.csv
 NSE:FINNIFTY-INDEX,Nifty Financial Services,Financial Services,Y,TRUE,
 NSE:NIFTYFMCG-INDEX,Nifty FMCG,Fast-Moving Consumer Goods,Y,TRUE,https://www.niftyindices.com/IndexConstituent/ind_niftyfmcglist.csv

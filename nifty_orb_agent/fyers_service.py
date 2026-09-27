@@ -215,7 +215,7 @@ class FyersDataService:
                              attempt, config.API_MAX_RETRIES, exc)
                 time.sleep(config.API_RETRY_BACKOFF_SECONDS * attempt)
         logger.critical("Fyers API call failed after %d attempts: %s", config.API_MAX_RETRIES, last_exc)
-        raise last_exc
+        #raise last_exc
 
     def get_quotes(self, symbols: list[str]) -> dict:
         """symbols like ['NSE:SBIN-EQ', 'NSE:IDEA-EQ']. Caller must respect Fyers' per-request symbol cap."""
@@ -280,10 +280,11 @@ class FyersDataService:
             "range_from": range_from_date, "range_to": range_to_date, "cont_flag": "1",
         }
         response = self._call_with_retry(self.client.history, data=data)
-        candles = response.get("candles", [])
-        logger.info("Fetched %d %s-resolution candle(s) for %s (%s to %s).",
-                    len(candles), resolution, symbol, range_from_date, range_to_date)
-        return candles
+        if response:
+            candles = response.get("candles", [])
+            logger.info("Fetched %d %s-resolution candle(s) for %s (%s to %s).",
+                        len(candles), resolution, symbol, range_from_date, range_to_date)
+            return candles
 
     def get_previous_close(self, symbol: str) -> float | None:
         """Fetches the previous trading day's daily close, used for gain% calculations."""

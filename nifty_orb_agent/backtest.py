@@ -55,13 +55,23 @@ import logging
 from datetime import date, datetime, timedelta
 
 import pandas as pd
-import pytz
+import pytz, sys 
 
 import config
 from fyers_service import FyersDataService
 from opening_range_scanner import load_universe
 from signal_engine import SignalEngine
+from sector_scanner import get_index_snapshot, get_sector_leaderboard
+from pathlib import Path
 
+# 1. Dynamically parse the parent path ('C:\NS\Fyers_AI_Client')
+# This gets the folder containing the current script and looks one level up
+project_root = Path(__file__).resolve().parent.parent
+
+# 2. Add 'C:\NS\Fyers_AI_Client' to Python's search path
+if str(project_root) not in sys.path:
+    sys.path.append(str(project_root))
+    
 logger = logging.getLogger("orb_agent.backtest")
 
 
@@ -92,7 +102,8 @@ def _fetch_full_range_candles(data_service: FyersDataService, symbol: str, resol
     all_candles = []
     for chunk_start, chunk_end in _date_chunks(start, end, max_days_per_chunk):
         candles = data_service.get_candles_range(symbol, resolution, str(chunk_start), str(chunk_end))
-        all_candles.extend(candles)
+        if candles:
+            all_candles.extend(candles)
     return all_candles
 
 
@@ -196,7 +207,14 @@ def run_backtest(data_service: FyersDataService, start_date: date, end_date: dat
     returns {"trades": combined trade-book DataFrame, "daily_summary":
     per-day DataFrame, "overall": aggregate dict}.
     """
-    symbols = load_universe()
+    snapshot = get_index_snapshot(data_service)
+    if snapshot.empty:
+        logger.debug(" No data from get_index_snapshot()")
+        exit()
+    
+    leaderboard = get_sector_leaderboard(snapshot)
+    
+    symbols = load_universe(leaderboard.head(5))
     trading_days = trading_days_between(start_date, end_date)
     if not trading_days:
         logger.warning("No weekdays in the requested range (%s to %s).", start_date, end_date)
@@ -261,9 +279,15 @@ if __name__ == "__main__":
 
     start = datetime.strptime(args.start, "%Y-%m-%d").date()
     end = datetime.strptime(args.end, "%Y-%m-%d").date()
+    from fyers_auto_login_v2 import APP_ID, get_fyers_session_handle
 
-    auth = FyersAuthManager()
-    access_token = auth.get_access_token()
+    fyres = get_fyers_session_handle()
+    if not fyres:
+        logger.error(f"Failed to get fyres tocken and authenticat for the APP {APP_ID}")
+        exit()
+    
+    #auth = FyersAuthManager()
+    access_token = fyres.token
     data_service = FyersDataService(access_token)
 
     results = run_backtest(data_service, start, end)
