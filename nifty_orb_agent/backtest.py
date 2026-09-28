@@ -4,7 +4,12 @@ backtest.py
 Replays the exact same opening-range + VWAP/volume/weakness-event signal
 logic used live (signal_engine.SignalEngine, completely unmodified - see
 its feed_candle() method) against historical Fyers data, one past trading
-day at a time, and aggregates the results.
+day at a time, and aggregates the results. Supports both directions -
+LONG (the original gap-up screen) and SHORT (the mirrored gap-down screen) -
+via --direction on the command line; a single run replays one fixed
+direction across the whole date range (this tool does not decide direction
+from sentiment the way bootstrap.py/main.py do live - run it twice, once
+per direction, to compare both over the same period).
 
 Design: this module only handles DATA - fetching each day's opening-range
 shortlist and the full session's 5-min candles for each shortlisted stock -
@@ -61,6 +66,7 @@ import config
 from fyers_service import FyersDataService
 from opening_range_scanner import load_universe
 from signal_engine import SignalEngine
+from trade_direction import TradeDirection
 from sector_scanner import get_index_snapshot, get_sector_leaderboard
 from pathlib import Path
 
@@ -131,9 +137,10 @@ def _latest_candle_time_str(per_symbol_day_candles: dict, tz) -> str | None:
 
 
 def _build_shortlist_for_date(symbols: list[str], intraday_by_symbol: dict, daily_by_symbol: dict,
-                               target_date: date, tz) -> pd.DataFrame:
-    """Same filtering + gain-% logic as opening_range_scanner.scan_opening_range_accurate(),
-    but sliced from pre-fetched bulk data instead of making fresh API calls per day."""
+                               target_date: date, tz, direction: TradeDirection = TradeDirection.LONG) -> pd.DataFrame:
+    """Same filtering + gain-% logic as opening_range_scanner.scan_opening_range_accurate()
+    (LONG gap-up band, or the mirrored SHORT gap-down band), but sliced from pre-fetched
+    bulk data instead of making fresh API calls per day."""
     open_time = datetime.strptime(config.MARKET_OPEN_TIME, "%H:%M:%S").time()
 
     rows = []
@@ -154,7 +161,11 @@ def _build_shortlist_for_date(symbols: list[str], intraday_by_symbol: dict, dail
             continue
 
         pct_change = (c - prev_close) / prev_close * 100
-        if config.MIN_GAIN_PCT < pct_change <= config.MAX_GAIN_PCT:
+        if direction == TradeDirection.LONG:
+            passes = config.MIN_GAIN_PCT < pct_change <= config.MAX_GAIN_PCT
+        else:
+            passes = -config.MAX_LOSS_PCT <= pct_change < -config.MIN_LOSS_PCT
+        if passes:
             rows.append({
                 "symbol": symbol, "open": o, "high": h, "low": l, "close": c,
                 "volume": v, "prev_close": prev_close, "pct_change": round(pct_change, 2),
@@ -163,19 +174,22 @@ def _build_shortlist_for_date(symbols: list[str], intraday_by_symbol: dict, dail
     df = pd.DataFrame(rows)
     if df.empty:
         return df
-    return df.sort_values("pct_change", ascending=False).head(config.TOP_N_STOCKS).reset_index(drop=True)
+    # LONG wants the biggest gainers first; SHORT wants the biggest losers (most negative) first.
+    df = df.sort_values("pct_change", ascending=(direction == TradeDirection.SHORT))
+    return df.head(config.TOP_N_STOCKS).reset_index(drop=True)
 
 
 def _run_backtest_for_date(data_service: FyersDataService, target_date: date, symbols: list[str],
-                            intraday_by_symbol: dict, daily_by_symbol: dict, tz) -> dict:
-    shortlist = _build_shortlist_for_date(symbols, intraday_by_symbol, daily_by_symbol, target_date, tz)
+                            intraday_by_symbol: dict, daily_by_symbol: dict, tz,
+                            direction: TradeDirection = TradeDirection.LONG) -> dict:
+    shortlist = _build_shortlist_for_date(symbols, intraday_by_symbol, daily_by_symbol, target_date, tz, direction)
     if shortlist.empty:
-        logger.info("%s: no opening-range shortlist - skipping (holiday, or no stock matched the gain-%% band).",
-                    target_date)
+        logger.info("%s: no %s opening-range shortlist - skipping (holiday, or no stock matched the band).",
+                    target_date, direction.value)
         return {"date": target_date, "shortlist": shortlist, "trades": pd.DataFrame(), "summary": {}}
 
-    logger.info("%s: shortlist -> %s", target_date, list(shortlist["symbol"]))
-    engine = SignalEngine(data_service, shortlist)
+    logger.info("%s: %s shortlist -> %s", target_date, direction.value, list(shortlist["symbol"]))
+    engine = SignalEngine(data_service, shortlist, direction=direction)
 
     per_symbol_day_candles = {
         row["symbol"]: _candles_on_date(intraday_by_symbol.get(row["symbol"], []), target_date, tz)
@@ -201,9 +215,15 @@ def _run_backtest_for_date(data_service: FyersDataService, target_date: date, sy
     return {"date": target_date, "shortlist": shortlist, "trades": trades_df, "summary": engine.trade_book.summary()}
 
 
-def run_backtest(data_service: FyersDataService, start_date: date, end_date: date) -> dict:
+def run_backtest(data_service: FyersDataService, start_date: date, end_date: date,
+                  direction: TradeDirection = TradeDirection.LONG) -> dict:
     """
-    Runs the strategy over every weekday in [start_date, end_date] and
+    Runs the strategy over every weekday in [start_date, end_date], in EITHER
+    direction (LONG or SHORT - see trade_direction.py; this does NOT decide
+    direction from sentiment the way bootstrap.py/main.py do live, since a
+    backtest replays one fixed direction across the whole range by design -
+    pass --direction on the command line, or call this twice, once per
+    direction, if you want to compare both over the same period), and
     returns {"trades": combined trade-book DataFrame, "daily_summary":
     per-day DataFrame, "overall": aggregate dict}.
     """
@@ -213,7 +233,7 @@ def run_backtest(data_service: FyersDataService, start_date: date, end_date: dat
         exit()
     
     leaderboard = get_sector_leaderboard(snapshot)
-    
+    logger.info(f" leader board {leaderboard.head(5)}")
     symbols = load_universe(leaderboard.head(5))
     trading_days = trading_days_between(start_date, end_date)
     if not trading_days:
@@ -244,7 +264,8 @@ def run_backtest(data_service: FyersDataService, start_date: date, end_date: dat
     all_trades = []
     daily_summaries = []
     for d in trading_days:
-        result = _run_backtest_for_date(data_service, d, symbols, intraday_by_symbol, daily_by_symbol, tz)
+        result = _run_backtest_for_date(data_service, d, symbols, intraday_by_symbol, daily_by_symbol,
+                                         tz, direction=direction)
         if not result["trades"].empty:
             all_trades.append(result["trades"])
         daily_summaries.append({"date": str(d), **result["summary"]})
@@ -269,9 +290,13 @@ if __name__ == "__main__":
 
     from fyers_service import FyersAuthManager
 
-    parser = argparse.ArgumentParser(description="Backtest the ORB strategy over a historical date range.")
+    parser = argparse.ArgumentParser(description="Backtest the ORB strategy (LONG or SHORT) over a historical date range.")
     parser.add_argument("--start", required=True, help="YYYY-MM-DD")
     parser.add_argument("--end", required=True, help="YYYY-MM-DD")
+    parser.add_argument("--direction", default="LONG", choices=["LONG", "SHORT"],
+                         help="Which side to backtest (default LONG). This tool doesn't decide "
+                              "direction from sentiment the way the live agent does - it replays "
+                              "one fixed direction across the whole range.")
     parser.add_argument("--out", default=None, help="Optional path to save the combined trade log as CSV")
     args = parser.parse_args()
 
@@ -280,7 +305,7 @@ if __name__ == "__main__":
     start = datetime.strptime(args.start, "%Y-%m-%d").date()
     end = datetime.strptime(args.end, "%Y-%m-%d").date()
     from fyers_auto_login_v2 import APP_ID, get_fyers_session_handle
-
+    direction = TradeDirection[args.direction]
     fyres = get_fyers_session_handle()
     if not fyres:
         logger.error(f"Failed to get fyres tocken and authenticat for the APP {APP_ID}")
@@ -290,7 +315,7 @@ if __name__ == "__main__":
     access_token = fyres.token
     data_service = FyersDataService(access_token)
 
-    results = run_backtest(data_service, start, end)
+    results = run_backtest(data_service, start, end, direction=direction)
 
     print("\n=== Daily Summary ===")
     print(results["daily_summary"].to_string(index=False) if not results["daily_summary"].empty

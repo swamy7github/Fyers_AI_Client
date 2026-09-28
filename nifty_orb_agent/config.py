@@ -71,7 +71,7 @@ TRADE_LOG_CSV = os.path.join(LOG_DIR, "trade_book_{date}.csv")
 TIMEZONE = "Asia/Kolkata"
 
 SECTOR_SCAN_TIME = "09:12:00"           # pre-open sector snapshot (see caveat in sector_scanner.py)
-SECTOR_SCAN_TIME_POSTOPEN = "09:16:00"  # re-run shortly after the normal session starts, for real numbers
+SECTOR_SCAN_TIME_POSTOPEN = "09:19:40"  # re-run shortly after the normal session starts, for real numbers
 OPENING_RANGE_SCAN_TIME = "09:20:02"    # 2s buffer after the 09:15-09:20 candle closes
 SIGNAL_ENGINE_LAST_RUN = "15:10:00"     # stop looking for NEW signals after this time
 SQUARE_OFF_TIME = "15:10:30"            # force-close any open paper positions
@@ -105,11 +105,28 @@ DAILY_HISTORY_MAX_DAYS_PER_CHUNK = 270
 # ----------------------------------------------------------------------------
 # Strategy parameters
 # ----------------------------------------------------------------------------
-MIN_GAIN_PCT = 0.5       # lower bound (exclusive) for the opening-range gainer filter
-MAX_GAIN_PCT = 2.5       # upper bound (inclusive) for the opening-range gainer filter
+MIN_GAIN_PCT = 0.5       # lower bound (exclusive) for the opening-range gainer filter (LONG side)
+MAX_GAIN_PCT = 2.5       # upper bound (inclusive) for the opening-range gainer filter (LONG side)
+
+# Mirror of the above for the SHORT side: a stock down between MIN_LOSS_PCT and MAX_LOSS_PCT
+# (both positive numbers here, representing the magnitude of the decline) is eligible for
+# the gap-down/breakdown screen. See opening_range_scanner.scan_opening_range(direction=...).
+MIN_LOSS_PCT = 0.5
+MAX_LOSS_PCT = 2.5
+
 TOP_N_STOCKS = 10          # how many stocks to shortlist and track intraday
 VOLUME_MA_PERIOD = 20     # number of 5-min candles for the ENTRY volume moving average
 CONSECUTIVE_CANDLES_FOR_BUY = 2  # candles required to confirm a breakout entry
+
+# ---- Directional gating from global sentiment (see trade_direction.py) ----
+# When global_sentiment.score_global_bias() (or get_stock_news_ema_bias's combined_bias)
+# comes back NEUTRAL/MIXED/UNKNOWN rather than a clear BULLISH or BEARISH, these decide
+# whether to still trade a direction anyway. Both False (the default) means: no clear
+# sentiment -> open no new positions that day, in either direction - a deliberately
+# conservative default. Set either to True to fall back to that direction specifically
+# when sentiment is unclear, rather than sitting out entirely.
+ALLOW_LONG_ON_NEUTRAL = False
+ALLOW_SHORT_ON_NEUTRAL = False
 
 # ---- Stop-loss / square-off & position-sizing (add-on) parameters ----
 # Weakness/breakdown is detected using a much faster, 2-period volume average

@@ -45,9 +45,9 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 import config
-from bootstrap import MarketPhase, _time_from_hms, bootstrap_and_catchup
+from bootstrap import MarketPhase, _time_from_hms, bootstrap_and_catchup, decide_todays_direction
 from fyers_service import FyersAuthManager, FyersDataService
-from global_sentiment import fetch_global_snapshot, score_global_bias, get_stock_news_ema_bias
+from global_sentiment import fetch_global_snapshot, score_global_bias, get_stock_news_ema_bias, evaluate_market_direction
 from live_tick_stream import LiveTickStream
 #from google_global_sentiment import fetch_global_snapshot, score_global_bias
 from sector_scanner import get_index_snapshot, get_sector_leaderboard
@@ -77,10 +77,14 @@ logger = logging.getLogger("orb_agent.main")
 TZ = pytz.timezone(config.TIMEZONE)
 
 # Shared mutable state the scheduled jobs read/write
-state = {"data_service": None, "signal_engine": None,
-		 "top5_gaining_sectors": None,
-         "top5_losing_sectors": None, "global_sentiment":tuple(),
-         "live_tick_stream": None}
+state = {
+    "data_service": None,
+    "signal_engine": None,
+    "top5_gaining_sectors": None,
+    "top5_losing_sectors": None,
+    "global_sentiment": {},
+    "live_tick_stream": None
+}
 
 
 
@@ -119,12 +123,32 @@ def job_global_sentiment():
                 nifty_bias["combined_bias"], nifty_bias["ema_bias"], nifty_bias["news_bias"])
     print(f"\n=== Nifty 50 News + EMA Bias: {nifty_bias['combined_bias']} ===")
     print(f"EMA: {nifty_bias['ema_bias']} {nifty_bias['ema_detail']}")
+    
     if nifty_bias["news_bias"]:
         print(f"News: {nifty_bias['news_bias']} - {nifty_bias['news_reason']}")
         print(f"(from {len(nifty_bias['headlines_used'])} headline(s))")
     else:
         print("News: skipped (no ANTHROPIC_API_KEY configured, or no headlines returned)")
-
+    sentiment_data = {
+        "global_bias": label,
+        "global_bias_score": score,
+        "global_market": snapshot,
+        "nse_bias": nifty_bias['ema_bias'],
+        "nse_ema": nifty_bias['ema_detail'],
+    }
+    sentiment_label = label
+    sentiment_score = score
+    # NEW: what today will actually trade, per global sentiment -> direction (see
+    # bootstrap.decide_todays_direction / trade_direction.py). This is purely informational
+    # here - the SAME function is called again, authoritatively, right before the shortlist
+    # is actually built (job_opening_range_scan / bootstrap_and_catchup), since sentiment
+    # can move between this pre-market check and 09:20:02.
+    #direction, sentiment_label, sentiment_score = decide_todays_direction()
+    direction = evaluate_market_direction(sentiment_data)
+    print(f"\n=== Today's Trade Direction (from global sentiment): "
+          f"{direction.value if direction else 'NONE - no new positions today'} ===")
+    print(f"(sentiment: {sentiment_label}, score {sentiment_score:.2f})")
+    state['global_sentiment'] = {'lable': sentiment_label, 'direction': direction, 'score': sentiment_score} 
 
 def job_sector_scan(label: str = ""):
     logger.info("Running sector scan (%s)...", label or "unlabeled")
@@ -141,7 +165,6 @@ def job_sector_scan(label: str = ""):
         state["top5_losing_sectors"] = leaderboard.tail(5)
         print(leaderboard.tail(5).to_string(index=False))
 
-    # Not sectors, but genuinely useful context - broad market + volatility gauge
     context_names = ["Nifty 50", "Nifty 500", "India VIX"]
     context = snapshot[snapshot["index_name"].isin(context_names)]
     if not context.empty:
@@ -158,24 +181,41 @@ def _start_live_tick_stream(access_token: str, engine: SignalEngine) -> None:
 
 def job_opening_range_scan(access_token: str):
     """Only fires via its normal 09:20:02 cron trigger now - see main()'s docstring for why
-    the mid-session catch-up path no longer needs to call this directly."""
+    the mid-session catch-up path no longer needs to call this directly.
+
+    Computes today's direction fresh (via bootstrap.decide_todays_direction()) right before
+    building the shortlist, rather than reusing job_global_sentiment()'s earlier read -
+    sentiment can move in the roughly 10 minutes between the pre-market check and 09:20:02,
+    and this is the call that actually decides what gets traded, so it should be as current
+    as possible."""
+    direction, sentiment_label, sentiment_score = decide_todays_direction()
+    logger.info("Opening-range scan direction: %s (sentiment %s, score %.2f)",
+                direction.value if direction else "NONE", sentiment_label, sentiment_score)
+    if direction is None:
+        logger.warning("Global sentiment is %s (score %.2f) - not a clear bullish/bearish read, "
+                        "and config.ALLOW_LONG_ON_NEUTRAL / ALLOW_SHORT_ON_NEUTRAL are both False, "
+                        "so no new positions will be opened today.", sentiment_label, sentiment_score)
+        return
+
     now = datetime.now(TZ)
-    if _should_use_fast_opening_range_path(now):
-        logger.info("Running opening-range scan (on-time, quotes-proxy path)...")
-        if state["top5_gaining_sectors"] is None:
+    if state["top5_gaining_sectors"] is None:
             job_sector_scan()
-        shortlist = scan_opening_range(state)
+    if _should_use_fast_opening_range_path(now):
+        logger.info("Running %s opening-range scan (on-time, quotes-proxy path)...", direction.value)
+       
+        shortlist = scan_opening_range(state, direction=direction)
     else:
-        logger.info("Running opening-range scan (fired late at %s IST - using the "
-                    "slower but always-correct historical-candle path)...", now.strftime("%H:%M:%S"))
-        shortlist = scan_opening_range_accurate(state)
+        logger.info("Running %s opening-range scan (fired late at %s IST - using the "
+                    "slower but always-correct historical-candle path)...",
+                    direction.value, now.strftime("%H:%M:%S"))
+        shortlist = scan_opening_range_accurate(state["data_service"], direction=direction)
 
     if shortlist.empty:
-        logger.warning("No stocks matched the opening-range gain filter today.")
+        logger.warning("No stocks matched the %s opening-range filter today.", direction.value)
         return
-    engine = SignalEngine(state["data_service"], shortlist)
+    engine = SignalEngine(state["data_service"], shortlist, direction=direction)
     state["signal_engine"] = engine
-    print(f"\n=== Opening Range Shortlist (Top {config.TOP_N_STOCKS}) ===")
+    print(f"\n=== Opening Range {direction.value} Shortlist (Top {config.TOP_N_STOCKS}) ===")
     print(shortlist.to_string(index=False))
     _start_live_tick_stream(access_token, engine)
 
@@ -235,8 +275,8 @@ def main():
      access_token = auth.get_access_token()
     '''
     #access_token = fyres.token
-
-    state["data_service"] = FyersDataService(access_token=fyres.token)
+    access_token = fyres.token
+    state["data_service"] = FyersDataService(access_token)
 
     job_global_sentiment()
     #job_sector_scan()

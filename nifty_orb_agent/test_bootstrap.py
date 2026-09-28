@@ -37,7 +37,7 @@ import bootstrap
 from signal_engine import SignalEngine, StockTracker, TradeBook
 
 TZ = pytz.timezone(config.TIMEZONE)
-
+state = {'top5_gaining_sectors': None, 'data_service': None}
 
 def _epoch(hour: int, minute: int, day=(2026, 9, 21)) -> int:
     return int(TZ.localize(datetime(day[0], day[1], day[2], hour, minute, 0)).timestamp())
@@ -302,6 +302,7 @@ class FakeFullPipelineDataService:
 
     def __init__(self):
         self.gap_up_symbol = "NSE:WINNER-EQ"
+        self.gap_down_symbol = "NSE:LOSER-EQ"
 
     def get_quotes_batched(self, symbols):
         # Used for sector index quotes (data/sector_index_map.csv rows) and for
@@ -314,9 +315,12 @@ class FakeFullPipelineDataService:
 
     def get_candles_range(self, symbol, resolution, range_from_date, range_to_date):
         # The 09:15 opening-range candle for scan_opening_range_accurate: WINNER gaps up
-        # 1.5% (within the 0.5%-2.5% band), everything else is flat (filtered out).
+        # 1.5% (within the LONG 0.5%-2.5% band), LOSER gaps down 1.5% (within the SHORT
+        # band), FLAT is unchanged (excluded from either).
         if symbol == self.gap_up_symbol:
             return [[_epoch(9, 15), 100.0, 101.6, 99.8, 101.5, 5000]]
+        if symbol == self.gap_down_symbol:
+            return [[_epoch(9, 15), 100.0, 100.2, 98.4, 98.5, 5000]]
         return [[_epoch(9, 15), 100.0, 100.2, 99.8, 100.0, 500]]
 
     def get_previous_close(self, symbol):
@@ -324,15 +328,19 @@ class FakeFullPipelineDataService:
 
     def get_candles_bulk(self, symbols, resolution, range_from_date, range_to_date):
         # No further movement after the opening range in this fixture - replay just
-        # confirms the position stays flat (no BUY yet), which is enough to prove the
+        # confirms the position stays flat (no entry yet), which is enough to prove the
         # pipeline actually wires replay in, without needing a full breakout sequence here
         # (that path is covered directly in TestReplayIntradayHistory above). Epoch must
         # fall within [9:15, 9:20) to also serve as the opening-range candle itself for
         # scan_opening_range_accurate's window check (from_epoch <= c[0] < to_epoch).
         out = {}
         for s in symbols:
-            out[s] = [[_epoch(9, 15), 100.0, 101.6 if s == self.gap_up_symbol else 100.2,
-                       99.8, 101.5 if s == self.gap_up_symbol else 100.0, 1000]]
+            if s == self.gap_up_symbol:
+                out[s] = [[_epoch(9, 15), 100.0, 101.6, 99.8, 101.5, 1000]]
+            elif s == self.gap_down_symbol:
+                out[s] = [[_epoch(9, 15), 100.0, 100.2, 98.4, 98.5, 1000]]
+            else:
+                out[s] = [[_epoch(9, 15), 100.0, 100.2, 99.8, 100.0, 1000]]
         return out
 
     def get_positions(self):
@@ -352,6 +360,7 @@ class TestBootstrapAndCatchupFullPipeline(unittest.TestCase):
             "Symbol,Company Name,Industry\n"
             "WINNER,Winner Ltd,IT\n"
             "FLAT,Flat Ltd,IT\n"
+            "LOSER,Loser Ltd,IT\n"
         )
         self._orig_sector_csv = config.SECTOR_INDEX_MAP_CSV
         self._orig_universe_csv = config.STOCK_UNIVERSE_CSV
@@ -363,7 +372,16 @@ class TestBootstrapAndCatchupFullPipeline(unittest.TestCase):
         config.STOCK_UNIVERSE_CSV = self._orig_universe_csv
         shutil.rmtree(self.tmpdir)
 
-    def test_full_mid_session_catchup_produces_a_populated_engine(self):
+    def _run_catchup_at_10am_with_sentiment(self, direction, sentiment_label, sentiment_score=1.0):
+        """
+        Freezes both bootstrap.py's and opening_range_scanner.py's independent
+        datetime.now() to the same mid-session instant, AND replaces
+        bootstrap.decide_todays_direction with a fixed result - so this test
+        exercises the pipeline's own wiring (does it correctly use whatever
+        direction it's given?) without depending on a real, non-deterministic
+        yfinance sentiment fetch, which is tested separately in
+        TestDecideTodaysDirection below.
+        """
         import bootstrap as bootstrap_module
         import opening_range_scanner as ors_module
 
@@ -375,6 +393,7 @@ class TestBootstrapAndCatchupFullPipeline(unittest.TestCase):
         # epochs at all. Both must be frozen to the SAME instant for this to work.
         orig_bootstrap_dt = bootstrap_module.datetime
         orig_ors_dt = ors_module.datetime
+        orig_decide = bootstrap_module.decide_todays_direction
 
         class FrozenDatetime(orig_bootstrap_dt):
             @classmethod
@@ -383,17 +402,144 @@ class TestBootstrapAndCatchupFullPipeline(unittest.TestCase):
 
         bootstrap_module.datetime = FrozenDatetime
         ors_module.datetime = FrozenDatetime
+        bootstrap_module.decide_todays_direction = lambda: (direction, sentiment_label, sentiment_score)
         try:
-            result = bootstrap_module.bootstrap_and_catchup(FakeFullPipelineDataService())
+            return bootstrap_module.bootstrap_and_catchup(FakeFullPipelineDataService())
         finally:
             bootstrap_module.datetime = orig_bootstrap_dt
             ors_module.datetime = orig_ors_dt
+            bootstrap_module.decide_todays_direction = orig_decide
+
+    def test_bullish_sentiment_produces_a_long_engine_on_the_gap_up_symbol(self):
+        import bootstrap as bootstrap_module
+        from trade_direction import TradeDirection
+
+        result = self._run_catchup_at_10am_with_sentiment(TradeDirection.LONG, "BULLISH", 1.2)
 
         self.assertEqual(result.phase, bootstrap_module.MarketPhase.POST_OPEN)
+        self.assertEqual(result.direction, TradeDirection.LONG)
         self.assertIsNotNone(result.signal_engine)
-        # Only the gap-up symbol should have made it through the 0.5%-2.5% screen.
+        # Only the gap-UP symbol should have made it through the LONG screen - the
+        # gap-down symbol (LOSER) must NOT appear here even though it's in the universe.
         self.assertEqual(set(result.signal_engine.trackers.keys()), {"NSE:WINNER-EQ"})
+        self.assertEqual(result.signal_engine.direction, TradeDirection.LONG)
         self.assertIn("advance_decline_ratio", result.market_breadth)
+
+    def test_bearish_sentiment_produces_a_short_engine_on_the_gap_down_symbol(self):
+        import bootstrap as bootstrap_module
+        from trade_direction import TradeDirection
+
+        result = self._run_catchup_at_10am_with_sentiment(TradeDirection.SHORT, "BEARISH", -1.2)
+
+        self.assertEqual(result.phase, bootstrap_module.MarketPhase.POST_OPEN)
+        self.assertEqual(result.direction, TradeDirection.SHORT)
+        self.assertIsNotNone(result.signal_engine)
+        # Only the gap-DOWN symbol should have made it through the SHORT screen - the
+        # gap-up symbol (WINNER) must NOT appear here.
+        self.assertEqual(set(result.signal_engine.trackers.keys()), {"NSE:LOSER-EQ"})
+        self.assertEqual(result.signal_engine.direction, TradeDirection.SHORT)
+
+    def test_neutral_sentiment_with_default_config_opens_no_engine_at_all(self):
+        import bootstrap as bootstrap_module
+
+        result = self._run_catchup_at_10am_with_sentiment(None, "NEUTRAL", 0.1)
+
+        self.assertEqual(result.phase, bootstrap_module.MarketPhase.POST_OPEN)
+        self.assertIsNone(result.direction)
+        self.assertIsNone(result.signal_engine)
+        self.assertIn("NEUTRAL", result.message)
+
+
+class TestDecideTodaysDirection(unittest.TestCase):
+    """
+    bootstrap.decide_todays_direction() itself, with global_sentiment's two
+    functions mocked so this never touches yfinance or the network - that's
+    exactly the seam TestBootstrapAndCatchupFullPipeline above patches
+    around, tested directly here instead.
+    """
+
+    def setUp(self):
+        self._orig_allow_long = config.ALLOW_LONG_ON_NEUTRAL
+        self._orig_allow_short = config.ALLOW_SHORT_ON_NEUTRAL
+        config.ALLOW_LONG_ON_NEUTRAL = False
+        config.ALLOW_SHORT_ON_NEUTRAL = False
+
+    def tearDown(self):
+        config.ALLOW_LONG_ON_NEUTRAL = self._orig_allow_long
+        config.ALLOW_SHORT_ON_NEUTRAL = self._orig_allow_short
+
+    def _with_mocked_sentiment(self, label, score):
+        import bootstrap as bootstrap_module
+        orig_fetch = bootstrap_module.global_sentiment.fetch_global_snapshot
+        orig_score = bootstrap_module.global_sentiment.score_global_bias
+        bootstrap_module.global_sentiment.fetch_global_snapshot = lambda: {}
+        bootstrap_module.global_sentiment.score_global_bias = lambda snapshot: (label, score)
+        return bootstrap_module, orig_fetch, orig_score
+
+    def test_bullish_maps_to_long(self):
+        from trade_direction import TradeDirection
+        bootstrap_module, orig_fetch, orig_score = self._with_mocked_sentiment("BULLISH", 1.5)
+        try:
+            direction, label, score = bootstrap_module.decide_todays_direction()
+        finally:
+            bootstrap_module.global_sentiment.fetch_global_snapshot = orig_fetch
+            bootstrap_module.global_sentiment.score_global_bias = orig_score
+        self.assertEqual(direction, TradeDirection.LONG)
+        self.assertEqual(label, "BULLISH")
+        self.assertEqual(score, 1.5)
+
+    def test_bearish_maps_to_short(self):
+        from trade_direction import TradeDirection
+        bootstrap_module, orig_fetch, orig_score = self._with_mocked_sentiment("BEARISH", -1.5)
+        try:
+            direction, label, score = bootstrap_module.decide_todays_direction()
+        finally:
+            bootstrap_module.global_sentiment.fetch_global_snapshot = orig_fetch
+            bootstrap_module.global_sentiment.score_global_bias = orig_score
+        self.assertEqual(direction, TradeDirection.SHORT)
+
+    def test_neutral_with_both_flags_false_returns_none(self):
+        bootstrap_module, orig_fetch, orig_score = self._with_mocked_sentiment("NEUTRAL", 0.1)
+        try:
+            direction, _, _ = bootstrap_module.decide_todays_direction()
+        finally:
+            bootstrap_module.global_sentiment.fetch_global_snapshot = orig_fetch
+            bootstrap_module.global_sentiment.score_global_bias = orig_score
+        self.assertIsNone(direction)
+
+    def test_neutral_with_allow_long_on_neutral_falls_back_to_long(self):
+        from trade_direction import TradeDirection
+        config.ALLOW_LONG_ON_NEUTRAL = True
+        bootstrap_module, orig_fetch, orig_score = self._with_mocked_sentiment("NEUTRAL", 0.1)
+        try:
+            direction, _, _ = bootstrap_module.decide_todays_direction()
+        finally:
+            bootstrap_module.global_sentiment.fetch_global_snapshot = orig_fetch
+            bootstrap_module.global_sentiment.score_global_bias = orig_score
+        self.assertEqual(direction, TradeDirection.LONG)
+
+    def test_neutral_with_allow_short_on_neutral_falls_back_to_short(self):
+        from trade_direction import TradeDirection
+        config.ALLOW_SHORT_ON_NEUTRAL = True
+        bootstrap_module, orig_fetch, orig_score = self._with_mocked_sentiment("MIXED", 0.0)
+        try:
+            direction, _, _ = bootstrap_module.decide_todays_direction()
+        finally:
+            bootstrap_module.global_sentiment.fetch_global_snapshot = orig_fetch
+            bootstrap_module.global_sentiment.score_global_bias = orig_score
+        self.assertEqual(direction, TradeDirection.SHORT)
+
+    def test_allow_long_takes_precedence_if_both_flags_are_true(self):
+        from trade_direction import TradeDirection
+        config.ALLOW_LONG_ON_NEUTRAL = True
+        config.ALLOW_SHORT_ON_NEUTRAL = True
+        bootstrap_module, orig_fetch, orig_score = self._with_mocked_sentiment("NEUTRAL", 0.0)
+        try:
+            direction, _, _ = bootstrap_module.decide_todays_direction()
+        finally:
+            bootstrap_module.global_sentiment.fetch_global_snapshot = orig_fetch
+            bootstrap_module.global_sentiment.score_global_bias = orig_score
+        self.assertEqual(direction, TradeDirection.LONG)
 
 
 if __name__ == "__main__":

@@ -29,7 +29,7 @@ class FyersClient:
         self.log = setup_logger("fyers_client", config.LOG_DIR, config.LOG_LEVEL)
         self._limiter = RateLimiter(config.API_MIN_INTERVAL_SEC)
         self.client_id = f"{config.FYERS_APP_ID}-100"
-        self.access_token: Optional[str] = None
+        self.access_token = config.FYERS_ACCESS_TOKEN
         self.model: Optional[fyersModel.FyersModel] = None
         self._authenticate()
 
@@ -56,13 +56,13 @@ class FyersClient:
         }))
 
     def _authenticate(self) -> None:
-        token = self._load_cached_token()
-        if not token:
-            token = self._interactive_login()
-            self._cache_token(token)
-        self.access_token = token
+        #token = self._load_cached_token()
+        #if not token:
+        #    token = self._interactive_login()
+        #    self._cache_token(token)
+        #self.access_token = token
         self.model = fyersModel.FyersModel(
-            client_id=self.client_id, token=token, is_async=False, log_path=self.cfg.LOG_DIR
+            client_id=self.client_id, token=self.access_token, is_async=False, log_path=self.cfg.LOG_DIR
         )
 
     def _interactive_login(self) -> str:

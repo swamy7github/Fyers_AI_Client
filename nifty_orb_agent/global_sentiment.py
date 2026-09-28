@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 
 import yfinance as yf
-
+from trade_direction import decide_trade_direction_from_sentiment
 logger = logging.getLogger("orb_agent.sentiment")
 
 # Tickers used as global-cue proxies. GIFT Nifty itself isn't reliably
@@ -41,6 +41,114 @@ SENTIMENT_WEIGHTS = {
     "Nikkei 225": 0.5, "Hang Seng": 0.5,
     "US VIX": -1.0, "Crude Oil (WTI)": -0.5, "Dollar Index": -0.5,
 }
+
+
+def calculate_fallback_sentiment(global_bias, vix, crude_oil):
+    """
+    Calculates a mathematical fallback sentiment when the LLM API fails.
+    Uses VIX, Crude Oil, and the Global Bias Score as rules-based inputs.
+    """
+    logger.warning("Using rules-based fallback sentiment engine due to API failure.")
+    
+    # Mathematical logic for market direction
+    if global_bias < -5.0 or vix > 5.0 or crude_oil > 2.0:
+        return "BEARISH"
+    elif global_bias > 5.0 and vix < -5.0 and crude_oil < -2.0:
+        return "BULLISH"
+    else:
+        return "NEUTRAL"
+
+def calculate_market_verdict(global_bias, news_bias, nse_bias, strategy="intraday"):
+    """
+    Calculates the final market direction verdict based on component biases.
+    
+    Args:
+        global_bias (str): 'BULLISH', 'NEUTRAL', or 'BEARISH'
+        news_bias (str): 'BULLISH', 'NEUTRAL', or 'BEARISH'
+        nse_bias (str): 'BULLISH', 'NEUTRAL', or 'BEARISH'
+        strategy (str): 'open', 'intraday', or 'swing'
+        
+    Returns:
+        dict: Contains the composite score and the final directional verdict.
+    """
+    # 1. Map text biases to numerical values
+    bias_map = {
+        'BULLISH': 1.0,
+        'NEUTRAL': 0.0,
+        'BEARISH': -1.0
+    }
+    
+    # Safely fetch scores, defaulting to 0.0 if an unrecognized string is passed
+    score_global = bias_map.get(global_bias.upper().strip(), 0.0)
+    score_news = bias_map.get(news_bias.upper().strip(), 0.0)
+    score_nse = bias_map.get(nse_bias.upper().strip(), 0.0)
+    
+    # 2. Define weighting profiles based on time horizon
+    weights = {
+        'open':     {'global': 0.55, 'news': 0.25, 'nse': 0.20},
+        'intraday': {'global': 0.20, 'news': 0.15, 'nse': 0.65},
+        'swing':    {'global': 0.35, 'news': 0.25, 'nse': 0.40}
+    }
+    
+    if strategy.lower() not in weights:
+        raise ValueError("Strategy must be 'open', 'intraday', or 'swing'")
+        
+    w = weights[strategy.lower()]
+    
+    # 3. Calculate the composite score
+    composite_score = (w['global'] * score_global) + \
+                      (w['news'] * score_news) + \
+                      (w['nse'] * score_nse)
+                      
+    # 4. Determine final verdict based on thresholds
+    if composite_score >= 0.35:
+        verdict = "BULLISH"
+    elif composite_score <= -0.35:
+        verdict = "BEARISH"
+    else:
+        verdict = nse_bias
+        
+    return {
+        "Strategy": strategy.capitalize(),
+        "Score": round(composite_score, 3),
+        "label": verdict
+    }
+    
+def evaluate_market_direction(market_data):
+    """
+    Decides the final Nifty 50 market direction using available Global and NSE data.
+    """
+    # 1. Parse Technical Indicators
+    nse_bias = market_data['nse_bias']
+    global_bias = market_data['global_bias']
+    # 2. Handle LLM News Sentiment with a Safe Fallback Try-Catch
+    try:
+        # Simulating your HTTP 401 error condition
+        api_key_configured = False 
+        
+        if not api_key_configured:
+            # Explicitly raise the error you got in your logs
+            raise ValueError("Error code: 401 - {'type': 'error', 'message': 'API key is invalid.'}")
+            
+        news_bias = "BULLISH" # Placeholder for successful LLM response
+        
+    except Exception as e:
+        logger.warning(f"Could not get LLM news sentiment for ^NSEI: {e}")
+        
+        # Pull global macros for fallback math
+        global_metrics = market_data.get("global_market", {})
+        news_bias = calculate_fallback_sentiment(
+            global_bias=market_data.get("global_bias_score", 0.0),
+            vix=global_metrics.get("US VIX", 0.0),
+            crude_oil=global_metrics.get("Crude Oil (WTI)", 0.0)
+        )
+
+    # 3. Final Direction Matrix Consolidation
+    logger.info(f"Nifty 50 news+EMA bias: {nse_bias} (ema={nse_bias}, news_fallback={news_bias})")
+    
+    label = calculate_market_verdict(global_bias, news_bias, nse_bias)
+    logger.info(f"=== Optimized market direction {label}")
+    return decide_trade_direction_from_sentiment(label['label'])
 
 
 def fetch_global_snapshot() -> dict[str, float]:

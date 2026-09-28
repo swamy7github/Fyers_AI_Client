@@ -39,7 +39,8 @@ scoring with an optional Claude-powered read on qualitative news.
 | `global_sentiment.py` | Global bullish/bearish scoring + optional Claude-based news sentiment |
 | `sector_scanner.py` | 09:10 / 09:16 sector strength/weakness snapshot, queried directly from NSE index symbols |
 | `opening_range_scanner.py` | Filters the universe by sector, then builds the top-5 opening-range gainer shortlist |
-| `signal_engine.py` | VWAP + volume-MA(20) candle logic, tick-level SL/target/trailing-SL (`check_tick_for_exit`), broker position adoption (`adopt_broker_position`); `feed_candle()` is the shared replay/live entry point both `backtest.py` and `bootstrap.py` use |
+| `signal_engine.py` | Direction-aware (LONG or SHORT) VWAP + volume-MA(20) candle logic, tick-level SL/target/trailing-SL (`check_tick_for_exit`), broker position adoption (`adopt_broker_position`); `feed_candle()` is the shared replay/live entry point both `backtest.py` and `bootstrap.py` use |
+| `trade_direction.py` | Tiny shared `TradeDirection` enum (LONG/SHORT) + `decide_trade_direction_from_sentiment()` — kept dependency-free so `signal_engine`, `opening_range_scanner`, and `bootstrap` can all import it without an import cycle |
 | `bootstrap.py` | Market-phase detection + the late-startup catch-up pipeline: `bootstrap_and_catchup()`, historical replay, broker reconciliation — see "Late-startup catch-up" below |
 | `live_tick_stream.py` | WebSocket tick feed → `SignalEngine.check_tick_for_exit()` hand-off — see "Live hand-off" below |
 | `main.py` | Wires it all together with APScheduler; calls `bootstrap_and_catchup()` once at startup, then runs the ongoing 5-min candle checks and starts `LiveTickStream` |
@@ -49,6 +50,8 @@ scoring with an optional Claude-powered read on qualitative news.
 | `test_signal_engine.py` | Tests for tick-level SL/target/trailing-SL, broker position adoption, and the `is_backfill` gate |
 | `test_bootstrap.py` | Tests for historical replay, broker reconciliation, and a full end-to-end `bootstrap_and_catchup()` run |
 | `test_live_tick_stream.py` | Tests for tick routing/validation, without a real WebSocket |
+| `test_trade_direction.py` | Tests for the sentiment-label → direction mapping |
+| `test_opening_range_scanner.py` | Tests for the LONG/SHORT gap-band filter and sort order |
 | `build_sector_map.py` | Optional: builds a per-STOCK sector tag file from NSE data, if you want that for something other than the sector leaderboard (see note below) |
 | `test_updates.py` | Standalone tests for sector/universe filtering and market-phase detection |
 | `data/ind_nifty500list.csv` | **You provide this** — Nifty 500 constituents (see below) |
@@ -153,11 +156,16 @@ in an earlier iteration:
      starting a brand-new tracked position minutes before close, after
      today's square-off trigger has already fired uneventfully, would leave
      that position with nothing to close it out.
-2. **Sector/breadth snapshot + gap-up screen**: `sector_scanner.get_index_snapshot()` /
-   `compute_market_breadth()`, then `opening_range_scanner.scan_opening_range_accurate()`
-   — always the historical-candle path here, never the quotes shortcut
-   (which is only valid within ~3 minutes of 09:20:02 and would silently
-   return wrong numbers at any other time).
+2. **Sector/breadth snapshot, direction decision, gap screen**:
+   `sector_scanner.get_index_snapshot()` / `compute_market_breadth()`
+   (informational, always run), then `decide_todays_direction()` — global
+   sentiment picks LONG or SHORT for the day (see "Long and short" below);
+   an unclear read exits here with no engine, before spending API calls on
+   a universe scan. Otherwise `opening_range_scanner.scan_opening_range_accurate(direction=...)`
+   builds the shortlist (gap-up for LONG, gap-down for SHORT) — always the
+   historical-candle path here, never the quotes shortcut (which is only
+   valid within ~3 minutes of 09:20:02 and would silently return wrong
+   numbers at any other time).
 3. **Historical replay** (`_replay_intraday_history`): every fully-closed
    5-minute candle from 09:15 up to now, for every shortlisted symbol, fed
    through the *exact same* `SignalEngine.feed_candle()` used for live
@@ -223,6 +231,73 @@ without a real socket via `on_tick_override` (see `test_live_tick_stream.py`);
 verify the tick message field names (`symbol`, `ltp`) against your installed
 `fyers_apiv3` version before relying on this — broker WebSocket message
 shapes are exactly the kind of thing that changes between SDK versions.
+
+## Long and short: sentiment-gated direction
+
+The engine trades **one direction per day**, chosen from global sentiment
+(`global_sentiment.score_global_bias()`, via `bootstrap.decide_todays_direction()`):
+
+| Global sentiment | Direction | Shortlist screen |
+|---|---|---|
+| `BULLISH` | LONG | gap-**up** in `(MIN_GAIN_PCT, MAX_GAIN_PCT]` (0.5%–2.5%), biggest gainers first |
+| `BEARISH` | SHORT | gap-**down** in `[-MAX_LOSS_PCT, -MIN_LOSS_PCT)` (−2.5% to −0.5%), biggest losers first |
+| `NEUTRAL` / `MIXED` / `UNKNOWN` | none | **no new positions that day** by default |
+
+The neutral row is a deliberate, conservative default: unclear sentiment means
+sitting out rather than guessing a side. Set `config.ALLOW_LONG_ON_NEUTRAL` or
+`ALLOW_SHORT_ON_NEUTRAL` to `True` to fall back to one direction instead (LONG
+wins if both are set). The decision is made in two places that share the same
+function: `bootstrap_and_catchup()` for a mid-session start, and
+`main.job_opening_range_scan()` for a normal 09:20:02 start (which re-reads
+sentiment fresh rather than reusing the pre-market print, since it can move in
+between). `job_global_sentiment()` also prints today's direction for visibility.
+
+**The short side is an exact mirror of the long side**, not new strategy logic:
+
+| | LONG | SHORT |
+|---|---|---|
+| Breakout level | above opening-range **high** | below opening-range **low** |
+| Entry (2 consecutive candles) | close > OR high, > VWAP, volume > volMA(20) | close < OR low, < VWAP, volume > volMA(20) |
+| Weakness event (against you) | close **below** VWAP, volume > volSMA(2) | close **above** VWAP, volume > volSMA(2) |
+| Entry / add / exit orders | BUY / BUY / SELL | SELL / SELL / BUY |
+| Stop-loss | `STOP_LOSS_PCT` **below** entry | `STOP_LOSS_PCT` **above** entry |
+| Target | `TARGET_PCT` **above** entry | `TARGET_PCT` **below** entry |
+| Trailing stop trails | highest price since entry (ratchets up) | lowest price since entry (ratchets down) |
+| P&L per trade | exit − entry | **entry − exit** |
+
+It runs through the same single code path (`SignalEngine`, with a `direction`
+field on each `StockTracker` and each trade-book row), so live trading,
+`backtest.py` (`--direction SHORT`), and the catch-up replay all pick up both
+sides automatically. The trade-book sign convention is covered by direct tests
+in `test_signal_engine.py` (a short that falls is a *profit*, one that rises is
+a *loss*) since inverting it would silently flip every short trade's reported P&L.
+
+Broker sync is direction-aware too: `adopt_broker_position()` takes direction
+from the sign of the broker's `netQty` (negative = short), and **broker truth
+wins** — if the broker says you're short a stock the engine was building long
+today (a manual trade, or a leftover position), the tracker is corrected to
+match rather than managing a real short under long-side stop logic.
+
+**Things to know before trusting the short side:**
+- **Adding to a losing position is riskier short than long.** The weakness-event
+  rule adds to the position on the first adverse event (`MAX_POSITION_ADDS=1`).
+  For a long, a loser is bounded at zero; a short's loss is theoretically
+  unbounded, so averaging *up* into a rising stock deserves more caution.
+  Setting `MAX_POSITION_ADDS = 0` makes shorts (and longs) stop out on the first
+  adverse event instead of adding.
+- **Not every stock can be shorted intraday.** Some Nifty 500 names sit in
+  segments or bans where your broker won't allow a same-day sell-first order
+  (e.g. trade-for-trade series, F&O-ban stocks). The screen doesn't know this —
+  check your broker's rules; a shortlisted stock that can't be shorted will fail
+  at order time once real order placement is wired in.
+- **Sentiment is a blunt gate.** It's built from the *last completed session's*
+  change in S&P/Nasdaq/Dow/Asian indices, VIX, crude and the dollar index via
+  `yfinance` — a rule-of-thumb weighting, not a fitted model, and Asian markets
+  may be mid-session when it's read. It says nothing about India-specific news.
+- **Tested on synthetic data only.** The short logic is verified against
+  hand-computed scenarios, not against real Fyers short-order behaviour, and
+  real order placement is still the same `[LIVE ORDER PLACEHOLDER]` as before.
+  Paper-trade shorts (`DRY_RUN=True`) before anything else.
 
 ## Stop-loss, target, and trailing-SL (tick-level)
 

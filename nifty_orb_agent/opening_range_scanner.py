@@ -12,9 +12,13 @@ closes), this module:
      not history" below).
   3. Computes % change of that close vs. the previous day's close (i.e. how
      far the stock has moved so far today, gap included).
-  4. Keeps stocks whose gain falls in (MIN_GAIN_PCT, MAX_GAIN_PCT].
-  5. Returns the top N by gain%, as a DataFrame, for the signal engine to
-     track for the rest of the session.
+  4. Keeps stocks matching the LONG gap-up band (MIN_GAIN_PCT, MAX_GAIN_PCT]
+     or the SHORT gap-down band [-MAX_LOSS_PCT, -MIN_LOSS_PCT), depending on
+     `direction` - see decide_trade_direction_from_sentiment() in
+     trade_direction.py for how that direction gets chosen for the day.
+  5. Returns the top N (biggest gainers for LONG, biggest losers for SHORT),
+     as a DataFrame, for the signal engine to track for the rest of the
+     session.
 
 Why quotes, not the historical-candle endpoint (for the ON-TIME path)
 --------------------------------------------------------------------------
@@ -57,6 +61,7 @@ import config
 import sys
 from fyers_service import FyersDataService
 from sector_scanner import load_sector_map
+from trade_direction import TradeDirection
 
 # 1. Dynamically parse the parent path ('C:\NS\Fyers_AI_Client')
 # This gets the folder containing the current script and looks one level up
@@ -189,21 +194,38 @@ def _today_915_window_epochs(now) -> tuple[int, int]:
     return int(start.timestamp()), int(end.timestamp())
 
 
-def _apply_gain_filter(rows: list[dict]) -> pd.DataFrame:
+def _passes_gain_filter(pct_change: float, direction: TradeDirection) -> bool:
+    """
+    LONG: gap-UP between (MIN_GAIN_PCT, MAX_GAIN_PCT] - e.g. up between 0.5% and 2.5%.
+    SHORT: the mirror image, gap-DOWN between [-MAX_LOSS_PCT, -MIN_LOSS_PCT) - e.g. down
+    between 0.5% and 2.5%. MIN_LOSS_PCT/MAX_LOSS_PCT in config.py are both stored as
+    positive magnitudes; the negation happens only here, at the point of comparison.
+    """
+    if direction == TradeDirection.LONG:
+        return config.MIN_GAIN_PCT < pct_change <= config.MAX_GAIN_PCT
+    return -config.MAX_LOSS_PCT <= pct_change < -config.MIN_LOSS_PCT
+
+
+def _apply_gain_filter(rows: list[dict], direction: TradeDirection = TradeDirection.LONG) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     if df.empty:
-        logger.warning("No stocks matched the opening-range gain filter (%.1f%%, %.1f%%].",
-                        config.MIN_GAIN_PCT, config.MAX_GAIN_PCT)
+        if direction == TradeDirection.LONG:
+            logger.warning("No stocks matched the LONG opening-range gain filter (%.1f%%, %.1f%%].",
+                            config.MIN_GAIN_PCT, config.MAX_GAIN_PCT)
+        else:
+            logger.warning("No stocks matched the SHORT opening-range loss filter [-%.1f%%, -%.1f%%).",
+                            config.MAX_LOSS_PCT, config.MIN_LOSS_PCT)
         return df
-    df = df.sort_values("pct_change", ascending=False)
-    # select only grean candles 
-    df = df[df['open'] < df['close']]
+    # LONG wants the biggest gainers first; SHORT wants the biggest losers (most negative) first.
+    df = df.sort_values("pct_change", ascending=(direction == TradeDirection.SHORT))
     top_n = df.head(config.TOP_N_STOCKS).reset_index(drop=True)
-    logger.info("Opening-range shortlist (top %d):\n%s", config.TOP_N_STOCKS, top_n.to_string(index=False))
+    logger.info("Opening-range %s shortlist (top %d):\n%s",
+                direction.value, config.TOP_N_STOCKS, top_n.to_string(index=False))
     return top_n
 
 
-def scan_opening_range(state) -> pd.DataFrame:
+def scan_opening_range(state,
+                        direction: TradeDirection = TradeDirection.LONG) -> pd.DataFrame:
     """Fast path: valid only right around config.OPENING_RANGE_SCAN_TIME - see module docstring."""
     data_service: FyersDataService = state['data_service']
     symbols = load_universe(state['top5_gaining_sectors'])
@@ -225,7 +247,7 @@ def scan_opening_range(state) -> pd.DataFrame:
                 continue
 
             pct_change = (c - prev_close) / prev_close * 100
-            if config.MIN_GAIN_PCT < pct_change <= config.MAX_GAIN_PCT:
+            if _passes_gain_filter(pct_change, direction):
                 rows.append({
                     "symbol": symbol, "open": o, "high": h, "low": l, "close": c,
                     "volume": v, "prev_close": prev_close, "pct_change": round(pct_change, 2),
@@ -234,10 +256,10 @@ def scan_opening_range(state) -> pd.DataFrame:
             logger.error("Unexpected quote shape for %s (%s) - skipping.", symbol, exc)
             continue
 
-    return _apply_gain_filter(rows)
+    return _apply_gain_filter(rows, direction)
 
 
-def scan_opening_range_accurate(state) -> pd.DataFrame:
+def scan_opening_range_accurate(state, direction: TradeDirection = TradeDirection.LONG) -> pd.DataFrame:
     """
     Slow-but-always-correct path: fetches the REAL 09:15-09:20 historical
     candle per stock via the rate-limit-hardened bulk fetch
@@ -271,7 +293,7 @@ def scan_opening_range_accurate(state) -> pd.DataFrame:
                 continue
 
             pct_change = (c - prev_close) / prev_close * 100
-            if config.MIN_GAIN_PCT < pct_change <= config.MAX_GAIN_PCT:
+            if _passes_gain_filter(pct_change, direction):
                 rows.append({
                     "symbol": symbol, "open": o, "high": h, "low": l, "close": c,
                     "volume": v, "prev_close": prev_close, "pct_change": round(pct_change, 2),
@@ -280,4 +302,4 @@ def scan_opening_range_accurate(state) -> pd.DataFrame:
             logger.error("Opening-range (accurate) processing failed for %s: %s", symbol, exc)
             continue
 
-    return _apply_gain_filter(rows)
+    return _apply_gain_filter(rows, direction)

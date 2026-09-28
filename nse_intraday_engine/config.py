@@ -18,7 +18,8 @@ BASE_DIR = Path(__file__).resolve().parent
 @dataclass
 class Config:
     # ---- Execution mode -----------------------------------------------------
-    MODE: str = os.getenv("MODE", "BACKTEST").upper()  # "BACKTEST" | "PAPER_TRADING"
+    MODE: str = os.getenv("MODE", "").upper()  
+    # "BACKTEST" | "PAPER_TRADING"
 
     # ---- Fyers API credentials -----------------------------------------------
     FYERS_APP_ID: str = os.getenv("FYERS_APP_ID", "")
@@ -27,12 +28,12 @@ class Config:
     FYERS_ACCESS_TOKEN_PATH: str = os.getenv(
         "FYERS_ACCESS_TOKEN_PATH", str(BASE_DIR / "./YFLRWVHU2G_fyers_token.txt")
     )
-
+    FYERS_ACCESS_TOKEN: str = os.getenv("FYERS_ACCESS_TOKEN", "")
     # ---- Universe / screener --------------------------------------------------
     NIFTY500_URL: str = "https://archives.nseindia.com/content/indices/ind_nifty500list.csv"
     SECTOR_INDEX_CSV_BASE: str = "https://archives.nseindia.com/content/indices/"
     UNIVERSE_TOP_N: int = int(os.getenv("UNIVERSE_TOP_N", 25))
-    TURNOVER_LOOKBACK_DAYS: int = 30
+    TURNOVER_LOOKBACK_DAYS: int = 10
     MAX_SPREAD_PCT: float = 0.15  # tight bid-ask spread filter, % of LTP
 
     # ---- 9:15 candle filter -----------------------------------------------------

@@ -14,19 +14,26 @@ starts anything recurring:
 
   1. detect_market_phase()      - PRE_OPEN / POST_OPEN / POST_CLOSE
   2. sector leaderboard + market breadth snapshot (informational)
-  3. gap-up screen -> today's shortlist (via the always-correct historical
-     path, since we don't know how late "late" is)
-  4. _replay_intraday_history() - feeds every 5-min candle from market open
+  3. decide_todays_direction()  - global sentiment (BULLISH/BEARISH) decides
+     whether today trades LONG or SHORT; NEUTRAL/MIXED/UNKNOWN sentiment
+     means no new positions today unless config.ALLOW_LONG_ON_NEUTRAL /
+     ALLOW_SHORT_ON_NEUTRAL says otherwise (see trade_direction.py)
+  4. gap screen -> today's shortlist: gap-UP for LONG, gap-DOWN for SHORT
+     (via the always-correct historical path, since we don't know how late
+     "late" is)
+  5. _replay_intraday_history() - feeds every 5-min candle from market open
      up to "now" through SignalEngine.feed_candle(is_backfill=True), so any
-     BUY/ADD/stop-loss that would have fired earlier today is reconstructed
-     into the engine's state WITHOUT placing a live order for it (that's
-     what is_backfill does - see signal_engine.py's
-     _maybe_place_live_order docstring for exactly why: a signal detected
-     in a replay is not a live decision, and the price that justified it
-     has moved on by the time we're replaying it)
-  5. _reconcile_broker_state()  - broker positions are the source of truth;
-     adopts anything the broker reports that replay missed, and clears
-     anything replay thinks is open that the broker says isn't
+     entry/add/stop-loss that would have fired earlier today (in whichever
+     direction today is trading) is reconstructed into the engine's state
+     WITHOUT placing a live order for it (that's what is_backfill does -
+     see signal_engine.py's _maybe_place_live_order docstring for exactly
+     why: a signal detected in a replay is not a live decision, and the
+     price that justified it has moved on by the time we're replaying it)
+  6. _reconcile_broker_state()  - broker positions are the source of truth
+     (including which DIRECTION a position actually is, from the broker's
+     own qty sign - see adopt_broker_position); adopts anything the broker
+     reports that replay missed, and clears anything replay thinks is open
+     that the broker says isn't
 
 Why this matters (see also the conversation this was written in for the
 full audit): a late start that skips steps 3-5 and just starts checking
@@ -40,6 +47,7 @@ case for an intraday strategy; it's the normal case for any start after
 from __future__ import annotations
 
 import logging
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime, time as dt_time, timedelta
 from enum import Enum
@@ -50,9 +58,11 @@ import pytz
 
 import config
 from fyers_service import FyersDataService
+import global_sentiment
 from opening_range_scanner import load_universe, scan_opening_range_accurate
 from sector_scanner import compute_market_breadth, get_index_snapshot, get_sector_leaderboard
 from signal_engine import SignalEngine
+from trade_direction import TradeDirection, decide_trade_direction_from_sentiment
 
 logger = logging.getLogger("orb_agent.bootstrap")
 
@@ -72,6 +82,9 @@ class BootstrapResult:
     sector_leaderboard: pd.DataFrame = field(default_factory=pd.DataFrame)
     market_breadth: dict = field(default_factory=dict)
     message: str = ""
+    direction: Optional[TradeDirection] = None
+    sentiment_label: str = ""
+    sentiment_score: float = 0.0
 
 
 # ----------------------------------------------------------------------------
@@ -116,6 +129,37 @@ def _within_signal_window(now: datetime) -> bool:
     anything new once we're past SIGNAL_ENGINE_LAST_RUN, even though the
     market is technically still open."""
     return _is_market_open_now(now) and now.time() <= _time_from_hms(config.SIGNAL_ENGINE_LAST_RUN)
+
+
+# ----------------------------------------------------------------------------
+# Sentiment -> direction decision. Public (no leading underscore) because
+# main.py's own on-time (09:20:02) path needs the exact same decision, not a
+# second copy of it - see main.job_opening_range_scan().
+# ----------------------------------------------------------------------------
+def decide_todays_direction() -> tuple[Optional[TradeDirection], str, float]:
+    """
+    Turns global_sentiment.score_global_bias() into today's trading
+    direction: BULLISH -> LONG, BEARISH -> SHORT. Anything else (NEUTRAL,
+    MIXED, UNKNOWN, or a fetch failure) returns None UNLESS
+    config.ALLOW_LONG_ON_NEUTRAL / ALLOW_SHORT_ON_NEUTRAL says to fall back
+    to a specific direction anyway (both default False - the conservative
+    default is "no clear direction -> no new positions today", in either
+    direction).
+
+    Returns (direction_or_None, sentiment_label, sentiment_score) so callers
+    can log/report the raw sentiment that drove the decision, not just the
+    final direction - "SHORT because BEARISH (score -1.4)" is a lot more
+    auditable than just "SHORT".
+    """
+    snapshot = global_sentiment.fetch_global_snapshot()
+    label, score = global_sentiment.score_global_bias(snapshot)
+    direction = decide_trade_direction_from_sentiment(label)
+    if direction is None:
+        if config.ALLOW_LONG_ON_NEUTRAL:
+            direction = TradeDirection.LONG
+        elif config.ALLOW_SHORT_ON_NEUTRAL:
+            direction = TradeDirection.SHORT
+    return direction, label, score
 
 
 # ----------------------------------------------------------------------------
@@ -260,32 +304,55 @@ def bootstrap_and_catchup(data_service: FyersDataService) -> BootstrapResult:
 
     logger.info("=== ENTERING CATCH-UP MODE at %s IST ===", now.strftime("%H:%M:%S"))
 
-    # 1. Sector leaderboard + market breadth - informational, doesn't gate anything below
+    # 1. Sector leaderboard + market breadth - informational, always computed regardless
+    #    of the direction decision below, since it's cheap and useful either way.
     snapshot = get_index_snapshot(data_service)
     leaderboard = get_sector_leaderboard(snapshot)
-    universe = load_universe()
+    main_module = sys.modules['__main__']
+    main_module.state['top5_gaining_sectors'] = leaderboard.head(5)
+    logger.info(f'{main_module.state["top5_gaining_sectors"]}')
+    universe = load_universe(main_module.state['top5_gaining_sectors'] )
     breadth = compute_market_breadth(data_service, universe)
     logger.info("Market breadth snapshot: %s", breadth)
 
-    # 2. Gap-up screen -> shortlist, via the always-correct historical path (we don't
-    #    know how late "late" is, so the quotes-proxy shortcut is never safe here)
-    shortlist = scan_opening_range_accurate(data_service)
-    if shortlist.empty:
-        msg = "Catch-up: no stocks matched the opening-range gain filter today - nothing to track."
+    # 2. Global sentiment -> today's direction. Computed before the (potentially
+    #    expensive) gap screen below, so an unclear-sentiment day short-circuits early
+    #    without spending API calls scanning a universe we're not going to trade anyway.
+    direction, sentiment_label, sentiment_score = decide_todays_direction()
+    logger.info("Global sentiment: %s (score %.2f) -> trade direction: %s",
+                sentiment_label, sentiment_score, direction.value if direction else "NONE")
+    if direction is None:
+        msg = (f"Catch-up: global sentiment is {sentiment_label} (score {sentiment_score:.2f}) - "
+               f"not a clear bullish/bearish read, and config.ALLOW_LONG_ON_NEUTRAL / "
+               f"ALLOW_SHORT_ON_NEUTRAL are both False, so no new positions will be opened today.")
         logger.warning(msg)
-        return BootstrapResult(phase, None, leaderboard, breadth, msg)
+        return BootstrapResult(phase, None, leaderboard, breadth, msg,
+                                direction=None, sentiment_label=sentiment_label, sentiment_score=sentiment_score)
 
-    engine = SignalEngine(data_service, shortlist)
+    # 3. Gap screen -> shortlist (gap-UP for LONG, gap-DOWN for SHORT), via the
+    #    always-correct historical path (we don't know how late "late" is, so the
+    #    quotes-proxy shortcut is never safe here)
+    shortlist = scan_opening_range_accurate(main_module.state, direction=direction)
+    if shortlist.empty:
+        msg = f"Catch-up: no stocks matched the {direction.value} opening-range filter today - nothing to track."
+        logger.warning(msg)
+        return BootstrapResult(phase, None, leaderboard, breadth, msg,
+                                direction=direction, sentiment_label=sentiment_label, sentiment_score=sentiment_score)
 
-    # 3. Replay 9:15 -> now for every shortlisted symbol (backfill-flagged: reconstructs
+    engine = SignalEngine(data_service, shortlist, direction=direction)
+
+    # 4. Replay 9:15 -> now for every shortlisted symbol (backfill-flagged: reconstructs
     #    state, never places a live order for what it finds)
     _replay_intraday_history(engine, data_service, shortlist["symbol"].tolist(), now)
 
-    # 4. Broker truth overrides replay wherever they disagree
+    # 5. Broker truth overrides replay wherever they disagree (adopt_broker_position
+    #    detects LONG vs SHORT from the broker's own qty sign, independent of `direction`
+    #    above - broker reality always wins over what we intended to trade today)
     _reconcile_broker_state(engine, data_service)
 
     open_count = sum(1 for t in engine.trackers.values() if t.position_open)
-    msg = (f"Catch-up complete: tracking {len(engine.trackers)} symbol(s), "
+    msg = (f"Catch-up complete: tracking {len(engine.trackers)} {direction.value} symbol(s), "
            f"{open_count} with an open position reconstructed from today so far.")
     logger.info(msg)
-    return BootstrapResult(phase, engine, leaderboard, breadth, msg)
+    return BootstrapResult(phase, engine, leaderboard, breadth, msg,
+                            direction=direction, sentiment_label=sentiment_label, sentiment_score=sentiment_score)
