@@ -4,12 +4,23 @@ backtest.py
 Replays the exact same opening-range + VWAP/volume/weakness-event signal
 logic used live (signal_engine.SignalEngine, completely unmodified - see
 its feed_candle() method) against historical Fyers data, one past trading
-day at a time, and aggregates the results. Supports both directions -
-LONG (the original gap-up screen) and SHORT (the mirrored gap-down screen) -
-via --direction on the command line; a single run replays one fixed
-direction across the whole date range (this tool does not decide direction
-from sentiment the way bootstrap.py/main.py do live - run it twice, once
-per direction, to compare both over the same period).
+day at a time, and aggregates the results.
+
+Direction is decided PER DAY from historical global sentiment, exactly the
+way bootstrap.py/main.py do live (via bootstrap.decide_direction_for_date()) -
+not one fixed direction for the whole range. This matters for the backtest
+to mean anything: the deployed strategy switches between LONG and SHORT
+daily based on sentiment, so a backtest that only ever replays one side
+is testing a DIFFERENT, simpler strategy than what actually runs live. Pass
+--direction to override this and force one fixed side across the whole
+range instead (useful for deliberately comparing "what if this had always
+traded LONG" against the real, sentiment-gated history) - but that is now
+an explicit opt-in, not the default.
+
+Also computes and logs the sector leaderboard for each day, from the same
+historical daily-candle data already being fetched for the previous-close
+calculation - the historical counterpart to sector_scanner.get_sector_leaderboard(),
+for parity with what the live system's sector scan reports.
 
 Design: this module only handles DATA - fetching each day's opening-range
 shortlist and the full session's 5-min candles for each shortlisted stock -
@@ -37,6 +48,13 @@ date-range-chunks), NOT (universe size x trading days) - so backtesting 5
 days costs about the same as backtesting 60, as long as both fit inside one
 chunk per symbol.
 
+The intraday fetch range is extended INTRADAY_SEED_LOOKBACK_DAYS calendar
+days before start_date too, purely so day 1 of the backtest has real
+prior-session candles available to seed its volume-MA windows from (see
+signal_engine.seed_volume_windows_from_candles) - without this, every
+backtested day would understate activity in its first ~100 minutes, the
+same bug this fixes live (see bootstrap.fetch_and_seed_volume_windows).
+
 What this does NOT do
 -----------------------
 - Model slippage, brokerage, STT, or bid/ask spread - real fills will be
@@ -52,6 +70,11 @@ What this does NOT do
   as if today's universe/classification always applied. This tends to
   inflate apparent historical performance somewhat, since it only "sees"
   stocks that survived to today's list.
+- Cache the per-day historical sentiment fetch (fetch_global_snapshot_as_of)
+  across runs - each yfinance call is independent of Fyers' own rate limit,
+  but a long date range still means one small burst of yfinance calls per
+  day being backtested; expect this to be the slower part of a long
+  multi-month backtest, not the Fyers data pre-fetch.
 """
 
 from __future__ import annotations
@@ -65,7 +88,8 @@ import pytz, sys
 import config
 from fyers_service import FyersDataService
 from opening_range_scanner import load_universe
-from signal_engine import SignalEngine
+from sector_scanner import load_sector_map
+from signal_engine import SignalEngine, seed_volume_windows_from_candles
 from trade_direction import TradeDirection
 from sector_scanner import get_index_snapshot, get_sector_leaderboard
 from pathlib import Path
@@ -79,6 +103,9 @@ if str(project_root) not in sys.path:
     sys.path.append(str(project_root))
     
 logger = logging.getLogger("orb_agent.backtest")
+
+INTRADAY_SEED_LOOKBACK_DAYS = 7  # calendar days of extra intraday history fetched before
+                                  # start_date, purely to seed day 1's volume-MA windows
 
 
 def trading_days_between(start: date, end: date) -> list[date]:
@@ -121,6 +148,20 @@ def _candles_on_date(candles: list, target_date: date, tz) -> list:
 def _previous_close_on_date(daily_candles: list, target_date: date, tz) -> float | None:
     prior = [c for c in daily_candles if datetime.fromtimestamp(c[0], tz).date() < target_date]
     return prior[-1][4] if prior else None
+
+
+def _seed_candles_before_date(candles: list, target_date: date, tz, needed: int) -> list:
+    """
+    Returns up to `needed` of the most recent candles STRICTLY BEFORE
+    target_date, in chronological order - used to seed a fresh
+    per-backtest-day SignalEngine's volume-MA windows from the prior
+    session(s), sliced out of data already pre-fetched for the whole
+    backtest range (zero extra API calls). See
+    signal_engine.seed_volume_windows_from_candles for what this fixes.
+    """
+    prior = sorted((c for c in candles if datetime.fromtimestamp(c[0], tz).date() < target_date),
+                   key=lambda c: c[0])
+    return prior[-needed:] if prior else []
 
 
 def _latest_candle_time_str(per_symbol_day_candles: dict, tz) -> str | None:
@@ -179,17 +220,69 @@ def _build_shortlist_for_date(symbols: list[str], intraday_by_symbol: dict, dail
     return df.head(config.TOP_N_STOCKS).reset_index(drop=True)
 
 
+def _compute_historical_sector_leaderboard(sector_daily_by_symbol: dict, sector_map: pd.DataFrame,
+                                            target_date: date, tz) -> pd.DataFrame:
+    """
+    Historical counterpart to sector_scanner.get_sector_leaderboard(): the
+    same is_sector_index-filtered, pct-change-ranked view, but computed from
+    pre-fetched DAILY candles for each sector index symbol (today's close
+    vs. the prior trading day's close) instead of live quotes - there's no
+    "live quote" for a historical date, so this is the only way to get a
+    per-day sector leaderboard for a backtest.
+    """
+    if sector_map is None or sector_map.empty:
+        return pd.DataFrame()
+
+    rows = []
+    for _, row in sector_map[sector_map["is_sector_index"]].iterrows():
+        symbol = row["symbol"]
+        daily_candles = sector_daily_by_symbol.get(symbol, [])
+        today_candles = _candles_on_date(daily_candles, target_date, tz)
+        if not today_candles:
+            continue
+        today_close = today_candles[0][4]
+        prev_close = _previous_close_on_date(daily_candles, target_date, tz)
+        if not prev_close:
+            continue
+        pct_change = (today_close - prev_close) / prev_close * 100
+        rows.append({"symbol": symbol, "index_name": row["index_name"], "pct_change": round(pct_change, 2)})
+
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    return df.sort_values("pct_change", ascending=False).reset_index(drop=True)
+
+
 def _run_backtest_for_date(data_service: FyersDataService, target_date: date, symbols: list[str],
                             intraday_by_symbol: dict, daily_by_symbol: dict, tz,
-                            direction: TradeDirection = TradeDirection.LONG) -> dict:
+                            direction: TradeDirection = TradeDirection.LONG,
+                            sector_map: Optional[pd.DataFrame] = None,
+                            sector_daily_by_symbol: Optional[dict] = None) -> dict:
+    sector_leaderboard = _compute_historical_sector_leaderboard(sector_daily_by_symbol or {}, sector_map, target_date, tz)
+    if not sector_leaderboard.empty:
+        top3 = sector_leaderboard.head(3)[["index_name", "pct_change"]].to_dict("records")
+        logger.info("%s: sector leaderboard (top 3) -> %s", target_date, top3)
+
     shortlist = _build_shortlist_for_date(symbols, intraday_by_symbol, daily_by_symbol, target_date, tz, direction)
     if shortlist.empty:
         logger.info("%s: no %s opening-range shortlist - skipping (holiday, or no stock matched the band).",
                     target_date, direction.value)
-        return {"date": target_date, "shortlist": shortlist, "trades": pd.DataFrame(), "summary": {}}
+        return {"date": target_date, "shortlist": shortlist, "trades": pd.DataFrame(), "summary": {},
+                "sector_leaderboard": sector_leaderboard}
 
     logger.info("%s: %s shortlist -> %s", target_date, direction.value, list(shortlist["symbol"]))
     engine = SignalEngine(data_service, shortlist, direction=direction)
+
+    # Seed volume-MA windows from the prior session(s), sliced out of the SAME pre-fetched
+    # intraday data (zero extra API calls) - without this, entries in the first ~100 minutes
+    # of every backtested day would be silently suppressed (volume MA stays None). See
+    # signal_engine.seed_volume_windows_from_candles's docstring for the full story.
+    seed_candles_by_symbol = {
+        row["symbol"]: _seed_candles_before_date(intraday_by_symbol.get(row["symbol"], []), target_date, tz,
+                                                  config.VOLUME_MA_PERIOD)
+        for _, row in shortlist.iterrows()
+    }
+    seed_volume_windows_from_candles(engine.trackers, seed_candles_by_symbol)
 
     per_symbol_day_candles = {
         row["symbol"]: _candles_on_date(intraday_by_symbol.get(row["symbol"], []), target_date, tz)
@@ -212,20 +305,32 @@ def _run_backtest_for_date(data_service: FyersDataService, target_date: date, sy
     trades_df = engine.trade_book.as_dataframe()
     if not trades_df.empty:
         trades_df.insert(0, "date", str(target_date))
-    return {"date": target_date, "shortlist": shortlist, "trades": trades_df, "summary": engine.trade_book.summary()}
+    return {"date": target_date, "shortlist": shortlist, "trades": trades_df, "summary": engine.trade_book.summary(),
+            "sector_leaderboard": sector_leaderboard}
 
 
 def run_backtest(data_service: FyersDataService, start_date: date, end_date: date,
-                  direction: TradeDirection = TradeDirection.LONG) -> dict:
+                  direction: Optional[TradeDirection] = None) -> dict:
     """
-    Runs the strategy over every weekday in [start_date, end_date], in EITHER
-    direction (LONG or SHORT - see trade_direction.py; this does NOT decide
-    direction from sentiment the way bootstrap.py/main.py do live, since a
-    backtest replays one fixed direction across the whole range by design -
-    pass --direction on the command line, or call this twice, once per
-    direction, if you want to compare both over the same period), and
-    returns {"trades": combined trade-book DataFrame, "daily_summary":
-    per-day DataFrame, "overall": aggregate dict}.
+    Runs the strategy over every weekday in [start_date, end_date].
+
+    direction=None (the default): computed FRESH FOR EACH DAY from
+    historical global sentiment as of that day's pre-market
+    (bootstrap.decide_direction_for_date), exactly matching what live
+    trading would have chosen - a day with no clear sentiment read (and no
+    config.ALLOW_LONG_ON_NEUTRAL / ALLOW_SHORT_ON_NEUTRAL fallback
+    configured) is skipped entirely, same as live.
+
+    direction=<a fixed TradeDirection>: overrides the per-day decision and
+    replays that ONE direction across the whole range regardless of
+    sentiment - an explicit opt-in for comparing "what if this had always
+    traded LONG/SHORT" against the real, sentiment-gated history; not the
+    default, since it tests a different (simpler) strategy than what's
+    actually deployed.
+
+    Returns {"trades": combined trade-book DataFrame, "daily_summary":
+    per-day DataFrame (includes the direction and sentiment actually used
+    each day), "sector_leaderboards": {date_str: DataFrame}, "overall": aggregate dict}.
     """
     snapshot = get_index_snapshot(data_service)
     if snapshot.empty:
@@ -238,9 +343,10 @@ def run_backtest(data_service: FyersDataService, start_date: date, end_date: dat
     trading_days = trading_days_between(start_date, end_date)
     if not trading_days:
         logger.warning("No weekdays in the requested range (%s to %s).", start_date, end_date)
-        return {"trades": pd.DataFrame(), "daily_summary": pd.DataFrame(), "overall": {}}
+        return {"trades": pd.DataFrame(), "daily_summary": pd.DataFrame(), "sector_leaderboards": {}, "overall": {}}
 
-    intraday_chunks = len(_date_chunks(start_date, end_date, config.INTRADAY_HISTORY_MAX_DAYS_PER_CHUNK))
+    intraday_fetch_start = start_date - timedelta(days=INTRADAY_SEED_LOOKBACK_DAYS)
+    intraday_chunks = len(_date_chunks(intraday_fetch_start, end_date, config.INTRADAY_HISTORY_MAX_DAYS_PER_CHUNK))
     daily_lookback_start = start_date - timedelta(days=20)  # buffer so day 1 has a "previous close"
     daily_chunks = len(_date_chunks(daily_lookback_start, end_date, config.DAILY_HISTORY_MAX_DAYS_PER_CHUNK))
     estimated_calls = len(symbols) * (intraday_chunks + daily_chunks)
@@ -254,27 +360,60 @@ def run_backtest(data_service: FyersDataService, start_date: date, end_date: dat
     daily_by_symbol: dict[str, list] = {}
     for idx, symbol in enumerate(symbols, start=1):
         intraday_by_symbol[symbol] = _fetch_full_range_candles(
-            data_service, symbol, "5", start_date, end_date, config.INTRADAY_HISTORY_MAX_DAYS_PER_CHUNK)
+            data_service, symbol, "5", intraday_fetch_start, end_date, config.INTRADAY_HISTORY_MAX_DAYS_PER_CHUNK)
         daily_by_symbol[symbol] = _fetch_full_range_candles(
             data_service, symbol, "D", daily_lookback_start, end_date, config.DAILY_HISTORY_MAX_DAYS_PER_CHUNK)
         if idx % 50 == 0 or idx == len(symbols):
             logger.info("Pre-fetch progress: %d/%d symbols.", idx, len(symbols))
 
+    # Sector index daily candles, for the per-day historical sector leaderboard - same
+    # date range/chunking as the stock universe's daily fetch, but a much smaller symbol
+    # set (only the is_sector_index=True rows), so this is a small incremental cost.
+    sector_map = load_sector_map()
+    sector_index_symbols = (sector_map[sector_map["is_sector_index"]]["symbol"].tolist()
+                             if not sector_map.empty else [])
+    sector_daily_by_symbol: dict[str, list] = {}
+    for symbol in sector_index_symbols:
+        sector_daily_by_symbol[symbol] = _fetch_full_range_candles(
+            data_service, symbol, "D", daily_lookback_start, end_date, config.DAILY_HISTORY_MAX_DAYS_PER_CHUNK)
+
     tz = pytz.timezone(config.TIMEZONE)
     all_trades = []
     daily_summaries = []
+    sector_leaderboards: dict[str, pd.DataFrame] = {}
+    forced_direction = direction is not None
+
     for d in trading_days:
-        result = _run_backtest_for_date(data_service, d, symbols, intraday_by_symbol, daily_by_symbol,
-                                         tz, direction=direction)
+        if forced_direction:
+            day_direction, sentiment_label, sentiment_score = direction, "FORCED", 0.0
+        else:
+            day_direction, sentiment_label, sentiment_score = decide_direction_for_date(d)
+
+        if day_direction is None:
+            logger.info("%s: sentiment is %s (score %.2f) - no clear direction and no "
+                        "ALLOW_LONG_ON_NEUTRAL/ALLOW_SHORT_ON_NEUTRAL fallback configured, "
+                        "skipping (no trades today, matching what live trading would do).",
+                        d, sentiment_label, sentiment_score)
+            daily_summaries.append({"date": str(d), "direction": None, "sentiment": sentiment_label,
+                                     "sentiment_score": sentiment_score,
+                                     "total_trades": 0, "total_points": 0.0, "win_rate_pct": 0.0})
+            continue
+
+        result = _run_backtest_for_date(data_service, d, symbols, intraday_by_symbol, daily_by_symbol, tz,
+                                         direction=day_direction, sector_map=sector_map,
+                                         sector_daily_by_symbol=sector_daily_by_symbol)
         if not result["trades"].empty:
             all_trades.append(result["trades"])
-        daily_summaries.append({"date": str(d), **result["summary"]})
+        daily_summaries.append({"date": str(d), "direction": day_direction.value, "sentiment": sentiment_label,
+                                 "sentiment_score": sentiment_score, **result["summary"]})
+        sector_leaderboards[str(d)] = result["sector_leaderboard"]
 
     combined_trades = pd.concat(all_trades, ignore_index=True) if all_trades else pd.DataFrame()
     daily_summary_df = pd.DataFrame(daily_summaries)
 
     overall = {
         "days_tested": len(daily_summaries),
+        "days_skipped_no_direction": int(daily_summary_df["direction"].isna().sum()) if "direction" in daily_summary_df else 0,
         "days_with_trades": (int((daily_summary_df["total_trades"] > 0).sum())
                               if "total_trades" in daily_summary_df else 0),
         "total_trades": int(combined_trades.shape[0]) if not combined_trades.empty else 0,
@@ -282,7 +421,8 @@ def run_backtest(data_service: FyersDataService, start_date: date, end_date: dat
         "win_rate_pct": (round(float((combined_trades["points"] > 0).mean() * 100), 2)
                           if not combined_trades.empty else 0.0),
     }
-    return {"trades": combined_trades, "daily_summary": daily_summary_df, "overall": overall}
+    return {"trades": combined_trades, "daily_summary": daily_summary_df,
+            "sector_leaderboards": sector_leaderboards, "overall": overall}
 
 
 if __name__ == "__main__":
@@ -290,13 +430,15 @@ if __name__ == "__main__":
 
     from fyers_service import FyersAuthManager
 
-    parser = argparse.ArgumentParser(description="Backtest the ORB strategy (LONG or SHORT) over a historical date range.")
+    parser = argparse.ArgumentParser(
+        description="Backtest the ORB strategy over a historical date range, with direction "
+                    "decided per-day from historical sentiment by default (matching live).")
     parser.add_argument("--start", required=True, help="YYYY-MM-DD")
     parser.add_argument("--end", required=True, help="YYYY-MM-DD")
-    parser.add_argument("--direction", default="LONG", choices=["LONG", "SHORT"],
-                         help="Which side to backtest (default LONG). This tool doesn't decide "
-                              "direction from sentiment the way the live agent does - it replays "
-                              "one fixed direction across the whole range.")
+    parser.add_argument("--direction", default=None, choices=["LONG", "SHORT"],
+                         help="Force one fixed direction across the whole range, overriding the "
+                              "default per-day sentiment-based decision. Omit this to replay what "
+                              "the live, sentiment-gated strategy would actually have done each day.")
     parser.add_argument("--out", default=None, help="Optional path to save the combined trade log as CSV")
     args = parser.parse_args()
 

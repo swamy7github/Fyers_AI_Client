@@ -52,6 +52,8 @@ scoring with an optional Claude-powered read on qualitative news.
 | `test_live_tick_stream.py` | Tests for tick routing/validation, without a real WebSocket |
 | `test_trade_direction.py` | Tests for the sentiment-label → direction mapping |
 | `test_opening_range_scanner.py` | Tests for the LONG/SHORT gap-band filter and sort order |
+| `test_historical_sentiment.py` | Tests for the as-of-date sentiment fetch backtest.py uses for per-day direction |
+| `test_backtest.py` | Tests for backtest.py's per-day direction switch, historical sector leaderboard, and prior-session volume seeding |
 | `build_sector_map.py` | Optional: builds a per-STOCK sector tag file from NSE data, if you want that for something other than the sector leaderboard (see note below) |
 | `test_updates.py` | Standalone tests for sector/universe filtering and market-phase detection |
 | `data/ind_nifty500list.csv` | **You provide this** — Nifty 500 constituents (see below) |
@@ -166,10 +168,17 @@ in an earlier iteration:
    historical-candle path here, never the quotes shortcut (which is only
    valid within ~3 minutes of 09:20:02 and would silently return wrong
    numbers at any other time).
-3. **Historical replay** (`_replay_intraday_history`): every fully-closed
+3. **Volume-MA seeding** (`fetch_and_seed_volume_windows`, BEFORE replay):
+   pre-fills the 20-period (and fast 2-period) volume MA from the prior
+   trading session's real candles — without this, the volume MA needed for
+   every entry stays `None` for the first 20 candles fed to a fresh
+   tracker, silently pushing the earliest possible entry to ~11:00 AM
+   instead of the documented ~09:30. See "Volume-MA warm-up" below for the
+   full story — this was a genuine, previously-unnoticed bug.
+4. **Historical replay** (`_replay_intraday_history`): every fully-closed
    5-minute candle from 09:15 up to now, for every shortlisted symbol, fed
    through the *exact same* `SignalEngine.feed_candle()` used for live
-   candles — same VWAP accumulation, same volume-MA warm-up, same
+   candles — same VWAP accumulation, same (now pre-warmed) volume-MA, same
    2-consecutive-candle BUY/weakness-event logic — with `is_backfill=True`.
    That flag does exactly one thing: it stops `_maybe_place_live_order()`
    from ever placing a real order for a signal reconstructed from history
@@ -177,10 +186,10 @@ in an earlier iteration:
    whether the signal fires, so a reconstructed BUY still opens
    `position_open=True` and is still fully risk-managed (stop-loss/target/
    trailing-SL) going forward from this point.
-4. **Broker reconciliation** (`_reconcile_broker_state`): fetches the
+5. **Broker reconciliation** (`_reconcile_broker_state`): fetches the
    broker's actual open positions and adopts/clears local state to match —
    see "Broker position sync" below.
-5. Returns a `BootstrapResult` (phase, populated `SignalEngine` or `None`,
+6. Returns a `BootstrapResult` (phase, populated `SignalEngine` or `None`,
    sector leaderboard, market breadth) that `main.py` hands off to the
    ongoing 5-minute candle-check scheduler and to `LiveTickStream` for
    tick-level risk management from this point forward.
@@ -231,6 +240,18 @@ without a real socket via `on_tick_override` (see `test_live_tick_stream.py`);
 verify the tick message field names (`symbol`, `ltp`) against your installed
 `fyers_apiv3` version before relying on this — broker WebSocket message
 shapes are exactly the kind of thing that changes between SDK versions.
+
+**Confirmed deliberate, on review**: `_handle_tick()` acts on every single
+tick — it does not wait for a candle to close before exiting a position.
+This is the whole point of this module (see above: reacting faster than a
+5-minute candle close is why it exists at all), not an oversight. The
+trade-off worth knowing: a raw tick-touch stop can get hit by one noisy
+print — a brief bad tick, a fat-finger trade, a momentary liquidity gap —
+that reverts a moment later, where a candle-close confirmation would have
+ridden through it. If you want a debounce (e.g. require the price to stay
+through the stop for N consecutive ticks, or M seconds, before exiting),
+that would be a deliberate, separate change to `check_tick_for_exit()`, not
+something to default to silently.
 
 ## Long and short: sentiment-gated direction
 
@@ -322,19 +343,43 @@ TODO in `signal_engine.py`).
 ## Backtesting
 
 `backtest.py` replays the exact same strategy — unmodified — against
-historical Fyers data. It doesn't reimplement the rules: `SignalEngine` gets
-a new public `feed_candle()` method that lets historical candles be pushed
+historical Fyers data. It doesn't reimplement the rules: `SignalEngine` has
+a public `feed_candle()` method that lets historical candles be pushed
 through the identical VWAP/volume/weakness-event logic `main.py` uses live,
 so a backtest can't silently drift out of sync with what live trading
 actually does. If you change the strategy in `signal_engine.py`, both live
 trading and the backtest pick it up automatically.
 
-Run it directly:
+**Direction is decided fresh for each day**, from historical global
+sentiment as of that day's pre-market (`bootstrap.decide_direction_for_date()`
+— the same function, same `ALLOW_LONG_ON_NEUTRAL`/`ALLOW_SHORT_ON_NEUTRAL`
+fallback policy, that live trading uses), not one fixed side for the whole
+range. This matters for the backtest to actually mean something: the
+deployed strategy switches between LONG and SHORT daily, so replaying one
+fixed direction across a multi-month range tests a *different, simpler*
+strategy than the one that runs live. A day with no clear sentiment read is
+skipped entirely — zero trades that day — matching live exactly.
+
 ```bash
 python backtest.py --start 2026-06-01 --end 2026-08-31 --out backtest_trades.csv
 ```
-It prints a per-day summary and an overall total (trades, points, win
-rate), and optionally saves the combined trade log as CSV.
+Pass `--direction LONG` or `--direction SHORT` to override this and force
+one fixed side across the whole range instead — useful for deliberately
+asking "what if this had always traded long", but it's now an explicit
+opt-in, not the default.
+
+It also computes and logs each day's **sector leaderboard** — the
+historical counterpart to `sector_scanner.get_sector_leaderboard()`,
+computed from the same pre-fetched daily candles rather than live quotes
+(there's no "live quote" for a historical date) — for parity with what the
+live system reports each morning. Available per-day in the returned
+`results["sector_leaderboards"]` dict, and a top-3 preview is logged for
+each day so a long backtest's console output isn't flooded with full
+tables.
+
+It prints a per-day summary (now including that day's `direction` and
+`sentiment` alongside trade count/points/win rate) and an overall total,
+and optionally saves the combined trade log as CSV.
 
 **How it stays fast**: rather than one API call per stock per day (500
 stocks × N days), it fetches each universe symbol's full intraday and daily
@@ -344,9 +389,15 @@ community forum — 100 days per request for intraday resolutions, ~365 days
 for daily), then slices out each day's opening-range candle and previous
 close from that in memory. Total API calls end up roughly proportional to
 universe size × chunks, not universe size × trading days — backtesting 5
-days costs about the same as backtesting 60. It logs an estimated call
-count and time before starting the (still slow, it's still rate-limited)
-pre-fetch.
+days costs about the same as backtesting 60. The intraday fetch range is
+also extended `INTRADAY_SEED_LOOKBACK_DAYS` (7) calendar days before
+`--start` — purely so day 1 has real prior-session candles to seed its
+volume-MA window from (see "Volume-MA warm-up" below) — at zero extra API
+cost, since it's sliced from the same pre-fetched data every other day
+already uses. It logs an estimated call count and time before starting the
+(still slow, it's still rate-limited) pre-fetch; the per-day historical
+sentiment fetch adds a separate, smaller burst of `yfinance` calls (one set
+per day being backtested) that isn't part of that estimate.
 
 **Read this before trusting the numbers**:
 - **No slippage, brokerage, STT, or spread** — real fills will be worse.
@@ -365,14 +416,67 @@ pre-fetch.
   optional `at_time_str`, which `backtest.py` sets to the replayed day's
   own last-seen candle time; `main.py`'s live call site is unchanged
   (defaults to real "now" as before).
+- A second, more significant bug caught later and now fixed (see "Volume-MA
+  warm-up" below): every backtested day used to start with a cold,
+  completely empty volume-MA window, meaning no entry could fire before
+  roughly 100 minutes into each simulated day — silently understating
+  activity in the first couple of hours of every single backtested day. Any
+  backtest results generated before this fix should be treated as
+  unreliable and re-run.
 
-Tested end-to-end with synthetic multi-day candle data covering: sector
-filtering feeding into the shortlist, the 20-candle volume-MA warm-up, a
-BUY trigger, riding to EOD square-off with a correctly-timestamped exit, a
-day with no qualifying stocks (shortlist empty, day skipped), and a symbol
-with no returned data (skipped, not a crash). This isn't yet folded into
-`test_updates.py` as a standalone test — worth adding there if you extend
-this further.
+Tested (`test_backtest.py`, `test_historical_sentiment.py`) covering: the
+per-day direction switch (a bullish day trades LONG, a bearish day trades
+SHORT, a neutral day is skipped), the `--direction` override correctly
+bypassing the sentiment fetch entirely, the historical sector leaderboard's
+arithmetic, and — directly — that prior-session seeding lets a backtested
+day's entry fire on just 2 replayed candles rather than needing 22. Plus the
+original end-to-end coverage: sector filtering feeding into the shortlist,
+a BUY trigger, EOD square-off with a correctly-timestamped exit, a day with
+no qualifying stocks, and a symbol with no returned data.
+
+## Volume-MA warm-up and prior-session seeding
+
+**A real bug, caught by close review of the actual code rather than its
+documentation**: `StockTracker.volume_window` starts completely empty every
+time a `SignalEngine` is constructed — live, catch-up, or per-backtested-day
+— and the 20-period volume MA required for every entry (`volume_ma()`)
+returns `None` until 20 candles have been fed. Since an entry requires
+`vol_ma_slow is not None`, that meant **no entry could fire before candle
+#22** (20 to warm up the window, plus the 2 consecutive qualifying candles)
+— roughly **11:00–11:10 AM**, not the documented "earliest entry at the
+09:30 candle close." This silently undercut the strategy every single day,
+live and in every backtest run before this fix.
+
+The fix, `signal_engine.seed_volume_windows_from_candles()`, pre-fills both
+the slow (20-period) and fast (2-period) volume windows from the prior
+trading session's real candle volumes, so the window is already warm before
+a single candle of the new session has been fed:
+
+- **Live** (`bootstrap.fetch_and_seed_volume_windows()`, called in both
+  `bootstrap_and_catchup()` before replay and `main.job_opening_range_scan()`
+  before the live hand-off): fetches the most recent trading session(s)
+  before today via `FyersDataService.get_candles_bulk()` — one bulk call per
+  lookback day actually needed, looking back up to 7 calendar days
+  (skipping weekends, not NSE holidays — same known limitation as
+  elsewhere), stopping once 20 candles are collected or the budget runs
+  out. Never raises — a fetch failure degrades to "no seed, warms up live"
+  rather than blocking engine construction.
+- **Backtest** (`backtest.py`): slices the needed candles directly out of
+  data it already pre-fetched (see `INTRADAY_SEED_LOOKBACK_DAYS` above) —
+  zero extra API calls.
+
+Both paths call the same pure `seed_volume_windows_from_candles()` function,
+so there's exactly one place this logic lives. A symbol with no prior-session
+data available at all (a brand-new listing, or a data source that doesn't
+support the bulk fetch) degrades gracefully to the original behavior —
+starts empty, warms up live over the first 20 candles — rather than
+crashing.
+
+Tested directly in `test_signal_engine.py` (the pure seeding function, plus
+a before/after pair proving a BUY now fires on just 2 live candles instead
+of 22) and `test_bootstrap.py` (the live multi-day lookback logic: weekend
+skipping, falling back to an earlier day when the first doesn't have enough
+candles, and a data-service failure on one day not blocking the others).
 
 ## Backtesting an external daily stock-picks strategy
 

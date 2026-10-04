@@ -142,6 +142,115 @@ class TestReplayIntradayHistory(unittest.TestCase):
         self.assertEqual(replayed, 0)
 
 
+class FakeSeedingDataService:
+    """
+    For fetch_and_seed_volume_windows(): serves canned candles keyed by
+    (symbol, date_str), and counts calls so lookback-loop behavior (how
+    many days it actually checked) can be asserted directly.
+    """
+
+    def __init__(self, candles_by_symbol_and_date: dict[tuple[str, str], list], raise_on_dates: set = frozenset()):
+        self._candles = candles_by_symbol_and_date
+        self._raise_on_dates = raise_on_dates
+        self.calls: list[tuple] = []
+
+    def get_candles_bulk(self, symbols, resolution, range_from_date, range_to_date):
+        self.calls.append((tuple(symbols), range_from_date))
+        if range_from_date in self._raise_on_dates:
+            raise RuntimeError(f"simulated failure fetching {range_from_date}")
+        return {s: self._candles.get((s, range_from_date), []) for s in symbols}
+
+
+class TestFetchAndSeedVolumeWindows(unittest.TestCase):
+    def test_single_prior_day_with_enough_candles_stops_the_lookback_immediately(self):
+        engine = _bare_engine("NSE:TEST-EQ")
+        # 21 Sept 2026 is a Monday -> the prior trading day is Friday 18 Sept.
+        candles = [[i, 100, 101, 99, 100, 1000 + i] for i in range(25)]  # 25 > the 20 needed
+        provider = FakeSeedingDataService({("NSE:TEST-EQ", "2026-09-18"): candles})
+        from bootstrap import fetch_and_seed_volume_windows
+        fetch_and_seed_volume_windows(engine, provider, reference_date=datetime(2026, 9, 21).date())
+
+        tracker = engine.trackers["NSE:TEST-EQ"]
+        self.assertEqual(len(tracker.volume_window), 20)
+        self.assertIsNotNone(tracker.volume_ma())
+        # Only Friday (2026-09-18) should have been fetched - weekend correctly skipped, and no
+        # need to look back further once 20+ candles were found on the very first prior day.
+        fetched_dates = {call[1] for call in provider.calls}
+        self.assertEqual(fetched_dates, {"2026-09-18"})
+
+    def test_weekend_start_correctly_skips_saturday_and_sunday(self):
+        engine = _bare_engine("NSE:TEST-EQ")
+        candles = [[i, 100, 101, 99, 100, 1000] for i in range(20)]
+        provider = FakeSeedingDataService({("NSE:TEST-EQ", "2026-09-18"): candles})
+        from bootstrap import fetch_and_seed_volume_windows
+        # Starting from a Monday means the immediately preceding calendar day is Sunday -
+        # must skip back through Sun (20th) and Sat (19th) to reach Friday (18th).
+        fetch_and_seed_volume_windows(engine, provider, reference_date=datetime(2026, 9, 21).date())
+        fetched_dates = {call[1] for call in provider.calls}
+        self.assertNotIn("2026-09-20", fetched_dates)  # Sunday
+        self.assertNotIn("2026-09-19", fetched_dates)  # Saturday
+        self.assertIn("2026-09-18", fetched_dates)      # Friday
+
+    def test_insufficient_first_day_falls_back_to_an_earlier_day(self):
+        engine = _bare_engine("NSE:TEST-EQ")
+        # Friday only has 5 candles (a short/partial session) - needs to also pull from Thursday.
+        provider = FakeSeedingDataService({
+            ("NSE:TEST-EQ", "2026-09-18"): [[i, 100, 101, 99, 100, 1000] for i in range(5)],
+            ("NSE:TEST-EQ", "2026-09-17"): [[i, 100, 101, 99, 100, 2000] for i in range(30)],
+        })
+        from bootstrap import fetch_and_seed_volume_windows
+        fetch_and_seed_volume_windows(engine, provider, reference_date=datetime(2026, 9, 21).date())
+        tracker = engine.trackers["NSE:TEST-EQ"]
+        self.assertEqual(len(tracker.volume_window), 20)  # capped at VOLUME_MA_PERIOD even though more exists
+        fetched_dates = {call[1] for call in provider.calls}
+        self.assertIn("2026-09-18", fetched_dates)
+        self.assertIn("2026-09-17", fetched_dates)
+
+    def test_multi_day_lookback_keeps_chronological_order(self):
+        engine = _bare_engine("NSE:TEST-EQ")
+        # Thursday's candles (older) should end up BEFORE Friday's (newer) in the seeded window.
+        provider = FakeSeedingDataService({
+            ("NSE:TEST-EQ", "2026-09-18"): [[100 + i, 100, 101, 99, 100, 500 + i] for i in range(5)],   # Fri
+            ("NSE:TEST-EQ", "2026-09-17"): [[i, 100, 101, 99, 100, 100 + i] for i in range(30)],         # Thu
+        })
+        from bootstrap import fetch_and_seed_volume_windows
+        fetch_and_seed_volume_windows(engine, provider, reference_date=datetime(2026, 9, 21).date())
+        tracker = engine.trackers["NSE:TEST-EQ"]
+        window = list(tracker.volume_window)
+        # The last 5 values should be Friday's (500-504) since Friday is the most recent day,
+        # and Thursday's tail fills in the rest before them.
+        self.assertEqual(window[-5:], [500, 501, 502, 503, 504])
+
+    def test_data_service_failure_on_one_day_does_not_crash_and_keeps_trying(self):
+        engine = _bare_engine("NSE:TEST-EQ")
+        provider = FakeSeedingDataService(
+            {("NSE:TEST-EQ", "2026-09-17"): [[i, 100, 101, 99, 100, 1000] for i in range(20)]},
+            raise_on_dates={"2026-09-18"},  # Friday's fetch raises
+        )
+        from bootstrap import fetch_and_seed_volume_windows
+        fetch_and_seed_volume_windows(engine, provider, reference_date=datetime(2026, 9, 21).date())
+        tracker = engine.trackers["NSE:TEST-EQ"]
+        self.assertEqual(len(tracker.volume_window), 20)  # still succeeded via Thursday's data
+
+    def test_no_data_available_at_all_degrades_to_empty_window_without_raising(self):
+        engine = _bare_engine("NSE:TEST-EQ")
+        provider = FakeSeedingDataService({})  # nothing for any date
+        from bootstrap import fetch_and_seed_volume_windows
+        fetch_and_seed_volume_windows(engine, provider, reference_date=datetime(2026, 9, 21).date())
+        tracker = engine.trackers["NSE:TEST-EQ"]
+        self.assertEqual(len(tracker.volume_window), 0)
+        self.assertIsNone(tracker.volume_ma())
+
+    def test_no_tracked_symbols_makes_zero_calls(self):
+        from signal_engine import SignalEngine
+        empty_engine = SignalEngine.__new__(SignalEngine)
+        empty_engine.trackers = {}
+        provider = FakeSeedingDataService({})
+        from bootstrap import fetch_and_seed_volume_windows
+        fetch_and_seed_volume_windows(empty_engine, provider, reference_date=datetime(2026, 9, 21).date())
+        self.assertEqual(provider.calls, [])
+
+
 class TestReconcileBrokerState(unittest.TestCase):
     def test_adopts_a_broker_position_replay_missed(self):
         engine = _bare_engine("NSE:TEST-EQ")

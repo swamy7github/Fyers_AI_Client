@@ -45,7 +45,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 import config
-from bootstrap import MarketPhase, _time_from_hms, bootstrap_and_catchup, decide_todays_direction
+from bootstrap import (MarketPhase, _time_from_hms, bootstrap_and_catchup, decide_todays_direction,
+                        fetch_and_seed_volume_windows)
 from fyers_service import FyersAuthManager, FyersDataService
 from global_sentiment import fetch_global_snapshot, score_global_bias, get_stock_news_ema_bias, evaluate_market_direction
 from live_tick_stream import LiveTickStream
@@ -214,6 +215,10 @@ def job_opening_range_scan(access_token: str):
         logger.warning("No stocks matched the %s opening-range filter today.", direction.value)
         return
     engine = SignalEngine(state["data_service"], shortlist, direction=direction)
+    # Seed the volume-MA windows from the prior session so entries can fire starting the
+    # 09:30 candle as documented, not after ~100 minutes of live-only warm-up - see
+    # signal_engine.seed_volume_windows_from_candles's docstring.
+    fetch_and_seed_volume_windows(engine, state["data_service"])
     state["signal_engine"] = engine
     print(f"\n=== Opening Range {direction.value} Shortlist (Top {config.TOP_N_STOCKS}) ===")
     print(shortlist.to_string(index=False))

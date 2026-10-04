@@ -21,7 +21,15 @@ starts anything recurring:
   4. gap screen -> today's shortlist: gap-UP for LONG, gap-DOWN for SHORT
      (via the always-correct historical path, since we don't know how late
      "late" is)
-  5. _replay_intraday_history() - feeds every 5-min candle from market open
+  5. fetch_and_seed_volume_windows() - pre-fills each tracker's 20-period
+     volume MA (and the fast 2-period one) from the prior session's
+     candles, BEFORE replay. Without this, the volume MA needed for entries
+     stays None for the first 20 candles fed to a fresh tracker - roughly
+     100 minutes - silently pushing the earliest possible entry to ~11:00
+     AM instead of the documented ~09:30, on every single day this ran
+     without it. See signal_engine.seed_volume_windows_from_candles's
+     docstring for the full story.
+  6. _replay_intraday_history() - feeds every 5-min candle from market open
      up to "now" through SignalEngine.feed_candle(is_backfill=True), so any
      entry/add/stop-loss that would have fired earlier today (in whichever
      direction today is trading) is reconstructed into the engine's state
@@ -29,7 +37,7 @@ starts anything recurring:
      see signal_engine.py's _maybe_place_live_order docstring for exactly
      why: a signal detected in a replay is not a live decision, and the
      price that justified it has moved on by the time we're replaying it)
-  6. _reconcile_broker_state()  - broker positions are the source of truth
+  7. _reconcile_broker_state()  - broker positions are the source of truth
      (including which DIRECTION a position actually is, from the broker's
      own qty sign - see adopt_broker_position); adopts anything the broker
      reports that replay missed, and clears anything replay thinks is open
@@ -49,7 +57,7 @@ from __future__ import annotations
 import logging
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, time as dt_time, timedelta
+from datetime import date, datetime, time as dt_time, timedelta
 from enum import Enum
 from typing import Optional
 
@@ -61,7 +69,7 @@ from fyers_service import FyersDataService
 import global_sentiment
 from opening_range_scanner import load_universe, scan_opening_range_accurate
 from sector_scanner import compute_market_breadth, get_index_snapshot, get_sector_leaderboard
-from signal_engine import SignalEngine
+from signal_engine import SignalEngine, seed_volume_windows_from_candles
 from trade_direction import TradeDirection, decide_trade_direction_from_sentiment
 
 logger = logging.getLogger("orb_agent.bootstrap")
@@ -136,15 +144,30 @@ def _within_signal_window(now: datetime) -> bool:
 # main.py's own on-time (09:20:02) path needs the exact same decision, not a
 # second copy of it - see main.job_opening_range_scan().
 # ----------------------------------------------------------------------------
+def _apply_neutral_fallback(direction: Optional[TradeDirection]) -> Optional[TradeDirection]:
+    """
+    Shared by decide_todays_direction() (live) and decide_direction_for_date()
+    (historical, for backtest.py) so the NEUTRAL/MIXED/UNKNOWN fallback
+    policy - config.ALLOW_LONG_ON_NEUTRAL / ALLOW_SHORT_ON_NEUTRAL, both
+    default False - lives in exactly ONE place and can never drift between
+    what a backtest replays and what live trading would actually do.
+    """
+    if direction is not None:
+        return direction
+    if config.ALLOW_LONG_ON_NEUTRAL:
+        return TradeDirection.LONG
+    if config.ALLOW_SHORT_ON_NEUTRAL:
+        return TradeDirection.SHORT
+    return None
+
+
 def decide_todays_direction() -> tuple[Optional[TradeDirection], str, float]:
     """
     Turns global_sentiment.score_global_bias() into today's trading
     direction: BULLISH -> LONG, BEARISH -> SHORT. Anything else (NEUTRAL,
     MIXED, UNKNOWN, or a fetch failure) returns None UNLESS
     config.ALLOW_LONG_ON_NEUTRAL / ALLOW_SHORT_ON_NEUTRAL says to fall back
-    to a specific direction anyway (both default False - the conservative
-    default is "no clear direction -> no new positions today", in either
-    direction).
+    to a specific direction anyway - see _apply_neutral_fallback().
 
     Returns (direction_or_None, sentiment_label, sentiment_score) so callers
     can log/report the raw sentiment that drove the decision, not just the
@@ -153,18 +176,83 @@ def decide_todays_direction() -> tuple[Optional[TradeDirection], str, float]:
     """
     snapshot = global_sentiment.fetch_global_snapshot()
     label, score = global_sentiment.score_global_bias(snapshot)
-    direction = decide_trade_direction_from_sentiment(label)
-    if direction is None:
-        if config.ALLOW_LONG_ON_NEUTRAL:
-            direction = TradeDirection.LONG
-        elif config.ALLOW_SHORT_ON_NEUTRAL:
-            direction = TradeDirection.SHORT
+    direction = _apply_neutral_fallback(decide_trade_direction_from_sentiment(label))
+    return direction, label, score
+
+
+def decide_direction_for_date(as_of_date: date) -> tuple[Optional[TradeDirection], str, float]:
+    """
+    Historical counterpart to decide_todays_direction(), for backtest.py:
+    what direction WOULD have been chosen on the morning of as_of_date,
+    using only global market data available strictly before that date (see
+    global_sentiment.fetch_global_snapshot_as_of). Same
+    _apply_neutral_fallback() policy as the live decision, so a backtest's
+    direction choice never silently diverges from what live trading would
+    have done for the same sentiment reading.
+    """
+    snapshot = global_sentiment.fetch_global_snapshot_as_of(as_of_date)
+    label, score = global_sentiment.score_global_bias(snapshot)
+    direction = _apply_neutral_fallback(decide_trade_direction_from_sentiment(label))
     return direction, label, score
 
 
 # ----------------------------------------------------------------------------
 # Historical replay
 # ----------------------------------------------------------------------------
+def fetch_and_seed_volume_windows(engine: SignalEngine, data_service: FyersDataService,
+                                   reference_date: Optional[date] = None, lookback_days: int = 7) -> None:
+    """
+    Live counterpart to backtest.py's own pre-fetched-data seeding (see
+    signal_engine.seed_volume_windows_from_candles for what this fixes and
+    why): fetches the most recent trading session(s) before reference_date
+    (today, if not given) via one bulk call per lookback day actually
+    needed, and seeds every tracked symbol's volume windows from it.
+
+    Looks back up to `lookback_days` CALENDAR days, skipping weekends (NOT
+    NSE holidays - same known limitation as the rest of this project),
+    stopping once every symbol has at least config.VOLUME_MA_PERIOD candles
+    collected or the lookback budget runs out. Never raises - a
+    data-service failure here degrades to "no seed, warms up live" rather
+    than blocking engine construction, since a missing volume-MA warm-up
+    optimization should never be the reason the whole catch-up pipeline
+    fails.
+
+    Call this BEFORE _replay_intraday_history() so the seed data is already
+    in place when today's own candles start getting replayed on top of it -
+    the deque's maxlen naturally phases out yesterday's oldest entries as
+    today's real candles accumulate, exactly as if the live system had been
+    running continuously since market open.
+    """
+    symbols = list(engine.trackers.keys())
+    if not symbols:
+        return
+    reference_date = reference_date or datetime.now(TZ).date()
+    needed = config.VOLUME_MA_PERIOD
+    collected: dict[str, list] = {s: [] for s in symbols}
+
+    day = reference_date
+    days_checked = 0
+    while days_checked < lookback_days and any(len(v) < needed for v in collected.values()):
+        day = day - timedelta(days=1)
+        if day.weekday() >= 5:  # Saturday/Sunday - skip, not a trading day
+            continue
+        days_checked += 1
+        day_str = day.strftime("%Y-%m-%d")
+        try:
+            candles_by_symbol = data_service.get_candles_bulk(symbols, "5", day_str, day_str)
+        except Exception as exc:
+            logger.warning("Could not fetch %s history for volume-MA seeding: %s", day_str, exc)
+            continue
+        for symbol in symbols:
+            if len(collected[symbol]) >= needed:
+                continue
+            day_candles = sorted(candles_by_symbol.get(symbol, []), key=lambda c: c[0])
+            collected[symbol] = day_candles + collected[symbol]  # an older lookback day goes BEFORE
+            # whatever's already collected, so multi-day lookback stays in chronological order.
+
+    seed_volume_windows_from_candles(engine.trackers, collected)
+
+
 def _replay_intraday_history(engine: SignalEngine, data_service: FyersDataService,
                               symbols: list[str], now: datetime) -> int:
     """
@@ -341,11 +429,16 @@ def bootstrap_and_catchup(data_service: FyersDataService) -> BootstrapResult:
 
     engine = SignalEngine(data_service, shortlist, direction=direction)
 
-    # 4. Replay 9:15 -> now for every shortlisted symbol (backfill-flagged: reconstructs
+    # 4. Seed volume-MA windows from the prior session, BEFORE replay - without this, no
+    #    entry could fire before ~100 minutes of live warm-up (see
+    #    signal_engine.seed_volume_windows_from_candles's docstring)
+    fetch_and_seed_volume_windows(engine, data_service, reference_date=now.date())
+
+    # 5. Replay 9:15 -> now for every shortlisted symbol (backfill-flagged: reconstructs
     #    state, never places a live order for what it finds)
     _replay_intraday_history(engine, data_service, shortlist["symbol"].tolist(), now)
 
-    # 5. Broker truth overrides replay wherever they disagree (adopt_broker_position
+    # 6. Broker truth overrides replay wherever they disagree (adopt_broker_position
     #    detects LONG vs SHORT from the broker's own qty sign, independent of `direction`
     #    above - broker reality always wins over what we intended to trade today)
     _reconcile_broker_state(engine, data_service)

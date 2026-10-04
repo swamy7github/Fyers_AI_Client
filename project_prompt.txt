@@ -1,0 +1,1485 @@
+# ROLE
+
+Act as a senior quantitative developer, Python architect, and systematic-trading researcher specializing in the Indian NSE equity market.
+
+I want you to DESIGN AND DEVELOP A COMPLETE, PRODUCTION-READY PYTHON PROJECT for screening, backtesting, ranking, and generating trading signals for the NSE stock universe using the **4 strategies identified in our previous research**.
+
+Do NOT give me only an explanation, pseudocode, or partial examples.
+
+I want the **complete project source code**, organized into modular Python files, with configuration, logging, testing, documentation, and runnable commands.
+
+---
+
+# 1. PROJECT OBJECTIVE
+
+Build a modular NSE stock-analysis and strategy engine that can:
+
+1. Load historical NSE stock data.
+2. Use my existing FYERS API historical-data module.
+3. Run the same data through four independent trading strategies.
+4. Backtest each strategy independently.
+5. Generate BUY / SELL / HOLD signals.
+6. Rank NSE stocks based on strategy signals.
+7. Combine signals from multiple strategies.
+8. Calculate entry, stop-loss, target, risk/reward and position size.
+9. Produce daily/periodic NSE stock screening reports.
+10. Allow individual strategies to be enabled/disabled.
+11. Allow strategy parameters to be changed from configuration files without modifying source code.
+12. Prevent look-ahead bias and survivorship-bias issues wherever possible.
+13. Be designed so live trading integration can be added later.
+
+The architecture must be suitable for eventually connecting the output to OpenAlgo/FYERS for paper trading and live trading, but DO NOT place real orders in this project.
+
+---
+
+# 2. IMPORTANT: USE THE 4 RESEARCHED STRATEGIES
+
+Use the **four strategies from our previous research**, preserving their intended logic and research assumptions.
+
+Before writing the implementation:
+
+1. Identify the exact four strategies from the research/context.
+2. Write a short "Strategy Specification" for each.
+3. Clearly define:
+   - Market regime
+   - Entry conditions
+   - Exit conditions
+   - Stop-loss
+   - Target
+   - Trailing stop
+   - Position sizing
+   - Timeframe
+   - Required indicators
+   - Filters
+   - Invalid signal conditions
+   - Re-entry conditions
+4. If there is ambiguity in the previous research, DO NOT silently invent a strategy.
+5. Clearly mark any assumption you had to make.
+
+The four strategies MUST remain independent modules.
+
+For example:
+
+strategies/
+    strategy_01/
+    strategy_02/
+    strategy_03/
+    strategy_04/
+
+Do not create one giant strategy.py file.
+
+---
+
+# 3. DATA SOURCE — VERY IMPORTANT
+
+I already have an existing FYERS API module that provides historical stock data through:
+
+    get_historical()
+
+I will provide that existing module/source code to you.
+
+DO NOT replace my existing FYERS implementation unless absolutely necessary.
+
+Instead, create a clean adapter/interface around it.
+
+Expected architecture:
+
+data/
+    fyers_adapter.py
+    data_loader.py
+    data_validator.py
+    cache.py
+
+The strategy engine should NOT directly depend on FYERS.
+
+For example:
+
+    Strategy Engine
+          |
+    Data Interface
+          |
+    FYERS Adapter
+          |
+    Existing get_historical()
+
+This is important because later I may replace FYERS with CSV, Parquet, database, or another broker.
+
+---
+
+# 4. SUPPORT BOTH FYERS AND LOCAL HISTORICAL DATA
+
+The project should support:
+
+A. FYERS historical data
+
+B. CSV historical data
+
+C. Parquet historical data
+
+D. Cached local data
+
+Create a common OHLCV data format.
+
+Minimum required columns:
+
+    datetime
+    open
+    high
+    low
+    close
+    volume
+
+Optional:
+
+    symbol
+    exchange
+    oi
+
+Normalize column names automatically.
+
+Handle:
+
+- timezone
+- duplicate candles
+- missing candles
+- invalid OHLC values
+- unsorted timestamps
+- NaN values
+- zero/negative volume where appropriate
+- corporate-action/data anomalies where detectable
+
+Do not silently corrupt data.
+
+---
+
+# 5. NSE UNIVERSE
+
+The project must support scanning the NSE stock universe.
+
+Do NOT hard-code a small list of stocks.
+
+Create:
+
+universe/
+    nse_universe.py
+    universe_loader.py
+
+The universe should be configurable.
+
+Example:
+
+config/universe.yaml
+
+Possible universe sources:
+
+- NSE symbol CSV
+- user-provided symbol file
+- manually maintained universe
+- future API source
+
+The system should allow:
+
+    ALL_NSE
+    NIFTY_50
+    NIFTY_100
+    NIFTY_200
+    NIFTY_500
+    CUSTOM
+
+The implementation should not depend on only one index.
+
+---
+
+# 6. TIMEFRAMES
+
+Design the engine to support:
+
+    1m
+    3m
+    5m
+    15m
+    30m
+    1h
+    2h
+    4h
+    1D
+
+The strategies should specify their required timeframe in configuration.
+
+Where FYERS does not directly provide a timeframe, create a reliable resampling layer.
+
+Do not create signals from incomplete candles.
+
+---
+
+# 7. INDICATORS
+
+Create a reusable indicator layer.
+
+Possible indicators required by the researched strategies include:
+
+- EMA
+- SMA
+- RSI
+- RSX if required
+- ADX
+- +DI
+- -DI
+- ATR
+- MACD
+- MACD signal
+- MACD histogram
+- Bollinger Bands
+- Ichimoku
+- Tenkan-sen
+- Kijun-sen
+- Senkou Span A
+- Senkou Span B
+- Chikou Span
+- Parabolic SAR
+- Donchian Channel
+- Volume SMA
+- Relative volume
+- price returns
+- volatility
+- ATR percentage
+
+Do NOT calculate indicators separately inside every strategy.
+
+Use:
+
+indicators/
+
+with reusable functions/classes.
+
+Example:
+
+indicators/
+    trend.py
+    momentum.py
+    volatility.py
+    volume.py
+    ichimoku.py
+    macd.py
+    bollinger.py
+    adx.py
+    registry.py
+
+Important:
+
+Indicator calculations must avoid future-data leakage.
+
+---
+
+# 8. TRADINGVIEW COMPATIBILITY
+
+Where practical, use standard indicator definitions that closely match TradingView.
+
+Pay special attention to:
+
+- RSI smoothing
+- ATR calculation
+- EMA initialization
+- MACD calculation
+- ADX calculation
+- Ichimoku displacement
+- candle boundaries
+
+Document the exact calculation method used.
+
+Do not mix different indicator implementations between strategies.
+
+---
+
+# 9. STRATEGY INTERFACE
+
+Every strategy must implement a common interface.
+
+For example:
+
+    class BaseStrategy:
+
+        name
+        version
+        timeframe
+
+        prepare_indicators()
+        generate_signal()
+        calculate_stop_loss()
+        calculate_target()
+        calculate_position_size()
+        validate_signal()
+
+Each strategy should return a standardized Signal object.
+
+Example:
+
+    Signal(
+        symbol="RELIANCE",
+        strategy="strategy_01",
+        timestamp=...,
+        signal="BUY",
+        entry=...,
+        stop_loss=...,
+        target=...,
+        trailing_stop=...,
+        risk_reward=...,
+        confidence=...,
+        reasons=[...]
+    )
+
+Use dataclasses or Pydantic where appropriate.
+
+---
+
+# 10. SIGNAL EXPLANATION
+
+Every signal must explain WHY it was generated.
+
+Example:
+
+BUY
+
+Reasons:
+
+- EMA20 > EMA50
+- RSI = 61.4
+- ADX = 28.6
+- +DI > -DI
+- price above Ichimoku cloud
+- volume > 20-period average
+- breakout above Donchian high
+
+Do not return only:
+
+    BUY
+
+I need machine-readable and human-readable reasons.
+
+---
+
+# 11. FALSE-SIGNAL FILTERS
+
+The system must include configurable filters to reduce poor-quality signals.
+
+Examples where applicable:
+
+- minimum ADX
+- minimum volume
+- relative volume
+- trend alignment
+- higher timeframe confirmation
+- ATR volatility filter
+- price above/below major EMA
+- avoid extremely extended entries
+- avoid low-liquidity stocks
+- avoid abnormal spreads if data allows
+- avoid duplicate signals
+- avoid signals during incomplete candles
+
+These filters must be configurable.
+
+Do not hard-code them.
+
+---
+
+# 12. MULTI-TIMEFRAME CONFIRMATION
+
+Build a reusable MTF framework.
+
+Example:
+
+Primary timeframe:
+
+    15m
+
+Confirmation:
+
+    1h
+    4h
+    1D
+
+The strategy should be able to request:
+
+    get_indicator(symbol, timeframe, indicator)
+
+or equivalent.
+
+Do not duplicate MTF logic in each strategy.
+
+Example configuration:
+
+strategy:
+    timeframe: 15m
+
+    confirmation:
+        enabled: true
+        timeframes:
+            - 1h
+            - 4h
+
+---
+
+# 13. RISK MANAGEMENT
+
+Create a dedicated risk module.
+
+risk/
+    position_sizing.py
+    stop_loss.py
+    targets.py
+    portfolio_risk.py
+
+Support:
+
+- fixed percentage risk
+- ATR-based stop
+- percentage stop
+- swing-high/swing-low stop
+- target based on R multiple
+- trailing stop
+- partial exits
+- maximum capital per trade
+- maximum portfolio exposure
+- maximum simultaneous positions
+
+Default risk:
+
+    1% of available capital per trade
+
+But make it configurable.
+
+Position size should be calculated using:
+
+    risk_amount / abs(entry - stop_loss)
+
+Also enforce:
+
+- minimum quantity
+- lot size where applicable
+- maximum position value
+- available capital
+
+For cash NSE equities, quantity must be integer.
+
+---
+
+# 14. BACKTESTING ENGINE
+
+Build a proper event-driven or vectorized backtesting engine with clear separation between:
+
+Data
+Indicators
+Strategy
+Execution
+Portfolio
+Risk
+Performance
+
+Backtest must support:
+
+- BUY
+- SELL
+- HOLD
+- stop-loss
+- target
+- trailing stop
+- partial exit
+- re-entry
+- transaction costs
+- slippage
+- brokerage
+- taxes/charges configurable
+- position sizing
+- capital management
+
+Do not assume fills at impossible prices.
+
+Avoid look-ahead bias.
+
+Clearly document execution assumptions.
+
+---
+
+# 15. BACKTEST PERFORMANCE METRICS
+
+Calculate at least:
+
+- Initial capital
+- Final capital
+- Total return
+- CAGR
+- Number of trades
+- Winning trades
+- Losing trades
+- Win rate
+- Average win
+- Average loss
+- Profit factor
+- Expectancy
+- Maximum drawdown
+- Maximum drawdown %
+- Sharpe ratio
+- Sortino ratio
+- Calmar ratio
+- Average holding period
+- Largest winner
+- Largest loser
+- Consecutive wins
+- Consecutive losses
+
+Also produce:
+
+- equity curve
+- drawdown curve
+- monthly returns
+- yearly returns
+- trade list
+
+---
+
+# 16. WALK-FORWARD / OUT-OF-SAMPLE TESTING
+
+Do not rely only on one backtest period.
+
+Implement:
+
+- train period
+- validation period
+- out-of-sample period
+
+Where parameter optimization is included, ensure parameters are NOT optimized on the test period.
+
+Provide an optional walk-forward framework.
+
+Example:
+
+    2019-2022 -> development
+    2023 -> validation
+    2024-2025 -> out-of-sample
+
+Do not hard-code these dates; make them configurable.
+
+---
+
+# 17. STRATEGY COMPARISON
+
+Create a comparison engine.
+
+For every strategy produce:
+
+| Strategy | Trades | Win Rate | Return | CAGR | Max DD | Profit Factor | Sharpe | Expectancy |
+
+Do not rank strategies based on only total return.
+
+Show the complete metrics.
+
+Also compare:
+
+- different market regimes
+- bull market
+- bear market
+- sideways market
+
+---
+
+# 18. NSE SCREENER
+
+Create a screener that scans the configured NSE universe.
+
+Example output:
+
+| Symbol | Strategy | Signal | Entry | SL | Target | R:R | Confidence | Reasons |
+
+It should support:
+
+    scan_all()
+
+and:
+
+    scan_symbol("RELIANCE")
+
+and:
+
+    scan_strategy("strategy_01")
+
+It should be possible to run all four strategies against the entire universe.
+
+---
+
+# 19. MULTI-STRATEGY CONSENSUS
+
+Create a separate module:
+
+signals/
+    aggregator.py
+
+Example:
+
+RELIANCE
+
+Strategy 1 -> BUY
+Strategy 2 -> BUY
+Strategy 3 -> HOLD
+Strategy 4 -> BUY
+
+Consensus:
+
+    3 BUY
+    1 HOLD
+
+The system should report this transparently.
+
+Do NOT arbitrarily assign weights.
+
+Weights must be configurable.
+
+---
+
+# 20. STOCK RANKING
+
+Create a ranking engine that can rank stocks based on configurable factors such as:
+
+- number of strategy confirmations
+- trend strength
+- volume confirmation
+- risk/reward
+- signal confidence
+- higher timeframe confirmation
+
+The ranking formula must be visible and configurable.
+
+Do not hide the scoring logic.
+
+---
+
+# 21. MARKET REGIME DETECTION
+
+Create:
+
+regime/
+    detector.py
+
+Possible regimes:
+
+    BULL
+    BEAR
+    SIDEWAYS
+    HIGH_VOLATILITY
+
+Use configurable objective indicators.
+
+The regime detector should NOT directly override strategy signals unless explicitly enabled in configuration.
+
+---
+
+# 22. OUTPUT FORMATS
+
+Generate:
+
+CSV
+Excel
+JSON
+Parquet if practical
+
+Reports should include:
+
+1. All signals
+2. BUY signals
+3. SELL signals
+4. Strategy-wise signals
+5. Consensus signals
+6. Ranking
+7. Risk information
+8. Indicator values
+9. Backtest results
+
+Excel output should have separate sheets such as:
+
+    Summary
+    Buy Signals
+    Sell Signals
+    Strategy 1
+    Strategy 2
+    Strategy 3
+    Strategy 4
+    Consensus
+    Backtest
+    Trades
+    Configuration
+
+---
+
+# 23. LOGGING
+
+Implement production-quality logging.
+
+logs/
+
+Use:
+
+- console logging
+- rotating file logging
+- INFO
+- WARNING
+- ERROR
+- DEBUG
+
+Log:
+
+- data retrieval
+- missing data
+- invalid symbols
+- strategy execution
+- signal generation
+- exceptions
+- backtest events
+
+Do not log API secrets.
+
+---
+
+# 24. CONFIGURATION
+
+Use YAML or TOML.
+
+Example:
+
+config/
+    settings.yaml
+    strategies.yaml
+    risk.yaml
+    universe.yaml
+
+Allow configuration of:
+
+- capital
+- risk per trade
+- timeframe
+- indicator parameters
+- strategy parameters
+- slippage
+- brokerage
+- trading costs
+- universe
+- output paths
+- logging
+- MTF settings
+
+Never require source-code editing for normal parameter changes.
+
+---
+
+# 25. CLI
+
+Create a command-line interface.
+
+Examples:
+
+    python main.py scan
+
+    python main.py scan --strategy strategy_01
+
+    python main.py scan --symbol RELIANCE
+
+    python main.py backtest
+
+    python main.py backtest --strategy strategy_01
+
+    python main.py backtest --all
+
+    python main.py report
+
+    python main.py validate-data
+
+    python main.py list-strategies
+
+Make commands user-friendly.
+
+---
+
+# 26. PROJECT STRUCTURE
+
+Use a clean structure similar to:
+
+project/
+│
+├── main.py
+├── README.md
+├── requirements.txt
+├── pyproject.toml
+├── .env.example
+├── .gitignore
+│
+├── config/
+│   ├── settings.yaml
+│   ├── strategies.yaml
+│   ├── risk.yaml
+│   └── universe.yaml
+│
+├── data/
+│   ├── __init__.py
+│   ├── base.py
+│   ├── fyers_adapter.py
+│   ├── csv_loader.py
+│   ├── parquet_loader.py
+│   ├── data_loader.py
+│   ├── validator.py
+│   └── cache.py
+│
+├── indicators/
+│   ├── __init__.py
+│   ├── trend.py
+│   ├── momentum.py
+│   ├── volatility.py
+│   ├── volume.py
+│   ├── ichimoku.py
+│   ├── macd.py
+│   ├── bollinger.py
+│   ├── adx.py
+│   └── registry.py
+│
+├── strategies/
+│   ├── __init__.py
+│   ├── base.py
+│   ├── strategy_01/
+│   ├── strategy_02/
+│   ├── strategy_03/
+│   └── strategy_04/
+│
+├── risk/
+│   ├── __init__.py
+│   ├── position_sizing.py
+│   ├── stop_loss.py
+│   ├── targets.py
+│   └── portfolio_risk.py
+│
+├── backtest/
+│   ├── __init__.py
+│   ├── engine.py
+│   ├── execution.py
+│   ├── portfolio.py
+│   ├── performance.py
+│   └── walk_forward.py
+│
+├── signals/
+│   ├── __init__.py
+│   ├── signal.py
+│   ├── aggregator.py
+│   └── ranking.py
+│
+├── regime/
+│   ├── __init__.py
+│   └── detector.py
+│
+├── screener/
+│   ├── __init__.py
+│   └── scanner.py
+│
+├── reports/
+│   ├── __init__.py
+│   ├── csv_report.py
+│   ├── excel_report.py
+│   └── json_report.py
+│
+├── utils/
+│   ├── logging.py
+│   ├── datetime_utils.py
+│   └── helpers.py
+│
+├── tests/
+│   ├── test_indicators.py
+│   ├── test_data.py
+│   ├── test_strategy_01.py
+│   ├── test_strategy_02.py
+│   ├── test_strategy_03.py
+│   ├── test_strategy_04.py
+│   ├── test_risk.py
+│   └── test_backtest.py
+│
+└── data_files/
+    ├── raw/
+    ├── processed/
+    └── cache/
+
+You may improve this structure if you have a better architecture, but maintain modularity.
+
+---
+
+# 27. TESTING
+
+Create unit tests for:
+
+- indicators
+- data normalization
+- data validation
+- each strategy
+- stop-loss calculation
+- target calculation
+- position sizing
+- portfolio risk
+- signal aggregation
+- backtesting
+- look-ahead bias protection
+
+Include small deterministic OHLCV datasets for tests.
+
+Tests must be runnable using:
+
+    pytest
+
+---
+
+# 28. DATA VALIDATION
+
+Before strategy execution, validate:
+
+- chronological order
+- duplicate timestamps
+- OHLC relationships
+- missing candles
+- NaN
+- insufficient history
+- abnormal values
+
+For example:
+
+    high >= max(open, close)
+    low <= min(open, close)
+
+Invalid data should be reported clearly.
+
+---
+
+# 29. ERROR HANDLING
+
+The project must continue scanning if one stock fails.
+
+For example:
+
+    RELIANCE -> success
+    TCS -> success
+    INFY -> data error
+    HDFC -> success
+
+Do NOT terminate the complete NSE scan because one symbol failed.
+
+Log the failure and continue.
+
+At the end provide:
+
+    successful_symbols
+    failed_symbols
+    failure_reasons
+
+---
+
+# 30. PERFORMANCE
+
+The NSE universe can contain hundreds of stocks.
+
+Design for efficient execution.
+
+Avoid unnecessarily recalculating the same indicators.
+
+Use:
+
+- caching
+- vectorized pandas operations
+- controlled parallelism where safe
+- reusable data
+- efficient resampling
+
+Do not introduce multiprocessing unless it is implemented safely.
+
+---
+
+# 31. FYERS ADAPTER
+
+My existing FYERS function may look conceptually like:
+
+    get_historical(symbol, resolution, date_from, date_to)
+
+or may have a different signature.
+
+When I provide the actual module:
+
+1. Inspect its exact API.
+2. Do not guess the signature.
+3. Build the adapter around the real function.
+4. Keep FYERS-specific logic isolated.
+5. Do not expose FYERS credentials to strategy code.
+
+Use environment variables for credentials.
+
+Example:
+
+    .env
+
+    FYERS_CLIENT_ID=
+    FYERS_SECRET_KEY=
+    FYERS_ACCESS_TOKEN=
+
+Never hard-code credentials.
+
+---
+
+# 32. IMPORTANT ARCHITECTURAL RULE
+
+The following dependency direction must be maintained:
+
+    FYERS
+      ↓
+    Data Adapter
+      ↓
+    Normalized Data
+      ↓
+    Indicators
+      ↓
+    Strategy
+      ↓
+    Signal
+      ↓
+    Risk
+      ↓
+    Backtest / Screener
+      ↓
+    Reports
+
+Strategies must NOT call FYERS directly.
+
+Indicators must NOT call FYERS.
+
+Risk management must NOT call FYERS.
+
+This separation is mandatory.
+
+---
+
+# 33. FUTURE OPENALGO INTEGRATION
+
+Prepare interfaces so that later I can add:
+
+    execution/
+        base.py
+        paper.py
+        openalgo.py
+        fyers.py
+
+But initially:
+
+    NO LIVE ORDERS
+
+Only:
+
+- signal generation
+- paper execution
+- backtesting
+
+The architecture should make future OpenAlgo integration straightforward.
+
+---
+
+# 34. DATABASE / STORAGE
+
+Do not make a database mandatory.
+
+Start with:
+
+- CSV
+- Parquet
+- local cache
+
+But design interfaces so SQLite/PostgreSQL can be added later.
+
+---
+
+# 35. DOCUMENTATION
+
+Create a comprehensive README containing:
+
+1. Project purpose
+2. Architecture
+3. Installation
+4. Python version
+5. Dependencies
+6. FYERS configuration
+7. Data format
+8. Universe configuration
+9. Strategy explanation
+10. Configuration
+11. Running scans
+12. Running backtests
+13. Generating reports
+14. Understanding signals
+15. Risk management
+16. Testing
+17. Troubleshooting
+18. Future OpenAlgo integration
+
+Also create:
+
+    docs/
+        architecture.md
+        strategies.md
+        data.md
+        backtesting.md
+        configuration.md
+
+---
+
+# 36. CODE QUALITY
+
+Use:
+
+- Python 3.11+ compatible code
+- type hints
+- dataclasses/Pydantic where appropriate
+- docstrings
+- meaningful variable names
+- small functions
+- dependency injection where useful
+- no global mutable state
+- no hard-coded paths
+- no hard-coded API credentials
+
+Follow PEP 8.
+
+Avoid unnecessary complexity.
+
+---
+
+# 37. IMPORTANT: DO NOT OPTIMIZE FOR BEAUTIFUL CODE ONLY
+
+The project must be:
+
+    CORRECT
+    TESTABLE
+    MODULAR
+    REPRODUCIBLE
+    BACKTESTABLE
+    EXTENSIBLE
+
+Avoid over-engineering.
+
+Do not introduce frameworks simply because they are popular.
+
+---
+
+# 38. REQUIRED DELIVERABLE
+
+I want you to produce the COMPLETE PROJECT.
+
+Do NOT stop after generating:
+
+- architecture
+- sample code
+- one strategy
+- pseudocode
+- partial files
+
+Generate every required source file.
+
+For every file, provide its complete contents.
+
+Clearly label files:
+
+    FILE: project/config/settings.yaml
+
+    <complete content>
+
+Then:
+
+    FILE: project/data/fyers_adapter.py
+
+    <complete content>
+
+etc.
+
+No placeholders such as:
+
+    # implement this
+    # TODO
+    # add strategy logic here
+    # remaining code omitted
+
+are acceptable.
+
+---
+
+# 39. STRATEGY IMPLEMENTATION REQUIREMENT
+
+For each of the four strategies, provide:
+
+1. Complete Python implementation
+2. Configuration
+3. Indicators
+4. Entry logic
+5. Exit logic
+6. Stop-loss
+7. Target
+8. Trailing stop if applicable
+9. Signal explanation
+10. Unit tests
+11. Backtest integration
+
+Each strategy must be independently testable.
+
+---
+
+# 40. RESEARCH TRACEABILITY
+
+For every strategy, create a documentation section showing:
+
+    Research assumption
+        ↓
+    Indicator
+        ↓
+    Condition
+        ↓
+    Signal
+        ↓
+    Risk management
+        ↓
+    Exit
+
+Do not silently change the researched strategy logic during coding.
+
+If you believe a modification is necessary, show:
+
+    Original research rule
+    Proposed implementation
+    Reason for modification
+
+and keep the modification configurable.
+
+---
+
+# 41. NO DATA LEAKAGE
+
+This is extremely important.
+
+Explicitly test that:
+
+- future candles are never used
+- future indicator values are never used
+- today's close cannot influence an earlier signal
+- higher timeframe candles are only used after they are completed
+- target/SL calculations don't use future data
+- backtest execution uses information available at that timestamp
+
+Add tests specifically designed to detect look-ahead bias.
+
+---
+
+# 42. SIGNAL STATES
+
+Use standardized states:
+
+    BUY
+    SELL
+    HOLD
+    EXIT_LONG
+    EXIT_SHORT
+
+If short selling is not supported for cash NSE equities, make that configurable.
+
+Do not assume that every SELL signal means short selling.
+
+Distinguish:
+
+    exit existing long
+
+from:
+
+    initiate short position
+
+---
+
+# 43. CASH NSE DEFAULT
+
+Default market:
+
+    NSE cash equities
+
+Default assumptions:
+
+- integer shares
+- no leverage
+- no short selling
+- configurable brokerage/charges
+- configurable slippage
+
+Future support for futures/options can be added later.
+
+---
+
+# 44. FINAL VALIDATION
+
+Before declaring the project complete, perform a mental/static validation of:
+
+- imports
+- module paths
+- circular dependencies
+- configuration loading
+- class interfaces
+- function signatures
+- test imports
+- CLI commands
+- report generation
+- FYERS adapter
+- strategy registration
+
+Make sure the generated project can actually be assembled and run.
+
+---
+
+# 45. OUTPUT ORDER
+
+Follow this exact order:
+
+## PART 1 — Strategy specifications
+
+Explain the four researched strategies and implementation assumptions.
+
+## PART 2 — Architecture
+
+Show the project architecture and data flow.
+
+## PART 3 — Complete project tree
+
+Show every file.
+
+## PART 4 — Complete source code
+
+Generate every file.
+
+## PART 5 — Configuration files
+
+Generate all YAML/TOML/config files.
+
+## PART 6 — Tests
+
+Generate all tests.
+
+## PART 7 — Installation
+
+Give exact Windows commands.
+
+Example:
+
+    python -m venv .venv
+    .venv\Scripts\activate
+    pip install -r requirements.txt
+
+## PART 8 — FYERS integration
+
+Explain exactly where I should place my existing FYERS module and how the adapter calls:
+
+    get_historical()
+
+## PART 9 — Running the project
+
+Give exact commands:
+
+    python main.py scan
+    python main.py backtest --all
+    python main.py report
+
+## PART 10 — Example output
+
+Show realistic examples of:
+
+- scanner output
+- signal
+- risk calculation
+- backtest summary
+- strategy comparison
+
+## PART 11 — Validation checklist
+
+Provide a checklist confirming what has been implemented.
+
+---
+
+# 46. WINDOWS COMPATIBILITY
+
+I am primarily using Windows.
+
+Make all commands Windows-compatible.
+
+Avoid assuming Linux-only paths or shell commands.
+
+Use pathlib for paths.
+
+---
+
+# 47. IMPORTANT INTERACTION RULE
+
+I will provide my existing FYERS `get_historical()` module after this prompt.
+
+When I provide it:
+
+DO NOT immediately rewrite it.
+
+First:
+
+1. Inspect it.
+2. Explain its actual interface.
+3. Identify what the adapter needs.
+4. Identify any compatibility issues.
+5. Then integrate it into the project.
+
+If additional information is genuinely required, ask only the minimum necessary questions.
+
+Otherwise proceed with sensible documented assumptions.
+
+---
+
+# 48. FINAL GOAL
+
+The final project should allow me to do:
+
+    FYERS historical data
+           ↓
+    NSE universe
+           ↓
+    Data validation
+           ↓
+    Indicator calculation
+           ↓
+    ┌───────────────┐
+    │ Strategy 1    │
+    │ Strategy 2    │
+    │ Strategy 3    │
+    │ Strategy 4    │
+    └───────────────┘
+           ↓
+    Signal generation
+           ↓
+    Risk management
+           ↓
+    Multi-strategy consensus
+           ↓
+    Stock ranking
+           ↓
+    Backtesting / Screening
+           ↓
+    Excel / CSV / JSON reports
+           ↓
+    Future OpenAlgo integration
+
+The project must be modular enough that I can replace one strategy without changing the other three.
+
+It must also be possible to add:
+
+    Strategy 5
+    Strategy 6
+    ML signal filter
+    OpenAlgo execution
+    Telegram alerts
+    Web dashboard
+
+later without redesigning the entire system.
+
+Build this as a serious quantitative research codebase, not as a simple trading script.

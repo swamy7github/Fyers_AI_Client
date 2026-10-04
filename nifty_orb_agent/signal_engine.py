@@ -107,6 +107,46 @@ class StockTracker:
         return sum(self.volume_window_fast) / len(self.volume_window_fast)
 
 
+def seed_volume_windows_from_candles(trackers: dict[str, StockTracker], candles_by_symbol: dict[str, list]) -> None:
+    """
+    Pre-fills each tracker's slow (20-period) and fast (2-period) volume
+    windows with volume from already-fetched candles - typically the prior
+    trading session's - so the 20-period volume MA used for ENTRIES is
+    ready from the very first candle of a new session instead of needing
+    ~100 minutes of live warm-up (20 candles x 5 min after the
+    opening-range candle). Without this, no entry could fire before
+    roughly 11:00 AM every single day, silently contradicting the
+    documented "earliest entry at 09:30" behaviour.
+
+    Pure and side-effect-free beyond mutating the trackers' deques - has no
+    opinion on HOW candles_by_symbol was obtained. Live callers
+    (bootstrap.fetch_and_seed_volume_windows) fetch a fresh prior-session
+    bulk candle set; backtest.py slices its own already-pre-fetched
+    full-range data instead, at zero extra API cost.
+
+    candles_by_symbol values are expected in chronological order (oldest
+    first) - only the volume field (index 5) is used, and only the most
+    recent VOLUME_MA_PERIOD candles of each list matter (older ones are
+    trimmed here so a very long candle list doesn't matter). A tracker with
+    no entry, or an empty list, is left alone: its window starts empty and
+    warms up live exactly as before this existed - this never raises.
+    """
+    needed = config.VOLUME_MA_PERIOD
+    for symbol, tracker in trackers.items():
+        candles = candles_by_symbol.get(symbol) or []
+        if not candles:
+            logger.info("No prior-session volume history available for %s - volume MA will "
+                        "warm up live over the first %d candles today, as before.", symbol, needed)
+            continue
+        volumes = [float(c[5]) for c in candles[-needed:]]
+        tracker.volume_window.extend(volumes)
+        tracker.volume_window_fast.extend(volumes)  # maxlen=2 keeps just the tail automatically
+        ready = ("immediately" if len(tracker.volume_window) >= needed
+                  else f"after {needed - len(tracker.volume_window)} more live candle(s)")
+        logger.info("Seeded %s's volume windows with %d prior-session candle(s) - volume MA ready %s.",
+                    symbol, len(volumes), ready)
+
+
 class TradeBook:
     """
     Records every entry/exit and derives points captured (profit/loss) and

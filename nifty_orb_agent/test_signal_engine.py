@@ -23,7 +23,7 @@ from __future__ import annotations
 import unittest
 
 import config
-from signal_engine import SignalEngine, StockTracker, TradeBook
+from signal_engine import SignalEngine, StockTracker, TradeBook, seed_volume_windows_from_candles
 from trade_direction import TradeDirection
 
 
@@ -514,6 +514,108 @@ class TestFeedCandleShortEntryAndWeakness(unittest.TestCase):
         self.assertIsNotNone(engine.trade_book.trades[1]["exit_price"])
         self.assertLess(engine.trade_book.trades[0]["points"], 0)
         self.assertLess(engine.trade_book.trades[1]["points"], 0)
+
+
+class TestSeedVolumeWindowsFromCandles(unittest.TestCase):
+    """
+    seed_volume_windows_from_candles() in isolation - the pure function
+    both bootstrap.fetch_and_seed_volume_windows() (live) and backtest.py
+    (from its own pre-fetched data) call. See the module docstring for
+    exactly what bug this fixes: without it, no entry can fire before
+    ~100 minutes of live-only warm-up.
+    """
+
+    def _candle(self, epoch, volume):
+        return [epoch, 100.0, 101.0, 99.0, 100.0, volume]
+
+    def test_seeds_exactly_20_candles_makes_volume_ma_ready_immediately(self):
+        engine, tracker = _make_engine_with_tracker()
+        candles = [self._candle(i, 1000 + i) for i in range(20)]
+        seed_volume_windows_from_candles(engine.trackers, {tracker.symbol: candles})
+        self.assertEqual(len(tracker.volume_window), 20)
+        self.assertIsNotNone(tracker.volume_ma())
+
+    def test_seeding_with_fewer_than_needed_leaves_it_partially_warmed(self):
+        engine, tracker = _make_engine_with_tracker()
+        candles = [self._candle(i, 1000) for i in range(5)]  # only 5, need 20
+        seed_volume_windows_from_candles(engine.trackers, {tracker.symbol: candles})
+        self.assertEqual(len(tracker.volume_window), 5)
+        self.assertIsNone(tracker.volume_ma())  # still not ready - correctly not faked
+
+    def test_only_the_most_recent_needed_candles_are_kept_even_if_more_are_given(self):
+        engine, tracker = _make_engine_with_tracker()
+        candles = [self._candle(i, i) for i in range(50)]  # far more than the 20 needed
+        seed_volume_windows_from_candles(engine.trackers, {tracker.symbol: candles})
+        self.assertEqual(len(tracker.volume_window), 20)
+        # should be the LAST 20 (volumes 30..49), not the first 20
+        self.assertEqual(list(tracker.volume_window), list(range(30, 50)))
+
+    def test_fast_window_ends_up_with_just_the_last_2_regardless_of_seed_size(self):
+        engine, tracker = _make_engine_with_tracker()
+        candles = [self._candle(i, i) for i in range(20)]
+        seed_volume_windows_from_candles(engine.trackers, {tracker.symbol: candles})
+        self.assertEqual(list(tracker.volume_window_fast), [18, 19])
+
+    def test_empty_candle_list_is_a_safe_no_op(self):
+        engine, tracker = _make_engine_with_tracker()
+        seed_volume_windows_from_candles(engine.trackers, {tracker.symbol: []})
+        self.assertEqual(len(tracker.volume_window), 0)
+        self.assertIsNone(tracker.volume_ma())
+
+    def test_symbol_missing_from_candles_by_symbol_is_a_safe_no_op(self):
+        engine, tracker = _make_engine_with_tracker()
+        seed_volume_windows_from_candles(engine.trackers, {})  # no entry for tracker.symbol at all
+        self.assertEqual(len(tracker.volume_window), 0)
+
+    def test_multiple_trackers_are_seeded_independently(self):
+        engine, tracker_a = _make_engine_with_tracker(symbol="NSE:A-EQ")
+        tracker_b = StockTracker(symbol="NSE:B-EQ", or_high=100.0, or_low=100.0)
+        engine.trackers["NSE:B-EQ"] = tracker_b
+        seed_volume_windows_from_candles(engine.trackers, {
+            "NSE:A-EQ": [self._candle(i, 1000) for i in range(20)],
+            "NSE:B-EQ": [self._candle(i, 2000) for i in range(3)],
+        })
+        self.assertEqual(len(tracker_a.volume_window), 20)
+        self.assertEqual(len(tracker_b.volume_window), 3)
+
+
+class TestSeedingFixesTheEntryTimingBug(unittest.TestCase):
+    """
+    Direct proof that seeding restores the documented "earliest entry at
+    the 09:30 candle close" behaviour: WITHOUT seeding, an entry needs 22
+    live candles (20 to warm up volMA + 2 qualifying) - roughly 11:10 AM.
+    WITH seeding, only the 2 qualifying candles are needed, since the
+    volume MA is already warm from the prior session.
+    """
+
+    def setUp(self):
+        self.orig_dry_run = config.DRY_RUN
+        config.DRY_RUN = True
+
+    def tearDown(self):
+        config.DRY_RUN = self.orig_dry_run
+
+    def test_buy_fires_on_just_2_live_candles_when_seeded(self):
+        engine, tracker = _make_engine_with_tracker(or_high=100.0)
+        # Seed with 20 candles of realistic volume - stands in for "yesterday's last 20 bars".
+        seed_candles = [[i, 95.0, 95.2, 94.8, 95.0, 1000] for i in range(20)]
+        seed_volume_windows_from_candles(engine.trackers, {tracker.symbol: seed_candles})
+        self.assertIsNotNone(tracker.volume_ma())  # ready before a single LIVE candle is fed
+
+        # Now feed exactly 2 LIVE candles - nothing more - and confirm a BUY fires.
+        engine.feed_candle(tracker.symbol, [100, 100.5, 101.5, 100.2, 101.0, 2000], "09:25:00", is_backfill=False)
+        engine.feed_candle(tracker.symbol, [101, 101.0, 102.0, 100.8, 101.8, 2200], "09:30:00", is_backfill=False)
+
+        self.assertTrue(tracker.position_open)
+        self.assertEqual(engine.trade_book.trades[0]["entry_price"], 101.8)
+
+    def test_without_seeding_the_same_2_candles_do_not_trigger_a_buy(self):
+        # Control case: same 2 live candles, NO seeding - confirms the fix is what made the
+        # difference above, not some other change to the entry logic itself.
+        engine, tracker = _make_engine_with_tracker(or_high=100.0)
+        engine.feed_candle(tracker.symbol, [100, 100.5, 101.5, 100.2, 101.0, 2000], "09:25:00", is_backfill=False)
+        engine.feed_candle(tracker.symbol, [101, 101.0, 102.0, 100.8, 101.8, 2200], "09:30:00", is_backfill=False)
+        self.assertFalse(tracker.position_open)  # volume MA still None - correctly withheld
 
 
 if __name__ == "__main__":

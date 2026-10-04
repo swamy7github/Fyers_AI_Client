@@ -13,6 +13,7 @@ dashboard, not a green/red trading light.
 from __future__ import annotations
 
 import logging
+from datetime import date, timedelta
 
 import yfinance as yf
 from trade_direction import decide_trade_direction_from_sentiment
@@ -164,6 +165,39 @@ def fetch_global_snapshot() -> dict[str, float]:
             snapshot[name] = round(float(pct_change), 2)
         except Exception as exc:
             logger.warning("Could not fetch global sentiment ticker %s (%s): %s", name, ticker, exc)
+    return snapshot
+
+
+def fetch_global_snapshot_as_of(as_of_date: date) -> dict[str, float]:
+    """
+    Historical counterpart to fetch_global_snapshot(): the % change between
+    the last two COMPLETE trading sessions strictly before as_of_date - i.e.
+    what a trader's pre-market read would have shown on the morning of
+    as_of_date, using only data that existed by then. Used by backtest.py
+    (via bootstrap.decide_direction_for_date) to compute what direction
+    would ACTUALLY have been chosen each day of a historical backtest,
+    rather than replaying one fixed direction across the whole range.
+
+    Note the deliberate `end=as_of_date` (exclusive of as_of_date itself in
+    yfinance's convention) - this must never include as_of_date's own
+    session, or the "sentiment" would be computed using data that wasn't
+    yet available before that day's Indian market open, silently leaking
+    future information into a backtest.
+    """
+    snapshot = {}
+    start = (as_of_date - timedelta(days=15)).strftime("%Y-%m-%d")
+    end = as_of_date.strftime("%Y-%m-%d")
+    for name, ticker in GLOBAL_TICKERS.items():
+        try:
+            hist = yf.Ticker(ticker).history(start=start, end=end, interval="1d")
+            if len(hist) < 2:
+                continue
+            prev_close, last_close = hist["Close"].iloc[-2], hist["Close"].iloc[-1]
+            pct_change = (last_close - prev_close) / prev_close * 100
+            snapshot[name] = round(float(pct_change), 2)
+        except Exception as exc:
+            logger.warning("Could not fetch historical sentiment ticker %s (%s) as of %s: %s",
+                            name, ticker, as_of_date, exc)
     return snapshot
 
 
