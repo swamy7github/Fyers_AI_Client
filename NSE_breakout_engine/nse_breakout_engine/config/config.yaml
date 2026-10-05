@@ -1,0 +1,94 @@
+# NSE Master Breakout Engine - Configuration
+
+fyers:
+  client_id: "MOCK_CLIENT_ID"
+  access_token: "MOCK_ACCESS_TOKEN"
+  use_mock: true  # Set to false when live FYERS API credentials are provided
+
+execution:
+  mode: "PAPER"  # Options: "PAPER", "LIVE_FYERS", "OPENALGO"
+  paper:
+    initial_cash: 1000000.0   # ₹10 Lakhs paper account
+    slippage_pct: 0.05        # 0.05% slippage
+    commission_pct: 0.05      # 0.05% brokerage fee
+  fyers:
+    client_id: "MOCK_CLIENT_ID"
+    access_token: "MOCK_ACCESS_TOKEN"
+    use_mock: true
+    product_type: "CNC"
+  openalgo:
+    openalgo_url: "http://127.0.0.1:5000/api/v1/place_order"
+    openalgo_enabled: true
+
+portfolio_risk:
+  capital: 1000000.0  # INR 10 Lakhs initial capital
+  risk_per_trade_pct: 1.0  # 1% equity risk per trade
+  max_portfolio_allocation_per_stock_pct: 20.0  # Max 20% of account per stock
+  max_open_positions: 8
+  brokerage_pct: 0.05  # 0.05% brokerage/slippage per side
+  stt_pct: 0.1        # Securities Transaction Tax on delivery buy/sell
+
+market_regime:
+  index_symbol: "NSE:NIFTY50-INDEX"
+  require_index_above_sma: true
+  index_sma_period: 50
+
+strategies:
+  minervini_vcp:
+    enabled: true
+    weight: 0.30
+    trend_template:
+      sma_fast: 50
+      sma_mid: 150
+      sma_slow: 200
+      min_dist_52w_low_pct: 30.0
+      max_dist_52w_high_pct: 25.0
+      min_rs_rating: 70.0
+    vcp_criteria:
+      min_contractions: 2
+      max_contractions: 4
+      volume_dryup_ma_period: 20
+      breakout_volume_mult: 1.4  # +40% above 20 MA
+      max_stop_loss_pct: 8.0
+      target_rr_ratio: 3.0       # 3R initial profit target (sell 50%)
+      trailing_sma_period: 50
+
+  darvas_box:
+    enabled: true
+    weight: 0.25
+    lookback_high_period: 250   # ~52-week high trigger
+    confirmation_days: 3       # 3-day rule for Ceiling and Floor
+    breakout_volume_mult: 1.5  # Heavy volume on ceiling penetration
+    stop_loss_mode: "box_floor" # Stop placed below box floor
+    pyramiding_enabled: true
+    max_pyramid_adds: 2
+
+  oneil_cup_handle:
+    enabled: true
+    weight: 0.25
+    prior_uptrend_min_pct: 30.0
+    cup_min_length_weeks: 7
+    cup_max_length_weeks: 65
+    cup_depth_min_pct: 12.0
+    cup_depth_max_pct: 35.0
+    handle_min_days: 5
+    handle_max_weeks: 4
+    handle_max_retrace_pct: 15.0 # Max handle depth retrace
+    breakout_volume_mult: 1.4    # +40% above 50 SMA volume
+    max_stop_loss_pct: 7.5
+    profit_target_pct: 25.0
+
+  kullamagi_momentum:
+    enabled: true
+    weight: 0.20
+    prior_move_min_pct: 30.0
+    prior_move_lookback_days: 60
+    ema_fast: 10
+    ema_slow: 20
+    sma_trend: 50
+    adr_period: 20
+    max_stop_adr_mult: 1.0       # Stop <= 1x ADR%
+    orb_minutes: 15              # Opening range breakout
+    partial_exit_days: 4         # Take 50% profit on days 3-5
+    partial_exit_r: 2.5          # Or at 2.5R
+    trailing_ema: 10             # Trail rest along 10 EMA

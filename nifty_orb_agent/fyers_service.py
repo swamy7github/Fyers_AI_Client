@@ -254,6 +254,12 @@ class FyersDataService:
                 last_exc = exc
                 logger.error("Fyers API call failed (attempt %d/%d): %s",
                              attempt, config.API_MAX_RETRIES, exc)
+                if _looks_like_rate_limit_error(getattr(exc, "response", {})):
+                    logger.warning("Fyers API call failed due to rate limit - will retry with exponential backoff.")
+                elif "invalid symbol" in str(exc).lower():
+                    logger.warning("Fyers API call failed due to invalid symbol - will not retry.")
+                    return {}  # caller should handle empty response gracefully
+                logger.info(f" kwargs = {kwargs}")
                 time.sleep(config.API_RETRY_BACKOFF_SECONDS * attempt)
         logger.critical("Fyers API call failed after %d attempts: %s", config.API_MAX_RETRIES, last_exc)
         #raise last_exc

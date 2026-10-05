@@ -129,10 +129,12 @@ ALLOW_LONG_ON_NEUTRAL = False
 ALLOW_SHORT_ON_NEUTRAL = False
 
 # ---- Stop-loss / square-off & position-sizing (add-on) parameters ----
-# Weakness/breakdown is detected using a much faster, 2-period volume average
-# than the entry's volMA(20) - the idea is entry needs sustained conviction,
-# exit should react quickly.
-VOLUME_SMA_STOPLOSS_PERIOD = 2
+# Weakness/breakdown is detected with the SAME 20-period volume MA
+# (VOLUME_MA_PERIOD above) used for entries - two consecutive candles closing
+# against the position, with volume above that 20-period average, confirm
+# the exit/add-on signal. (Earlier revisions used a separate, faster 2-period
+# volume average here; that has been replaced so entry and exit share one
+# volume-conviction bar.)
 CONSECUTIVE_CANDLES_FOR_STOPLOSS = 2
 
 # The FIRST time the weakness pattern appears after a buy (no square-off has

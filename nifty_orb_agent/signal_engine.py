@@ -22,13 +22,15 @@ single engine never trades both directions at once.
          closed" checkpoint in the original brief.
 
   WEAKNESS EVENT (shared detector for both the add-on and the stop-loss) -
-         two CONSECUTIVE candles moving AGAINST the position with volume
-         above a fast 2-period volume average (SMA(2)):
+         two CONSECUTIVE candles moving AGAINST the position, each with
+         volume above the SAME 20-period volume moving average used for
+         entries:
          LONG:  closing below VWAP (price falling hurts a long).
          SHORT: closing above VWAP (price rising hurts a short).
-         Intentionally quicker to react than the 20-period average used for
-         entries: getting into a trade should need sustained conviction,
-         getting out (or adding) should react fast.
+         (Earlier revisions checked volume against a separate, faster
+         2-period average here; exit now uses the identical 20-period
+         volume MA as entry, so the volume-conviction bar is the same on
+         the way in and the way out.)
 
          - 1st weakness event on an open position (no square-off has fired
            yet) -> ADD to the position at that candle's close (BUY more for
@@ -75,13 +77,14 @@ class StockTracker:
     cum_pv: float = 0.0   # cumulative typical_price * volume, for VWAP
     cum_vol: float = 0.0
 
-    # -- entry tracking: needs sustained conviction, so a slow 20-period volume MA --
+    # -- volume MA (20-period): shared by BOTH entry qualification and the
+    #    weakness/exit detector below, so the volume-conviction bar is the
+    #    same in both directions --
     volume_window: deque = field(default_factory=lambda: deque(maxlen=config.VOLUME_MA_PERIOD))
     consecutive_qualifying: int = 0
     position_open: bool = False
 
-    # -- weakness (add-on / stop-loss) tracking: reacts fast, so a 2-period volume MA --
-    volume_window_fast: deque = field(default_factory=lambda: deque(maxlen=config.VOLUME_SMA_STOPLOSS_PERIOD))
+    # -- weakness (add-on / stop-loss) tracking --
     consecutive_weak: int = 0
     weakness_events_on_position: int = 0  # how many confirmed weakness events since the last flat state
 
@@ -94,28 +97,23 @@ class StockTracker:
         return self.cum_pv / self.cum_vol if self.cum_vol else 0.0
 
     def volume_ma(self) -> Optional[float]:
-        """20-period volume MA used for entries. None until the window is full -
-        we skip signals rather than fake an average with too little history."""
+        """20-period volume MA, shared by both the ENTRY qualification check and the
+        WEAKNESS/exit detector. None until the window is full - we skip signals rather
+        than fake an average with too little history."""
         if len(self.volume_window) < config.VOLUME_MA_PERIOD:
             return None
         return sum(self.volume_window) / len(self.volume_window)
 
-    def volume_sma_fast(self) -> Optional[float]:
-        """2-period volume MA used for the weakness/stop-loss detector. Same None-until-full rule."""
-        if len(self.volume_window_fast) < config.VOLUME_SMA_STOPLOSS_PERIOD:
-            return None
-        return sum(self.volume_window_fast) / len(self.volume_window_fast)
-
 
 def seed_volume_windows_from_candles(trackers: dict[str, StockTracker], candles_by_symbol: dict[str, list]) -> None:
     """
-    Pre-fills each tracker's slow (20-period) and fast (2-period) volume
-    windows with volume from already-fetched candles - typically the prior
-    trading session's - so the 20-period volume MA used for ENTRIES is
+    Pre-fills each tracker's 20-period volume window with volume from
+    already-fetched candles - typically the prior trading session's - so
+    the volume MA used for BOTH entries and the weakness/exit detector is
     ready from the very first candle of a new session instead of needing
     ~100 minutes of live warm-up (20 candles x 5 min after the
-    opening-range candle). Without this, no entry could fire before
-    roughly 11:00 AM every single day, silently contradicting the
+    opening-range candle). Without this, no entry (or exit) could fire
+    before roughly 11:00 AM every single day, silently contradicting the
     documented "earliest entry at 09:30" behaviour.
 
     Pure and side-effect-free beyond mutating the trackers' deques - has no
@@ -140,7 +138,6 @@ def seed_volume_windows_from_candles(trackers: dict[str, StockTracker], candles_
             continue
         volumes = [float(c[5]) for c in candles[-needed:]]
         tracker.volume_window.extend(volumes)
-        tracker.volume_window_fast.extend(volumes)  # maxlen=2 keeps just the tail automatically
         ready = ("immediately" if len(tracker.volume_window) >= needed
                   else f"after {needed - len(tracker.volume_window)} more live candle(s)")
         logger.info("Seeded %s's volume windows with %d prior-session candle(s) - volume MA ready %s.",
@@ -272,15 +269,14 @@ class SignalEngine:
 
         vwap = tracker.vwap()
 
-        # Both volume averages are computed BEFORE this candle joins their window, so each
-        # is a trailing average that excludes the current bar - matches "volume > its average".
+        # The volume MA is computed BEFORE this candle joins its window, so it's a
+        # trailing average that excludes the current bar - matches "volume > its average".
+        # Shared by both the entry check below and the weakness/exit check.
         vol_ma_slow = tracker.volume_ma()
-        vol_ma_fast = tracker.volume_sma_fast()
         tracker.volume_window.append(v)
-        tracker.volume_window_fast.append(v)
 
         if tracker.position_open:
-            self._check_weakness_and_act(tracker, c, vwap, v, vol_ma_fast, now_str, is_backfill)
+            self._check_weakness_and_act(tracker, c, vwap, v, vol_ma_slow, now_str, is_backfill)
             return
 
         # ---- ENTRY check (only while flat), direction-aware ----
@@ -312,20 +308,21 @@ class SignalEngine:
             tracker.consecutive_qualifying = 0  # reset so it doesn't immediately re-fire
 
     def _check_weakness_and_act(self, tracker: StockTracker, c: float, vwap: float, v: float,
-                                 vol_ma_fast: Optional[float], now_str: str, is_backfill: bool = False):
+                                 vol_ma_slow: Optional[float], now_str: str, is_backfill: bool = False):
         """
         Runs only while a position is open. Detects the shared "weakness event"
-        - 2 consecutive candles moving AGAINST the position with volume above
-        volume SMA(2): closing below VWAP for a LONG, above VWAP for a SHORT -
-        and either adds to the position or squares it off, per
-        config.MAX_POSITION_ADDS - see the module docstring for the full rule.
+        - 2 CONSECUTIVE candles closed AGAINST the position, each with volume
+        above the same 20-period volume MA used for entries: closing below
+        VWAP for a LONG, above VWAP for a SHORT - and either adds to the
+        position or squares it off, per config.MAX_POSITION_ADDS - see the
+        module docstring for the full rule.
         """
         if tracker.direction == TradeDirection.LONG:
-            is_weak_candle = (vol_ma_fast is not None) and (c < vwap) and (v > vol_ma_fast)
+            is_weak_candle = (vol_ma_slow is not None) and (c < vwap) and (v > vol_ma_slow)
             add_side, exit_side = "BUY (ADD)", "SELL (weakness stop-loss)"
             vs_vwap = "below"
         else:
-            is_weak_candle = (vol_ma_fast is not None) and (c > vwap) and (v > vol_ma_fast)
+            is_weak_candle = (vol_ma_slow is not None) and (c > vwap) and (v > vol_ma_slow)
             add_side, exit_side = "SELL (ADD)", "BUY (weakness stop-loss)"
             vs_vwap = "above"
 
@@ -346,9 +343,9 @@ class SignalEngine:
                                           is_backfill=is_backfill, direction=tracker.direction)
             logger.info(
                 "ADD   %s @ %.2f (weakness event #%d: 2 consecutive candles %s VWAP %.2f "
-                "with volume > fast volSMA(%d) - adding to position, not exiting)%s",
+                "with volume > 20-period volume MA(%d) - adding to position, not exiting)%s",
                 tracker.symbol, c, tracker.weakness_events_on_position, vs_vwap, vwap,
-                config.VOLUME_SMA_STOPLOSS_PERIOD, " [BACKFILL]" if is_backfill else "",
+                config.VOLUME_MA_PERIOD, " [BACKFILL]" if is_backfill else "",
             )
             self._maybe_place_live_order(tracker, add_side, c, is_backfill, now_str)
         else:
@@ -356,10 +353,10 @@ class SignalEngine:
             closed_count = self.trade_book.close_all_open(tracker.symbol, now_str, c, exit_is_backfill=is_backfill)
             logger.info(
                 "STOP-LOSS / SQUARE OFF %s @ %.2f (weakness event #%d: closing all %d open "
-                "row(s) for this position - close %s VWAP %.2f, vol > fast volSMA(%d) on both "
-                "confirming candles)%s",
+                "row(s) for this position - close %s VWAP %.2f, vol > 20-period volume MA(%d) "
+                "on both confirming candles)%s",
                 tracker.symbol, c, tracker.weakness_events_on_position, closed_count, vs_vwap, vwap,
-                config.VOLUME_SMA_STOPLOSS_PERIOD, " [BACKFILL]" if is_backfill else "",
+                config.VOLUME_MA_PERIOD, " [BACKFILL]" if is_backfill else "",
             )
             self._maybe_place_live_order(tracker, exit_side, c, is_backfill, now_str)
             tracker.position_open = False

@@ -1,0 +1,5 @@
+symbol,entry_type,direction,entry_time,entry_price,exit_time,exit_price,points,pnl_pct,is_backfill,exit_is_backfill
+NSE:JSFB-EQ,INITIAL,LONG,10:35:02,496.0,10:36:05,490.55,-5.45,-1.1,False,False
+NSE:JSFB-EQ,INITIAL,LONG,11:45:02,495.4,12:54:50,494.15,-1.25,-0.25,False,False
+NSE:FEDERALBNK-EQ,INITIAL,LONG,12:25:02,326.75,15:10:30,326.2,-0.55,-0.17,False,False
+NSE:JSFB-EQ,INITIAL,LONG,13:10:02,499.75,14:31:11,495.45,-4.3,-0.86,False,False

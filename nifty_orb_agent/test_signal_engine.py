@@ -494,8 +494,9 @@ class TestFeedCandleShortEntryAndWeakness(unittest.TestCase):
         engine.feed_candle(tracker.symbol, [2, 99.0, 99.2, 97.8, 98.2, 2200], "09:50:00", is_backfill=False)
         self.assertTrue(tracker.position_open)
 
-        # Two consecutive candles ABOVE vwap with volume > fast SMA(2) - weakness for a
-        # SHORT (price rising against the position) - 1st event -> ADD, not exit. VWAP at
+        # Two consecutive candles ABOVE vwap with volume > the 20-period volume MA -
+        # weakness for a SHORT (price rising against the position) - 1st event -> ADD,
+        # not exit. VWAP at
         # this point is still pulled up near ~103.5 by the 20-candle warm-up mass, so these
         # need to close well clear of that, not just above the entry candles' own prices.
         engine.feed_candle(tracker.symbol, [3, 105.0, 106.5, 104.5, 106.0, 3000], "09:55:00", is_backfill=False)
@@ -549,12 +550,6 @@ class TestSeedVolumeWindowsFromCandles(unittest.TestCase):
         self.assertEqual(len(tracker.volume_window), 20)
         # should be the LAST 20 (volumes 30..49), not the first 20
         self.assertEqual(list(tracker.volume_window), list(range(30, 50)))
-
-    def test_fast_window_ends_up_with_just_the_last_2_regardless_of_seed_size(self):
-        engine, tracker = _make_engine_with_tracker()
-        candles = [self._candle(i, i) for i in range(20)]
-        seed_volume_windows_from_candles(engine.trackers, {tracker.symbol: candles})
-        self.assertEqual(list(tracker.volume_window_fast), [18, 19])
 
     def test_empty_candle_list_is_a_safe_no_op(self):
         engine, tracker = _make_engine_with_tracker()

@@ -169,9 +169,10 @@ in an earlier iteration:
    valid within ~3 minutes of 09:20:02 and would silently return wrong
    numbers at any other time).
 3. **Volume-MA seeding** (`fetch_and_seed_volume_windows`, BEFORE replay):
-   pre-fills the 20-period (and fast 2-period) volume MA from the prior
-   trading session's real candles — without this, the volume MA needed for
-   every entry stays `None` for the first 20 candles fed to a fresh
+   pre-fills the 20-period volume MA — shared by both entries and the
+   weakness/exit detector — from the prior trading session's real candles
+   — without this, the volume MA needed for every entry (and exit) stays
+   `None` for the first 20 candles fed to a fresh
    tracker, silently pushing the earliest possible entry to ~11:00 AM
    instead of the documented ~09:30. See "Volume-MA warm-up" below for the
    full story — this was a genuine, previously-unnoticed bug.
@@ -279,7 +280,7 @@ between). `job_global_sentiment()` also prints today's direction for visibility.
 |---|---|---|
 | Breakout level | above opening-range **high** | below opening-range **low** |
 | Entry (2 consecutive candles) | close > OR high, > VWAP, volume > volMA(20) | close < OR low, < VWAP, volume > volMA(20) |
-| Weakness event (against you) | close **below** VWAP, volume > volSMA(2) | close **above** VWAP, volume > volSMA(2) |
+| Weakness event (against you) | close **below** VWAP, volume > volMA(20) | close **above** VWAP, volume > volMA(20) |
 | Entry / add / exit orders | BUY / BUY / SELL | SELL / SELL / BUY |
 | Stop-loss | `STOP_LOSS_PCT` **below** entry | `STOP_LOSS_PCT` **above** entry |
 | Target | `TARGET_PCT` **above** entry | `TARGET_PCT` **below** entry |
@@ -583,9 +584,10 @@ On top of the original single-candle exit, the engine uses one shared
 detector for both adding to a position and stopping it out:
 
 - **Weakness event** = two *consecutive* candles that each close below VWAP
-  **and** each have volume above a fast 2-period volume average
-  (`VOLUME_SMA_STOPLOSS_PERIOD` in `config.py`) — deliberately quicker to
-  react than the 20-period average used for entries.
+  **and** each have volume above the **same 20-period volume MA**
+  (`VOLUME_MA_PERIOD` in `config.py`) used for entries — exit now requires
+  the identical volume conviction as entry, on the way out as well as the
+  way in.
 - **1st weakness event** on an open position → **add** to the position
   (`entry_type="ADD"` in the trade book) instead of exiting, up to
   `config.MAX_POSITION_ADDS` times (default 1).
