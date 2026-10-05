@@ -8,7 +8,7 @@ import numpy as np
 class TradeSignal:
     symbol: str
     timestamp: pd.Timestamp
-    signal_type: str  # "BUY", "SELL", "HOLD"
+    signal_type: str  # "BUY" (Long) or "SELL" (Short Intraday MIS)
     strategy_name: str
     entry_price: float
     stop_loss_price: float
@@ -31,6 +31,7 @@ class BaseStrategy(ABC):
         self.name = name
         self.config = config
         self.enabled = config.get("enabled", True)
+        self.enable_short = config.get("enable_short", True)
         self.weight = config.get("weight", 0.25)
 
     @abstractmethod
@@ -39,17 +40,17 @@ class BaseStrategy(ABC):
         pass
 
     def calculate_position_size(self, account_equity: float, entry_price: float, stop_loss_price: float,
-                                risk_pct: float = 1.0, max_alloc_pct: float = 20.0) -> Dict[str, Any]:
+                                risk_pct: float = 1.0, max_alloc_pct: float = 20.0, signal_type: str = "BUY") -> Dict[str, Any]:
         """
-        Calculates position size using the strict Fixed Fractional / Risk-First Formula:
-        Shares = (Account Equity * Risk %) / (Entry Price - Stop Loss Price)
+        Calculates position size using the strict Fixed Fractional / Risk-First Formula for Long and Short:
+        Shares = (Account Equity * Risk %) / |Entry Price - Stop Loss Price|
         Bounded by Max Equity Allocation per Position (e.g. 20%).
         """
-        if entry_price <= 0 or stop_loss_price >= entry_price or stop_loss_price <= 0:
+        if entry_price <= 0 or stop_loss_price <= 0 or entry_price == stop_loss_price:
             return {"shares": 0, "value": 0.0, "risk_amount": 0.0, "risk_per_share": 0.0}
 
         risk_amount = account_equity * (risk_pct / 100.0)
-        risk_per_share = entry_price - stop_loss_price
+        risk_per_share = abs(entry_price - stop_loss_price)
         
         raw_shares = risk_amount / risk_per_share
         

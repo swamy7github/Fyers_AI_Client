@@ -7,9 +7,9 @@ logger = logging.getLogger("fyers_client")
 
 class FyersDataClient:
     """
-    FYERS API V3 Client Wrapper for Historical Stock Data Extraction.
+    FYERS API V3 Client Wrapper for Historical Stock & Intraday 5m Data Extraction.
     Supports live FYERS API integration and deterministic mock data generation
-    for backtesting, screening, and offline execution.
+    for backtesting, daily screening, and 5-minute ORB intraday triggers.
     """
     def __init__(self, client_id: str = "MOCK", access_token: str = "MOCK", use_mock: bool = True):
         self.client_id = client_id
@@ -60,6 +60,33 @@ class FyersDataClient:
         # Mock Data Fallback Generator for Offline / Backtest Mode
         return self._generate_mock_ohlcv(symbol, start_date, end_date)
 
+    def get_intraday_data(self, symbol: str, resolution: str = "5", date_str: str = None) -> pd.DataFrame:
+        """
+        Extracts 5-minute intraday candle data for Opening Range Breakout (ORB) execution.
+        Returns DataFrame with columns: ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+        """
+        if not self.use_mock and self.fyers_instance:
+            try:
+                today_str = date_str or datetime.now().strftime("%Y-%m-%d")
+                data_req = {
+                    "symbol": symbol,
+                    "resolution": resolution,
+                    "date_format": "1",
+                    "range_from": today_str,
+                    "range_to": today_str,
+                    "cont_flag": "1"
+                }
+                response = self.fyers_instance.history(data=data_req)
+                if response.get("s") == "ok":
+                    candles = response.get("candles", [])
+                    df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
+                    return df
+            except Exception as e:
+                logger.error(f"FYERS API Intraday Error for {symbol}: {e}")
+
+        return self._generate_mock_intraday_5m(symbol, date_str)
+
     def _generate_mock_ohlcv(self, symbol: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
         """
         Generates realistic synthetic OHLCV data featuring trending, VCP coiling,
@@ -83,8 +110,6 @@ class FyersDataClient:
         cycles = np.sin(np.linspace(0, 8 * np.pi, n)) * 0.05
         
         close_prices = base_price * (1.0 + trend + noise + cycles)
-        
-        # Ensure prices remain positive and realistic
         close_prices = np.maximum(close_prices, 10.0)
         
         high_prices = close_prices * (1.0 + np.abs(np.random.normal(0.01, 0.005, n)))
@@ -94,7 +119,6 @@ class FyersDataClient:
         base_volume = 100000 + (seed_val % 500000)
         volume = np.random.negative_binomial(5, 0.2, n) * (base_volume / 20) + base_volume
         
-        # Inject a massive volume surge in recent days to simulate breakout
         if n > 10:
             volume[-5:] = volume[-5:] * 2.5
             close_prices[-5:] = close_prices[-5:] * 1.03
@@ -106,6 +130,70 @@ class FyersDataClient:
             'low': low_prices,
             'close': close_prices,
             'volume': volume.astype(int)
+        })
+        return df
+
+    def _generate_mock_intraday_5m(self, symbol: str, date_str: str = None) -> pd.DataFrame:
+        """
+        Generates 75 bars of 5-minute intraday candle data (09:15 to 15:25) simulating
+        an Opening Range (09:15-09:30) followed by a 5m breakout on volume expansion.
+        """
+        seed_val = abs(hash(symbol + "_5m")) % (2**32)
+        np.random.seed(seed_val)
+
+        base_dt = datetime.strptime(date_str, "%Y-%m-%d") if date_str else datetime.now().replace(hour=9, minute=15, second=0, microsecond=0)
+        start_time = base_dt.replace(hour=9, minute=15, second=0, microsecond=0)
+        timestamps = [start_time + timedelta(minutes=5 * i) for i in range(75)] # 09:15 to 15:25 (75 bars)
+
+        base_price = 300.0 + (seed_val % 150)
+        
+        # 15-minute Opening Range (bars 0, 1, 2)
+        # Bar 0: 09:15, Bar 1: 09:20, Bar 2: 09:25
+        orb_high = base_price * 1.010
+        orb_low = base_price * 0.995
+
+        opens = []
+        highs = []
+        lows = []
+        closes = []
+        volumes = []
+
+        curr_price = base_price
+        for i in range(75):
+            if i < 3: # Opening Range formation (09:15 - 09:30)
+                open_p = curr_price
+                close_p = open_p + np.random.uniform(-0.5, 0.5)
+                high_p = max(open_p, close_p) + np.random.uniform(0.1, 0.5)
+                low_p = min(open_p, close_p) - np.random.uniform(0.1, 0.5)
+                vol = np.random.randint(15000, 30000)
+            elif i == 4 or i == 5: # Breakout bar trigger (09:35 - 09:40)
+                open_p = curr_price
+                close_p = orb_high * 1.008 # Break above ORB High
+                high_p = close_p * 1.003
+                low_p = open_p * 0.999
+                vol = np.random.randint(75000, 120000) # Volume surge (3x - 4x)
+            else: # Trend continuation or consolidation
+                open_p = curr_price
+                drift = 0.0005 if i < 40 else -0.0002
+                close_p = open_p * (1.0 + drift + np.random.normal(0, 0.002))
+                high_p = max(open_p, close_p) * 1.002
+                low_p = min(open_p, close_p) * 0.998
+                vol = np.random.randint(10000, 25000)
+
+            curr_price = close_p
+            opens.append(round(float(open_p), 2))
+            highs.append(round(float(high_p), 2))
+            lows.append(round(float(low_p), 2))
+            closes.append(round(float(close_p), 2))
+            volumes.append(int(vol))
+
+        df = pd.DataFrame({
+            'timestamp': timestamps,
+            'open': opens,
+            'high': highs,
+            'low': lows,
+            'close': closes,
+            'volume': volumes
         })
         return df
 

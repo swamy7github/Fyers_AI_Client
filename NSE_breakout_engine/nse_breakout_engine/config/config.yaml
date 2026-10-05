@@ -5,6 +5,15 @@ fyers:
   access_token: "MOCK_ACCESS_TOKEN"
   use_mock: true  # Set to false when live FYERS API credentials are provided
 
+timeframe:
+  primary: "DAILY"                  # Daily bars for base pattern screening
+  intraday_execution_enabled: true  # Enable 5-minute ORB intraday trigger
+  intraday_resolution: "5"          # 5-minute candles
+  orb_window_minutes: 15            # 15-minute Opening Range (3 x 5m candles)
+  intraday_volume_surge_mult: 1.5   # 1.5x intraday volume MA surge
+  force_exit_time: "15:15"           # Mandatory intraday MIS square-off time
+  default_product_type: "MIS"        # MIS (Margin Intraday) or CNC (Cash & Carry)
+
 execution:
   mode: "PAPER"  # Options: "PAPER", "LIVE_FYERS", "OPENALGO"
   paper:
@@ -15,7 +24,7 @@ execution:
     client_id: "MOCK_CLIENT_ID"
     access_token: "MOCK_ACCESS_TOKEN"
     use_mock: true
-    product_type: "CNC"
+    product_type: "MIS"
   openalgo:
     openalgo_url: "http://127.0.0.1:5000/api/v1/place_order"
     openalgo_enabled: true
@@ -34,8 +43,10 @@ market_regime:
   index_sma_period: 50
 
 strategies:
+  enable_short_screening: true  # Enable screening for SELL / Short Intraday setups
   minervini_vcp:
     enabled: true
+    enable_short: true
     weight: 0.30
     trend_template:
       sma_fast: 50
@@ -50,21 +61,23 @@ strategies:
       volume_dryup_ma_period: 20
       breakout_volume_mult: 1.4  # +40% above 20 MA
       max_stop_loss_pct: 8.0
-      target_rr_ratio: 3.0       # 3R initial profit target (sell 50%)
+      target_rr_ratio: 3.0       # 3R initial profit target
       trailing_sma_period: 50
 
   darvas_box:
     enabled: true
+    enable_short: true
     weight: 0.25
     lookback_high_period: 250   # ~52-week high trigger
     confirmation_days: 3       # 3-day rule for Ceiling and Floor
-    breakout_volume_mult: 1.5  # Heavy volume on ceiling penetration
-    stop_loss_mode: "box_floor" # Stop placed below box floor
+    breakout_volume_mult: 1.5  # Heavy volume on ceiling/floor penetration
+    stop_loss_mode: "box_floor"
     pyramiding_enabled: true
     max_pyramid_adds: 2
 
   oneil_cup_handle:
     enabled: true
+    enable_short: true
     weight: 0.25
     prior_uptrend_min_pct: 30.0
     cup_min_length_weeks: 7
@@ -73,13 +86,14 @@ strategies:
     cup_depth_max_pct: 35.0
     handle_min_days: 5
     handle_max_weeks: 4
-    handle_max_retrace_pct: 15.0 # Max handle depth retrace
-    breakout_volume_mult: 1.4    # +40% above 50 SMA volume
+    handle_max_retrace_pct: 15.0
+    breakout_volume_mult: 1.4
     max_stop_loss_pct: 7.5
     profit_target_pct: 25.0
 
   kullamagi_momentum:
     enabled: true
+    enable_short: true
     weight: 0.20
     prior_move_min_pct: 30.0
     prior_move_lookback_days: 60
@@ -89,6 +103,6 @@ strategies:
     adr_period: 20
     max_stop_adr_mult: 1.0       # Stop <= 1x ADR%
     orb_minutes: 15              # Opening range breakout
-    partial_exit_days: 4         # Take 50% profit on days 3-5
+    partial_exit_days: 4         # Take profit on days 3-5
     partial_exit_r: 2.5          # Or at 2.5R
-    trailing_ema: 10             # Trail rest along 10 EMA
+    trailing_ema: 10

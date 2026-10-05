@@ -16,8 +16,8 @@ logger = logging.getLogger("screener")
 class NSEScreenerEngine:
     """
     NSE Stock Screener Pipeline.
-    Loads NSE universe data, evaluates 4 breakout strategies, ranks signals,
-    and produces daily actionable reports.
+    Loads NSE universe data, evaluates 4 breakout strategies (Long & Short Intraday MIS),
+    ranks signals, and produces daily actionable reports.
     """
     def __init__(self, config_path: str = None):
         if config_path is None or not os.path.exists(config_path):
@@ -60,7 +60,7 @@ class NSEScreenerEngine:
                         continue
 
                     sig = strategy.generate_signals(ind_df, symbol)
-                    if sig is not None and getattr(sig, "signal_type", None) == "BUY":
+                    if sig is not None and getattr(sig, "signal_type", None) in ["BUY", "SELL"]:
                         raw_signals.append(sig)
 
             except Exception as e:
@@ -73,15 +73,16 @@ class NSEScreenerEngine:
         if ranked_df.empty:
             return "# 🚀 NSE Master Breakout Screener Report\n\nNo qualified breakout signals found."
 
-        report = "# 🚀 NSE Master Breakout Screener Report\n\n"
+        report = "# 🚀 NSE Master Breakout Screener Report (Long & Short Intraday)\n\n"
         report += f"**Total Qualified Signals:** {len(ranked_df)}\n\n"
 
-        display_cols = ["composite_score", "symbol", "strategy", "entry_price", "stop_loss", "target_price", "risk_reward", "strategy_confluence", "rationale"]
+        display_cols = ["composite_score", "symbol", "signal", "strategy", "entry_price", "stop_loss", "target_price", "risk_reward", "strategy_confluence", "rationale"]
         df_show = ranked_df[display_cols].copy()
         
         df_show.rename(columns={
             "composite_score": "Score",
             "symbol": "Symbol",
+            "signal": "Direction",
             "strategy": "Strategy",
             "entry_price": "Entry (₹)",
             "stop_loss": "Stop Loss (₹)",
@@ -91,6 +92,7 @@ class NSEScreenerEngine:
             "rationale": "Rationale"
         }, inplace=True)
 
+        df_show["Direction"] = df_show["Direction"].apply(lambda s: "🟢 BUY (Long)" if s == "BUY" else "🔴 SELL (Short MIS)")
         df_show["Entry (₹)"] = df_show["Entry (₹)"].apply(lambda x: f"₹{x:.2f}")
         df_show["Stop Loss (₹)"] = df_show["Stop Loss (₹)"].apply(lambda x: f"₹{x:.2f}")
         df_show["Target (₹)"] = df_show["Target (₹)"].apply(lambda x: f"₹{x:.2f}")

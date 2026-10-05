@@ -21,7 +21,7 @@ from strategies.kullamagi_momentum import KullamagiMomentumStrategy
 DEFAULT_NSE_UNIVERSE = [
     "NSE:RELIANCE-EQ", "NSE:INFY-EQ", "NSE:TCS-EQ", "NSE:TATASTEEL-EQ",
     "NSE:HDFCBANK-EQ", "NSE:ICICIBANK-EQ", "NSE:LT-EQ", "NSE:BHARTIARTL-EQ",
-    "NSE:POLYCAB-EQ", "NSE:HAL-EQ", "NSE:BEL-EQ", "NSE:DIXON-EQ", "NSE:TRENT-EQ",
+    "NSE:POLYCAB-EQ", "NSE:HAL-EQ", "NSE:BEL-EQ", "NSE:DIXON-EQ", "NSE:TRENT-EQ"
 ]
 
 def load_config():
@@ -105,9 +105,10 @@ def run_backtests():
     print(tabulate(comp_df, headers="keys", tablefmt="github", showindex=False))
 
 def run_execution(signals_df=None):
-    print("\n⚡ Running Automated Order Router & Paper Trading Engine...")
+    print("\n⚡ Running Automated Multi-Timeframe Order Router & Paper Engine...")
     config = load_config()
     exec_cfg = config.get("execution", {})
+    tf_cfg = config.get("timeframe", {})
     mode = exec_cfg.get("mode", "PAPER").upper()
 
     if signals_df is None or signals_df.empty:
@@ -115,7 +116,7 @@ def run_execution(signals_df=None):
         signals_df = screener.run_screening(DEFAULT_NSE_UNIVERSE)
 
     if signals_df.empty:
-        print("\nNo breakout signals available to route.")
+        print("\nNo daily breakout candidates available to route.")
         return
 
     # Select Broker
@@ -126,25 +127,26 @@ def run_execution(signals_df=None):
             slippage_pct=paper_params.get("slippage_pct", 0.05),
             commission_pct=paper_params.get("commission_pct", 0.05)
         )
-        print("💼 Execution Mode: PAPER TRADING SIMULATOR (In-Memory)")
+        print(f"💼 Execution Mode: PAPER TRADING SIMULATOR | Product Type: {tf_cfg.get('default_product_type', 'MIS')}")
     else:
         fyers_cfg = exec_cfg.get("fyers", {})
         openalgo_cfg = exec_cfg.get("openalgo", {})
         merged_cfg = {**fyers_cfg, **openalgo_cfg}
         broker = FyersOrderManager(merged_cfg)
-        print(f"📡 Execution Mode: {mode} (FYERS API V3 / OpenAlgo Webhooks)")
+        print(f"📡 Execution Mode: {mode} (FYERS API V3 / OpenAlgo Webhooks) | Product Type: {tf_cfg.get('default_product_type', 'MIS')}")
 
+    data_client = FyersDataClient(use_mock=True)
     router = OrderRouter(broker, config)
-    executed_orders = router.process_screening_signals(signals_df)
+    executed_orders = router.process_screening_signals(signals_df, data_client=data_client)
 
     print("\n================================================================================")
-    print("🛒 ORDER ROUTING & EXECUTION SUMMARY")
+    print("🛒 5m INTRADAY ORB ORDER ROUTING & EXECUTION SUMMARY")
     print("================================================================================")
     if executed_orders:
         orders_df = pd.DataFrame(executed_orders)
         print(tabulate(orders_df, headers="keys", tablefmt="github", showindex=False))
     else:
-        print("No new orders executed (Risk caps or max positions reached).")
+        print("No new intraday orders executed (Risk caps, pending ORB triggers, or max positions reached).")
 
     # Display Account Balance & Open Portfolio
     bal = broker.get_account_balance()
@@ -156,7 +158,7 @@ def run_execution(signals_df=None):
 
     if positions:
         pos_df = pd.DataFrame(positions)
-        print("\n📊 CURRENT OPEN POSITIONS:")
+        print("\n📊 CURRENT OPEN INTRADAY POSITIONS:")
         print(tabulate(pos_df, headers="keys", tablefmt="github", showindex=False))
 
 def run_tests():
