@@ -259,25 +259,31 @@ def scan_opening_range(state,
     return _apply_gain_filter(rows, direction)
 
 
-def scan_opening_range_accurate(state, direction: TradeDirection = TradeDirection.LONG) -> pd.DataFrame:
+def scan_symbols_accurate(data_service: FyersDataService, symbols: list[str],
+                           direction: TradeDirection = TradeDirection.LONG,
+                           window_epochs: tuple[int, int] | None = None) -> pd.DataFrame:
     """
-    Slow-but-always-correct path: fetches the REAL 09:15-09:20 historical
-    candle per stock via the rate-limit-hardened bulk fetch
-    (FyersDataService.get_candles_bulk - proactive throttling, rate-limit-
-    specific exponential backoff, and per-symbol failure isolation so one
-    bad symbol can't take the rest down), regardless of what time it's
-    actually called. Use this instead of scan_opening_range() for any
-    late/catch-up start, where "day so far" no longer equals "the 09:15
-    candle".
+    The always-correct-regardless-of-call-time core of scan_opening_range_accurate()
+    (see that function's docstring for why this is the slow-but-safe path), factored
+    out to take an explicit `symbols` list instead of always calling load_universe()'s
+    NSE-equity-specific, sector-filtered CSV universe. This is what lets
+    scan_opening_range_accurate() (equities) and commodity_engine.scan_mcx_opening_range()
+    (MCX futures) share one implementation of "fetch each symbol's real opening-range
+    candle, compute %-change vs previous close, apply the gain/loss band filter" instead
+    of maintaining two copies of the same logic.
+
+    window_epochs defaults to TODAY's 09:15-09:20 window (NSE's convention) -
+    pass an explicit (from_epoch, to_epoch) for a universe whose opening range
+    starts at a different time (e.g. MCX's later session open - see
+    config.MCX_MARKET_OPEN_TIME and commodity_engine.py).
     """
-    symbols = load_universe(state['top5_gaining_sectors'])
     from utilities import get_last_traded_day
     today_str = get_last_traded_day()
     
-    from_epoch, to_epoch = _today_915_window_epochs(datetime.strptime(today_str, "%Y-%m-%d"))
-    #today_str = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
-        
-    data_service = state['data_service']
+    #from_epoch, to_epoch = _today_915_window_epochs(datetime.strptime(today_str, "%Y-%m-%d"))
+    from_epoch, to_epoch = window_epochs or _today_915_window_epochs(datetime.strptime(today_str, "%Y-%m-%d"))
+    today_str = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
+
     candles_by_symbol = data_service.get_candles_bulk(symbols, "5", today_str, today_str)
 
     rows = []
@@ -303,3 +309,25 @@ def scan_opening_range_accurate(state, direction: TradeDirection = TradeDirectio
             continue
 
     return _apply_gain_filter(rows, direction)
+
+
+def scan_opening_range_accurate(state,
+                                 direction: TradeDirection = TradeDirection.LONG) -> pd.DataFrame:
+    """
+    Slow-but-always-correct path: fetches the REAL 09:15-09:20 historical
+    candle per stock via the rate-limit-hardened bulk fetch
+    (FyersDataService.get_candles_bulk - proactive throttling, rate-limit-
+    specific exponential backoff, and per-symbol failure isolation so one
+    bad symbol can't take the rest down), regardless of what time it's
+    actually called. Use this instead of scan_opening_range() for any
+    late/catch-up start, where "day so far" no longer equals "the 09:15
+    candle".
+    """
+    data_service = state['data_service']
+    if direction == TradeDirection.LONG:
+        logger.info("Running %s opening-range scan (accurate, historical-candle path)...", direction.value)
+        top_sectors = state['top5_gaining_sectors']
+    elif direction == TradeDirection.SHORT:     
+        logger.info("Running %s opening-range scan (accurate, historical-candle path)...", direction.value)
+        top_sectors = state['top5_losing_sectors']
+    return scan_symbols_accurate(data_service, load_universe(top_sectors=top_sectors), direction)

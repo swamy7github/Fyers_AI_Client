@@ -45,7 +45,7 @@ def run_screener():
 def run_backtests():
     print("\n📊 Running Multi-Strategy Backtest Comparison Engine...")
     config = load_config()
-    data_client = FyersDataClient(use_mock=True)
+    data_client = FyersDataClient(use_mock=False)  # Use live FYERS API if credentials are provided
     
     strategies = [
         MinerviniVCPStrategy(config["strategies"]["minervini_vcp"]),
@@ -65,7 +65,7 @@ def run_backtests():
         expectancies = []
 
         for sym in DEFAULT_NSE_UNIVERSE:
-            raw_df = data_client.get_historical_data(sym, "D", "2023-01-01", "2026-09-30")
+            raw_df = data_client.get_historical_data(sym, "D", "2025-10-01", "2026-09-30")
             ind_df = IndicatorCalculator.add_indicators(raw_df)
 
             backtester = BacktestEngine(initial_capital=1000000.0)

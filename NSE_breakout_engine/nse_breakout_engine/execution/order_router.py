@@ -124,7 +124,7 @@ class OrderRouter:
 
         intraday_enabled = self.timeframe_cfg.get("intraday_execution_enabled", True)
         if intraday_enabled and data_client is None:
-            data_client = FyersDataClient(use_mock=True)
+            data_client = FyersDataClient(use_mock=False)
 
         balance_info = self.broker.get_account_balance()
         account_value = balance_info["portfolio_value"]

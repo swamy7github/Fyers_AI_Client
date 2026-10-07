@@ -28,8 +28,8 @@ current_path = Path(BASE_DIR)
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(LOG_DIR, exist_ok=True)
-#STOCK_UNIVERSE_CSV = os.path.join(DATA_DIR, "ind_nifty500list.csv")     # see README for download link
-STOCK_UNIVERSE_CSV = Path(__file__).parent / 'data' / 'ind_niftytotalmarket_list.csv'
+STOCK_UNIVERSE_CSV = os.path.join(DATA_DIR, "ind_nifty500list.csv")     # see README for download link
+#STOCK_UNIVERSE_CSV = Path(__file__).parent / 'data' / 'ind_niftytotalmarket_list.csv'
 
 load_dotenv(".env.example")  # loads variables from a local .env file, if present
 
@@ -71,10 +71,10 @@ TRADE_LOG_CSV = os.path.join(LOG_DIR, "trade_book_{date}.csv")
 TIMEZONE = "Asia/Kolkata"
 
 SECTOR_SCAN_TIME = "09:12:00"           # pre-open sector snapshot (see caveat in sector_scanner.py)
-SECTOR_SCAN_TIME_POSTOPEN = "09:19:40"  # re-run shortly after the normal session starts, for real numbers
-OPENING_RANGE_SCAN_TIME = "09:20:02"    # 2s buffer after the 09:15-09:20 candle closes
-SIGNAL_ENGINE_LAST_RUN = "15:10:00"     # stop looking for NEW signals after this time
-SQUARE_OFF_TIME = "15:10:30"            # force-close any open paper positions
+SECTOR_SCAN_TIME_POSTOPEN = "09:19:30"  # re-run shortly after the normal session starts, for real numbers
+OPENING_RANGE_SCAN_TIME = "09:20:10"    # 2s buffer after the 09:15-09:20 candle closes
+SIGNAL_ENGINE_LAST_RUN = "15:11:00"     # stop looking for NEW signals after this time
+SQUARE_OFF_TIME = "15:11:30"            # force-close any open paper positions
 CANDLE_INTERVAL_MINUTES = 5
 
 # NSE's actual normal-session hours. Used only to decide whether a late
@@ -114,7 +114,7 @@ MAX_GAIN_PCT = 2.5       # upper bound (inclusive) for the opening-range gainer 
 MIN_LOSS_PCT = 0.5
 MAX_LOSS_PCT = 2.5
 
-TOP_N_STOCKS = 10          # how many stocks to shortlist and track intraday
+TOP_N_STOCKS = 5          # how many stocks to shortlist and track intraday
 VOLUME_MA_PERIOD = 20     # number of 5-min candles for the ENTRY volume moving average
 CONSECUTIVE_CANDLES_FOR_BUY = 2  # candles required to confirm a breakout entry
 
@@ -178,17 +178,133 @@ QUOTES_BATCH_SIZE = 50
 # (see README "Before you go live").
 DRY_RUN = True
 
-# Placeholder order size used by SignalEngine._maybe_place_live_order()'s log
-# messages and, once you wire in a real order call, its qty= parameter. This
-# project has never done capital-based position sizing (see
-# backtest_strategy_picks.py for that, in a different tool) - replace this
-# with real sizing logic before DRY_RUN = False means anything.
+# ---- Capital-based position sizing (see position_sizing.py) ----
+# Total capital this agent will work with for EQUITY trading (paper, via
+# DRY_RUN=True, or real via your Fyers broker account once DRY_RUN=False -
+# both paths use the exact same sizing logic below; DRY_RUN only decides
+# whether the resulting order is logged or actually sent to the broker, see
+# fyers_service.FyersDataService.place_order and
+# signal_engine.SignalEngine._maybe_place_live_order).
+TRADING_CAPITAL = 200_000.0
+
+# Equal-split allocation: with TOP_N_STOCKS shortlisted stocks tracked
+# concurrently (see opening_range_scanner.py), each gets an equal share of
+# TRADING_CAPITAL as its per-trade budget - position_sizing.calculate_quantity()
+# then buys as many whole shares as that budget affords at the entry price.
+# A position "ADD" (see CONSECUTIVE_CANDLES_FOR_STOPLOSS/MAX_POSITION_ADDS
+# below) spends this SAME per-slot amount again, so a stock that adds once
+# can end up using up to 2x its slot's share of TRADING_CAPITAL - this is a
+# deliberate choice (an add-on is a fresh, separately-justified signal, not
+# a top-up of the original size) but worth knowing before relying on it.
+# Change the allocation rule itself (equal split vs risk-weighted vs
+# volatility-adjusted, etc.) in position_sizing.py if equal-split isn't
+# what you want.
+CAPITAL_PER_TRADE = TRADING_CAPITAL / TOP_N_STOCKS if TOP_N_STOCKS else TRADING_CAPITAL
+
+# Last-resort fallback quantity, used by position_sizing.calculate_quantity()
+# callers ONLY if a computed capital-based quantity comes back 0 (e.g. a
+# single share/lot costs more than the allocated capital) - NOT the normal
+# sizing path any more. Kept so a mis-sized slot logs loudly and falls back
+# to a tiny, deliberately-visible order instead of silently placing nothing;
+# see _maybe_place_live_order's qty-resolution comment.
 DEFAULT_ORDER_QTY = 1
 
-# ---- Tick-level stop-loss / target / trailing stop-loss ----
-# Separate from the 5-min-candle-close weakness-event exit in signal_engine.py -
-# these are checked on every incoming tick (see live_tick_stream.py), for faster
-# reaction than waiting for a candle to close. All as a % of the entry price.
-STOP_LOSS_PCT = 1.0        # exit if price falls this far below entry
-TARGET_PCT = 2.0           # exit if price rises this far above entry
-TRAILING_SL_PCT = 1.0      # once in profit, trail the stop this far below the highest price seen
+# ----------------------------------------------------------------------------
+# NIFTY INDEX options trading (see options_engine.py) - OFF by default
+# ----------------------------------------------------------------------------
+# This runs the EXACT SAME ORB + VWAP + 20-period-volume-MA entry/exit rules
+# from signal_engine.py against a single ATM NIFTY option contract (a BUY-ONLY
+# strategy - CE when today's sentiment-derived bias is LONG, PE when it's
+# SHORT; see options_engine.py's module docstring for why this never writes/
+# sells options naked). Off by default because it depends on a locally
+# maintained F&O symbol master file (below) that THIS repo cannot keep
+# current for you - read options_engine.py fully, and verify your own
+# symbol master's column names/values, before setting this True.
+ENABLE_NIFTY_OPTIONS_TRADING = False
+
+NIFTY_INDEX_SYMBOL = "NSE:NIFTY50-INDEX"   # spot quote, used to find the ATM strike
+
+# Fyers publishes a downloadable NSE F&O instrument/symbol master file
+# (check their current API docs for the exact URL - it has moved before)
+# listing every live contract's trading symbol, strike, expiry, option type
+# and lot size. Download/refresh it periodically and point this at your
+# local copy; options_engine.load_fo_symbol_master() reads strike/expiry/lot
+# size/trading-symbol straight from THIS file rather than from any
+# hard-coded format string here, specifically because NIFTY's expiry day,
+# lot size, and strike gap have all changed more than once under SEBI/
+# exchange rule changes - hard-coding any of them would silently go stale.
+NIFTY_FO_SYMBOL_MASTER_CSV = os.path.join(DATA_DIR, "nse_fo_symbol_master.csv")
+
+# Best-effort {logical name: actual column name} mapping for the file above -
+# VERIFY against your own downloaded file's real header (print df.columns
+# once, exactly like opening_range_scanner.py's quotes-field caveat) and
+# correct these before enabling ENABLE_NIFTY_OPTIONS_TRADING. Wrong column
+# names here fail loudly (see load_fo_symbol_master) rather than silently
+# resolving the wrong contract.
+NIFTY_FO_MASTER_COLUMNS = {
+    "underlying": "underlying_symbol",
+    "option_type": "option_type",      # expected values "CE" / "PE"
+    "expiry": "expiry_date",
+    "strike": "strike_price",
+    "trading_symbol": "trading_symbol",  # the exact string Fyers' history/order APIs expect
+    "lot_size": "lot_size",
+}
+
+# Independent capital bucket for the options strategy - deliberately
+# separate from TRADING_CAPITAL (equities) and MCX_CAPITAL (below) rather
+# than shared, so running more than one of these strategies at once doesn't
+# silently double-spend one real capital pool. If you only have ONE real
+# pool of money, divide it across these yourself and don't run the
+# strategies you're not funding.
+NIFTY_OPTIONS_CAPITAL = 200_000.0
+
+# ----------------------------------------------------------------------------
+# MCX commodities trading (see commodity_engine.py) - OFF by default
+# ----------------------------------------------------------------------------
+# Applies the SAME ORB + VWAP + volume-MA strategy directly to MCX commodity
+# FUTURES contracts (not commodity options - MCX options liquidity is thin
+# for most contracts, and this keeps the "same logic as equities" mapping
+# exact: a futures contract has its own continuously-traded OHLCV series,
+# just like a stock). Off by default - see commodity_engine.py and verify
+# every value below against Fyers' current MCX contract specs before
+# enabling.
+ENABLE_MCX_COMMODITY_TRADING = False
+
+# MCX's session runs well past NSE's 09:15-15:30 (into the evening,
+# currently commonly 09:00-23:30 IST with a seasonal 23:00 close during
+# daylight-saving months abroad that affect international commodity
+# benchmarks) - VERIFY current timings on MCX's own site/circulars, they
+# are NOT fixed and this scaffold cannot track that for you.
+MCX_MARKET_OPEN_TIME = "09:00:00"
+MCX_MARKET_CLOSE_TIME = "23:30:00"
+MCX_OPENING_RANGE_SCAN_TIME = "09:05:02"   # mirrors OPENING_RANGE_SCAN_TIME's "2s after the first candle" buffer
+MCX_SIGNAL_ENGINE_LAST_RUN = "23:14:30"    # mirrors SIGNAL_ENGINE_LAST_RUN - stop looking for NEW signals
+MCX_SQUARE_OFF_TIME = "23:15:00"           # mirrors SQUARE_OFF_TIME - force-close before session close
+
+# Fixed commodity universe (MCX has nothing equivalent to the NSE-500 +
+# sector-filter screen equities use - opening_range_scanner.scan_symbols_accurate()
+# is reused directly against this small, explicit list instead). `symbol`
+# MUST be the exact current front-month Fyers trading symbol (these roll
+# monthly/bi-monthly - e.g. "MCX:GOLDM25DECFUT" is only valid for one
+# expiry cycle) - update this list yourself before each contract rolls.
+# `lot_size` values below are illustrative placeholders (approximate,
+# commonly-cited MCX contract sizes as of this scaffold's own knowledge) -
+# VERIFY every one against MCX's current contract specifications before
+# trusting them for real position sizing; MCX revises lot sizes too.
+MCX_COMMODITY_UNIVERSE = [
+    {"symbol": "MCX:CRUDEOILM26OCTFUT", "lot_size": 10},  # Crude Oil - ~10 barrels/lot (verify) Silver Mini 
+    {"symbol": "MCX:GOLDTEN26OCTFUT", "lot_size": 10},     # Gold Mini - ~10g/lot (verify)
+    {"symbol": "MCX:GOLDPETAL26OCTFUT", "lot_size": 1},  # Gold Petals - ~1g/lot (verify)
+    {"symbol": "MCX:NATGASMINI26OCTFUT", "lot_size": 250},  # Natural Gas - ~250 mmBtu/lot (verify)
+    {"symbol": "MCX:COPPER26OCTFUT", "lot_size": 2500},   # Copper - ~2500 kg/lot (verify)
+    {"symbol": "MCX:SILVERMIC26NOVFUT", "lot_size": 1},    # Silver micro - ~1 kg/lot (verify)
+    {"symbol": "MCX:ZINCMINI26OCTFUT", "lot_size": 100}   # Zinc Mini - ~1MT/lot (verify)
+]
+
+MCX_CAPITAL = 200_000.0  # see NIFTY_OPTIONS_CAPITAL's comment on why this is its own bucket
+
+# Tick-level stop-loss/target/trailing-stop (STOP_LOSS_PCT/TARGET_PCT/TRAILING_SL_PCT)
+# has been removed. Stop-loss is now purely candle/VWAP-driven: see
+# CONSECUTIVE_CANDLES_FOR_STOPLOSS above and signal_engine.py's module docstring - the
+# ONLY way a position closes before EOD is 2 consecutive 5-min candles confirming the
+# move against it, the same conviction bar as entry, in both directions.

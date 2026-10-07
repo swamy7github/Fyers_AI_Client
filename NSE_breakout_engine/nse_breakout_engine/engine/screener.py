@@ -49,7 +49,7 @@ class NSEScreenerEngine:
 
         for symbol in symbol_list:
             try:
-                raw_df = self.data_client.get_historical_data(symbol, "D", "2023-01-01", "2026-09-30")
+                raw_df = self.data_client.get_historical_data(symbol, "D", "2025-10-01", "2026-09-30")
                 if raw_df.empty or len(raw_df) < 200:
                     continue
 

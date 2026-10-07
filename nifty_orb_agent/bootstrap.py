@@ -308,8 +308,10 @@ def _reconcile_broker_state(engine: SignalEngine, data_service: FyersDataService
         reconstruct as open (a different strategy version, a manual trade,
         a gap in this engine's own detection rules, or a position that
         survived a previous crash) -> adopt it via
-        engine.adopt_broker_position(), which enables full live tick-level
-        risk management for it immediately.
+        engine.adopt_broker_position(), which puts it under the same
+        candle-level weakness detector as any other open position from the
+        next candle check onward (there is no tick-level risk management
+        any more - see signal_engine.py's module docstring).
       - Replay reconstructed a position as open, but the broker does NOT
         report it -> someone/something already closed it for real (or it
         never actually filled) - clear the local state rather than
@@ -360,16 +362,16 @@ def _reconcile_broker_state(engine: SignalEngine, data_service: FyersDataService
             tracker.position_open = False
             tracker.weakness_events_on_position = 0
             tracker.entry_price_for_risk = None
-            tracker.highest_price_since_entry = None
 
 
 # ----------------------------------------------------------------------------
 # Orchestration
 # ----------------------------------------------------------------------------
-def bootstrap_and_catchup(data_service: FyersDataService) -> BootstrapResult:
+def bootstrap_and_catchup(state) -> BootstrapResult:
     now = datetime.now(TZ)
+    data_service: FyersDataService = state["data_service"]
     phase = detect_market_phase(now)
-
+    logger.info("Bootstrap: detected market phase %s at %s IST.", phase.value, now.strftime("%H:%M:%S"))
     if phase == MarketPhase.PRE_OPEN:
         msg = (f"Started pre-open at {now:%H:%M:%S} IST - nothing to catch up on; "
                f"the scheduled jobs in main.py will run at their normal times.")
@@ -394,6 +396,8 @@ def bootstrap_and_catchup(data_service: FyersDataService) -> BootstrapResult:
 
     # 1. Sector leaderboard + market breadth - informational, always computed regardless
     #    of the direction decision below, since it's cheap and useful either way.
+    # to sync with the rest of the state, we store the top5_gaining_sectors and top5_losing_sectors in the main_module.state to be used by other jobs
+    # stock is selected in sync with the sectors direction.
     snapshot = get_index_snapshot(data_service)
     leaderboard = get_sector_leaderboard(snapshot)
     main_module = sys.modules['__main__']
@@ -401,12 +405,18 @@ def bootstrap_and_catchup(data_service: FyersDataService) -> BootstrapResult:
     logger.info(f'{main_module.state["top5_gaining_sectors"]}')
     universe = load_universe(main_module.state['top5_gaining_sectors'] )
     breadth = compute_market_breadth(data_service, universe)
-    logger.info("Market breadth snapshot: %s", breadth)
+    logger.info("Market breadth snapshot LONG: %s", breadth)
+    
+    main_module.state['top5_losing_sectors'] = leaderboard.tail(5)
+    logger.info(f'{main_module.state["top5_losing_sectors"]}')
+    universe = load_universe(main_module.state['top5_losing_sectors'] )
+    breadth = compute_market_breadth(data_service, universe)
+    logger.info("Market breadth snapshot SHORT: %s", breadth)
 
     # 2. Global sentiment -> today's direction. Computed before the (potentially
     #    expensive) gap screen below, so an unclear-sentiment day short-circuits early
     #    without spending API calls scanning a universe we're not going to trade anyway.
-    direction, sentiment_label, sentiment_score = decide_todays_direction()
+    direction, sentiment_label, sentiment_score = state['global_sentiment']['direction'], state['global_sentiment']['label'], state['global_sentiment']['score']
     logger.info("Global sentiment: %s (score %.2f) -> trade direction: %s",
                 sentiment_label, sentiment_score, direction.value if direction else "NONE")
     if direction is None:

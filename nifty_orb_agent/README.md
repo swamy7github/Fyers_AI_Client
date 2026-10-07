@@ -38,18 +38,24 @@ scoring with an optional Claude-powered read on qualitative news.
 | `fyers_service.py` | Fyers login (auto TOTP + manual fallback) and a retrying, logged data wrapper |
 | `global_sentiment.py` | Global bullish/bearish scoring + optional Claude-based news sentiment |
 | `sector_scanner.py` | 09:10 / 09:16 sector strength/weakness snapshot, queried directly from NSE index symbols |
-| `opening_range_scanner.py` | Filters the universe by sector, then builds the top-5 opening-range gainer shortlist |
-| `signal_engine.py` | Direction-aware (LONG or SHORT) VWAP + volume-MA(20) candle logic, tick-level SL/target/trailing-SL (`check_tick_for_exit`), broker position adoption (`adopt_broker_position`); `feed_candle()` is the shared replay/live entry point both `backtest.py` and `bootstrap.py` use |
+| `opening_range_scanner.py` | Filters the universe by sector, then builds the top-5 opening-range gainer shortlist. `scan_symbols_accurate()` is the market-agnostic core (explicit symbol list in, shortlist out) that both the NSE-equity path and `commodity_engine.py` share |
+| `signal_engine.py` | Direction-aware (LONG or SHORT) VWAP + volume-MA(20) candle logic — entry, weakness-event add/stop-loss, and broker position adoption (`adopt_broker_position`) are ALL candle-driven, no tick-level exit; `feed_candle()` is the shared replay/live entry point `backtest.py`, `bootstrap.py`, `options_engine.py`, and `commodity_engine.py` all use. Also owns capital-based order sizing (`_size_order`, via `position_sizing.py`) and the real broker order call (`_maybe_place_live_order` → `fyers_service.FyersDataService.place_order`) |
+| `position_sizing.py` | Capital-based quantity sizing (`calculate_quantity`, `capital_per_slot`) shared by equities, options, and commodities — see "Capital-based position sizing" below |
+| `options_engine.py` | Applies the SAME signal_engine strategy, BUY-ONLY, to a single ATM NIFTY INDEX option (CE on a LONG bias, PE on a SHORT bias) — see "NIFTY INDEX options trading" below. Off by default |
+| `commodity_engine.py` | Applies the SAME signal_engine strategy to a fixed universe of MCX commodity futures, long or short — see "MCX commodities trading" below. Off by default |
 | `trade_direction.py` | Tiny shared `TradeDirection` enum (LONG/SHORT) + `decide_trade_direction_from_sentiment()` — kept dependency-free so `signal_engine`, `opening_range_scanner`, and `bootstrap` can all import it without an import cycle |
 | `bootstrap.py` | Market-phase detection + the late-startup catch-up pipeline: `bootstrap_and_catchup()`, historical replay, broker reconciliation — see "Late-startup catch-up" below |
-| `live_tick_stream.py` | WebSocket tick feed → `SignalEngine.check_tick_for_exit()` hand-off — see "Live hand-off" below |
-| `main.py` | Wires it all together with APScheduler; calls `bootstrap_and_catchup()` once at startup, then runs the ongoing 5-min candle checks and starts `LiveTickStream` |
+| `live_tick_stream.py` | WebSocket tick feed wrapper — NOT currently used by `main.py` (no tick-level exit exists to feed); kept for a possible future use, see the module docstring |
+| `main.py` | Wires it all together with APScheduler; calls `bootstrap_and_catchup()` once at startup, then runs the ongoing 5-min candle checks |
 | `backtest.py` | Replays the same live strategy against historical data over a date range; run with `python backtest.py --start ... --end ...` |
 | `backtest_strategy_picks.py` | Separate tool: backtests an external daily stock-picks CSV (buy-at-open/sell-at-close, equal-weight) — see "Backtesting an external daily stock-picks strategy" below |
 | `test_backtest_strategy_picks.py` | Tests for the above, including hand-verified tear-sheet math |
-| `test_signal_engine.py` | Tests for tick-level SL/target/trailing-SL, broker position adoption, and the `is_backfill` gate |
+| `test_signal_engine.py` | Tests for broker position adoption, the `is_backfill` gate, and capital-based sizing/qty/pnl_amount (`TestCapitalBasedPositionSizing`) (the candle-level entry/weakness logic they sit on top of is covered by `TestFeedCandle*` elsewhere in the same file) |
+| `test_position_sizing.py` | Tests for `calculate_quantity`'s whole-lot rounding and `capital_per_slot`'s equal-split allocator |
+| `test_options_engine.py` | Tests for the F&O symbol-master loader/column validation, ATM strike/expiry resolution, and CE-on-LONG/PE-on-SHORT mapping |
+| `test_commodity_engine.py` | Tests for the MCX opening-range scan against a fixed commodity universe and per-tracker lot-size/capital wiring |
 | `test_bootstrap.py` | Tests for historical replay, broker reconciliation, and a full end-to-end `bootstrap_and_catchup()` run |
-| `test_live_tick_stream.py` | Tests for tick routing/validation, without a real WebSocket |
+| `test_live_tick_stream.py` | Tests for `live_tick_stream.py`'s message validation (now a no-op placeholder), without a real WebSocket |
 | `test_trade_direction.py` | Tests for the sentiment-label → direction mapping |
 | `test_opening_range_scanner.py` | Tests for the LONG/SHORT gap-band filter and sort order |
 | `test_historical_sentiment.py` | Tests for the as-of-date sentiment fetch backtest.py uses for per-day direction |
@@ -185,15 +191,16 @@ in an earlier iteration:
    from ever placing a real order for a signal reconstructed from history
    (the entry price has likely moved on by now) — it does *not* change
    whether the signal fires, so a reconstructed BUY still opens
-   `position_open=True` and is still fully risk-managed (stop-loss/target/
-   trailing-SL) going forward from this point.
+   `position_open=True` and is still managed by the same candle-level
+   weakness detector going forward from this point (there is no tick-level
+   exit any more — see "Stop-loss, target, and trailing-SL" below).
 5. **Broker reconciliation** (`_reconcile_broker_state`): fetches the
    broker's actual open positions and adopts/clears local state to match —
    see "Broker position sync" below.
 6. Returns a `BootstrapResult` (phase, populated `SignalEngine` or `None`,
    sector leaderboard, market breadth) that `main.py` hands off to the
-   ongoing 5-minute candle-check scheduler and to `LiveTickStream` for
-   tick-level risk management from this point forward.
+   ongoing 5-minute candle-check scheduler, which is now the ONLY thing
+   managing open positions.
 
 `coalesce=True` + `max_instances=1` on every recurring APScheduler job
 remain as a *separate*, ongoing safety net for transient delays while the
@@ -213,8 +220,10 @@ an account with a manual trade already in it). Reconciliation runs after
 replay and always lets broker truth win:
 - Broker shows a position replay didn't reconstruct → **adopt** it
   (`SignalEngine.adopt_broker_position()`), using the broker's real average
-  price and quantity, immediately under full stop-loss/target/trailing-SL
-  management.
+  price and quantity. It's managed by the same candle-level weakness
+  detector as any other open position from the next candle check onward —
+  there is no tick-level protection, so know that the first check can be up
+  to `CANDLE_INTERVAL_MINUTES` (5) away, not immediate.
 - Replay reconstructed a position the broker doesn't confirm → **clear**
   it locally rather than manage a position that doesn't actually exist.
 - Both agree → left untouched (replay's own entry price is kept, not
@@ -226,33 +235,26 @@ replay and always lets broker truth win:
   adopted (out of scope for this engine — you still hold it for real;
   manage it separately).
 
-## Live hand-off (live_tick_stream.py)
+## Live hand-off (live_tick_stream.py) — not currently used
 
-Once `bootstrap_and_catchup()` returns a populated engine, `main.py` starts
-`LiveTickStream`, a thin wrapper around Fyers' WebSocket tick feed
-(`fyers_apiv3.FyersWebsocket.data_ws`) that routes every tick for a tracked
-symbol straight into `SignalEngine.check_tick_for_exit()` — fast,
-tick-level stop-loss/target/trailing-SL, quicker to react than the 5-minute
-candle-close weakness-event checks. This is a genuinely new capability, not
-a rename of the existing 5-minute REST polling: the two run *alongside*
-each other — 5-minute candles still drive BUY/weakness-event detection,
-ticks drive the tighter risk exits once a position is open. Testable
-without a real socket via `on_tick_override` (see `test_live_tick_stream.py`);
-verify the tick message field names (`symbol`, `ltp`) against your installed
-`fyers_apiv3` version before relying on this — broker WebSocket message
-shapes are exactly the kind of thing that changes between SDK versions.
+Earlier revisions started `LiveTickStream` here, a thin wrapper around
+Fyers' WebSocket tick feed (`fyers_apiv3.FyersWebsocket.data_ws`) that
+routed every tick for a tracked symbol into a tick-level stop-loss/target/
+trailing-SL check, reacting faster than a 5-minute candle close.
 
-**Confirmed deliberate, on review**: `_handle_tick()` acts on every single
-tick — it does not wait for a candle to close before exiting a position.
-This is the whole point of this module (see above: reacting faster than a
-5-minute candle close is why it exists at all), not an oversight. The
-trade-off worth knowing: a raw tick-touch stop can get hit by one noisy
-print — a brief bad tick, a fat-finger trade, a momentary liquidity gap —
-that reverts a moment later, where a candle-close confirmation would have
-ridden through it. If you want a debounce (e.g. require the price to stay
-through the stop for N consecutive ticks, or M seconds, before exiting),
-that would be a deliberate, separate change to `check_tick_for_exit()`, not
-something to default to silently.
+**That tick-level exit has been removed.** Stop-loss is now purely
+candle/VWAP-driven: a position only closes once 2 consecutive 5-minute
+candles confirm the move against it (see "Stop-loss, target, and
+trailing-SL" below), the same conviction bar entry requires in its favor.
+`main.py` no longer constructs or starts a `LiveTickStream` — there is no
+consumer left for tick data. The class itself is still there, fully
+working and fully testable via `on_tick_override` (see
+`test_live_tick_stream.py`), in case a future need for live tick data comes
+up (a live LTP/unrealized-P&L display, say); `_handle_tick()` is currently
+a no-op placeholder for that reason. Verify the tick message field names
+(`symbol`, `ltp`) against your installed `fyers_apiv3` version before
+reviving this — broker WebSocket message shapes are exactly the kind of
+thing that changes between SDK versions.
 
 ## Long and short: sentiment-gated direction
 
@@ -282,9 +284,6 @@ between). `job_global_sentiment()` also prints today's direction for visibility.
 | Entry (2 consecutive candles) | close > OR high, > VWAP, volume > volMA(20) | close < OR low, < VWAP, volume > volMA(20) |
 | Weakness event (against you) | close **below** VWAP, volume > volMA(20) | close **above** VWAP, volume > volMA(20) |
 | Entry / add / exit orders | BUY / BUY / SELL | SELL / SELL / BUY |
-| Stop-loss | `STOP_LOSS_PCT` **below** entry | `STOP_LOSS_PCT` **above** entry |
-| Target | `TARGET_PCT` **above** entry | `TARGET_PCT` **below** entry |
-| Trailing stop trails | highest price since entry (ratchets up) | lowest price since entry (ratchets down) |
 | P&L per trade | exit − entry | **entry − exit** |
 
 It runs through the same single code path (`SignalEngine`, with a `direction`
@@ -311,35 +310,170 @@ match rather than managing a real short under long-side stop logic.
   segments or bans where your broker won't allow a same-day sell-first order
   (e.g. trade-for-trade series, F&O-ban stocks). The screen doesn't know this —
   check your broker's rules; a shortlisted stock that can't be shorted will fail
-  at order time once real order placement is wired in.
+  at order time when `place_order()` actually reaches the broker.
 - **Sentiment is a blunt gate.** It's built from the *last completed session's*
   change in S&P/Nasdaq/Dow/Asian indices, VIX, crude and the dollar index via
   `yfinance` — a rule-of-thumb weighting, not a fitted model, and Asian markets
   may be mid-session when it's read. It says nothing about India-specific news.
-- **Tested on synthetic data only.** The short logic is verified against
-  hand-computed scenarios, not against real Fyers short-order behaviour, and
-  real order placement is still the same `[LIVE ORDER PLACEHOLDER]` as before.
-  Paper-trade shorts (`DRY_RUN=True`) before anything else.
+- **Tested on synthetic data only.** The short logic (and the options/MCX
+  engines, which reuse it) is verified against hand-computed scenarios and
+  faked data services, not against real Fyers order/options-chain/MCX
+  behaviour. Paper-trade (`DRY_RUN=True`) every market you enable before
+  anything else.
 
-## Stop-loss, target, and trailing-SL (tick-level)
+## Stop-loss, target, and trailing-SL: none — exit is purely candle-driven
 
-`SignalEngine.check_tick_for_exit()` runs on every tick for an open
-position: `config.STOP_LOSS_PCT` / `TARGET_PCT` / `TRAILING_SL_PCT` (all %
-from entry, trailing measured from the highest price seen since entry, not
-from entry). One property worth knowing, confirmed by
-`test_signal_engine.py` rather than assumed: on the tick that first sets a
-new high, the trailing-stop level is always strictly below that new high
-(`new_high × (1 - trail%) < new_high`), so the stop check can never
-preempt the target check on that same tick — meaning **target is
-effectively a hard ceiling**, however large a single move is; the trailing
-stop can never "overtake" an unreached target on the way up. An initial
-hypothesis that it could was tested directly and found to be wrong before
-this was documented as fact — see that test's docstring for the full
-reasoning. `config.DRY_RUN=True` (default) logs every exit instead of
-placing it; flipping it to `False` reaches a clearly-marked
-`[LIVE ORDER PLACEHOLDER]` log line, not a real order — `fyers.place_order()`
-itself is intentionally not wired in yet (see `_maybe_place_live_order`'s
-TODO in `signal_engine.py`).
+Earlier revisions had a separate, tick-level stop-loss/target/trailing-SL
+(`config.STOP_LOSS_PCT` / `TARGET_PCT` / `TRAILING_SL_PCT`, checked on every
+tick via `SignalEngine.check_tick_for_exit()`). **That has been removed.**
+There is no fixed-percentage exit and no tick-level check of any kind any
+more. The ONLY way a position closes before EOD is the candle-level
+weakness-event detector described above: 2 consecutive 5-minute candles
+confirming the move against the position, with volume above the same
+20-period volume MA entry requires — i.e. stop-loss is dynamic and
+VWAP/volume-driven, not a static % away from entry. See the "Candle-level
+position sizing" section below for the add/square-off rule itself, and
+`signal_engine.py`'s module docstring for the full picture.
+
+`config.DRY_RUN=True` (default) logs every entry/add/exit instead of placing
+it. Flipping it to `False` now reaches a REAL broker call —
+`fyers_service.FyersDataService.place_order()` (a market order, `productType`
+`"INTRADAY"`, DAY validity) — via `SignalEngine._maybe_place_live_order()`,
+which is still the single gate every order of any kind routes through
+(entries, adds, weakness-event exits, and EOD square-offs, for every market
+this agent trades). A failed broker call is logged loudly and does NOT crash
+the candle-check loop (other symbols' signals still need evaluating that
+tick) — see that method's docstring. Paper-trade (`DRY_RUN=True`) for a good
+stretch before ever setting this to `False` — see "Before you go live" below.
+
+## Capital-based position sizing
+
+Every order this agent places — equities, options, or commodities — is sized
+from a configured capital allocation, via `position_sizing.calculate_quantity()`:
+buy as many WHOLE shares/lots as the allocated capital affords at the entry
+price, rounding DOWN, never up into a partial-lot overspend. This replaced
+the old flat `config.DEFAULT_ORDER_QTY = 1` placeholder (kept only as a
+last-resort fallback for a mis-configured `capital_allocated <= 0`, not the
+normal path any more).
+
+- **Equities**: `config.TRADING_CAPITAL` (default ₹200,000) is split equally
+  across `config.TOP_N_STOCKS` (default 5) concurrent slots —
+  `config.CAPITAL_PER_TRADE = TRADING_CAPITAL / TOP_N_STOCKS` (₹40,000/slot
+  by default). A weakness-event ADD spends this SAME per-slot amount again
+  (it's a fresh, separately-justified signal, not a top-up of the original
+  size), so a stock that adds once can use up to 2x its slot's share.
+- **Options**: `config.NIFTY_OPTIONS_CAPITAL` — its own, independent bucket
+  (see "NIFTY INDEX options trading" below).
+- **Commodities**: `config.MCX_CAPITAL`, split equally across however many
+  commodities actually make the shortlist that day (not a fixed split
+  across the whole configured universe, so an under-filled shortlist
+  doesn't leave capital sitting idle) — see "MCX commodities trading" below.
+
+These three buckets are deliberately SEPARATE, not drawn from one shared
+pool — running more than one strategy at once would otherwise silently
+double- (or triple-) spend the same real money. If you only have ONE real
+capital pool, divide it across `TRADING_CAPITAL` / `NIFTY_OPTIONS_CAPITAL` /
+`MCX_CAPITAL` yourself, and/or leave the strategies you're not funding
+disabled (`ENABLE_NIFTY_OPTIONS_TRADING` / `ENABLE_MCX_COMMODITY_TRADING`
+are both `False` by default).
+
+If a calculated quantity comes back 0 (the allocated capital can't afford
+even one share/lot at the current price), the engine logs a loud warning and
+**skips that entry/add entirely** — it never opens a position at qty=0, and
+a skipped ADD does not count as a square-off (the existing position just
+stays open at its current size).
+
+`TradeBook` rows now also carry `qty` (how many shares/lots that specific
+row transacted) and `pnl_amount` (rupee P&L = points × qty, alongside the
+existing `points`/`pnl_pct`), and `TradeBook.summary()` reports a
+`total_pnl_amount` across all closed rows, not just points captured.
+
+## NIFTY INDEX options trading (`options_engine.py`) — off by default
+
+Runs the EXACT SAME ORB + VWAP + 20-period-volume-MA entry/exit rules from
+`signal_engine.py` against a single AT-THE-MONEY NIFTY option contract,
+instead of a separate options-specific strategy. Enable with
+`config.ENABLE_NIFTY_OPTIONS_TRADING = True` — **read `options_engine.py`'s
+module docstring in full first**, it covers three load-bearing design
+decisions in detail:
+
+1. **BUY-ONLY.** This agent only ever BUYS an option — a call (CE) when
+   today's sentiment-derived bias is LONG, a put (PE) when it's SHORT — it
+   never writes/sells an option naked (a much larger, margin-based,
+   theoretically uncapped risk profile this codebase was never designed
+   for). Risk is capped to the premium paid either way. Because of this,
+   the engine always tracks the chosen contract with `direction=LONG`
+   internally: a rising premium is the entry/add signal, a falling one
+   (2 consecutive candles below the contract's OWN VWAP, volume above its
+   OWN 20-period MA) is the exit — applied to the CONTRACT's own candles,
+   not the index's.
+2. **Direction for the day** reuses the SAME sentiment pipeline as equities
+   (`bootstrap.decide_todays_direction()`, called once and passed to both
+   `job_opening_range_scan()` and `job_nifty_options_scan()` in `main.py`),
+   so equities and options can never silently disagree about today's bias.
+3. **Strike, expiry, lot size, and the exact Fyers trading-symbol string are
+   resolved from Fyers' own published F&O symbol master file**, never
+   hard-coded — NIFTY's expiry day, lot size, and strike gap have all
+   changed more than once under SEBI/exchange rule changes. Download Fyers'
+   NSE F&O instrument master CSV yourself (check their current API docs for
+   the link — it has moved before), keep it refreshed, and point
+   `config.NIFTY_FO_SYMBOL_MASTER_CSV` at your local copy.
+   `config.NIFTY_FO_MASTER_COLUMNS` is a **best-effort guess** at that
+   file's column names — print the real file's `df.columns` once and
+   correct this dict before trusting it; a wrong mapping fails loudly
+   (`options_engine.load_fo_symbol_master()` logs and returns an empty
+   DataFrame, not a crash) rather than silently resolving the wrong contract.
+
+Position sizing: `config.NIFTY_OPTIONS_CAPITAL` (own bucket, see above) /
+the resolved contract's own lot size (read from the symbol master, not
+guessed). Scheduling: `job_nifty_options_scan()` runs at the same
+`OPENING_RANGE_SCAN_TIME` as equities (the option contract's own
+opening-range candle is available at the same time); squares off alongside
+equities at `SQUARE_OFF_TIME` (same NSE session).
+
+## MCX commodities trading (`commodity_engine.py`) — off by default
+
+Applies the SAME ORB + VWAP + volume-MA strategy directly to MCX commodity
+**futures** contracts (not commodity options — thin liquidity on most
+strikes, and futures keep the equities mapping exact: one tradable
+instrument per commodity, its own continuous OHLCV series, no strike/expiry
+selection step). Unlike options, this trades long AND short — today's
+sentiment-derived bias is used as-is, exactly like equities. Enable with
+`config.ENABLE_MCX_COMMODITY_TRADING = True` after reading
+`commodity_engine.py`'s module docstring and verifying every value below.
+
+- **Fixed universe, not a scanned one.** MCX has nothing equivalent to the
+  NSE-500-plus-sector-filter screen equities use, so
+  `config.MCX_COMMODITY_UNIVERSE` is an explicit, short, hand-maintained
+  list of `{symbol, lot_size}` — `commodity_engine.py` reuses
+  `opening_range_scanner.scan_symbols_accurate()` (factored out specifically
+  so equities and MCX share this logic instead of duplicating it) directly
+  against that list.
+- **`symbol` values roll monthly/bi-monthly** — e.g. a `...DECFUT` symbol is
+  only valid for one expiry cycle — update this list yourself before each
+  contract rolls.
+- **`lot_size` values shipped in `config.py` are illustrative placeholders**
+  (approximate, commonly-cited MCX contract sizes) — VERIFY every one
+  against MCX's current contract specifications before trusting them for
+  real position sizing; MCX revises lot sizes too, and a wrong lot size
+  here directly mis-sizes every order for that commodity.
+- **MCX's session runs well past NSE's** (`config.MCX_MARKET_OPEN_TIME` /
+  `MCX_MARKET_CLOSE_TIME`, currently placeholder-set to 09:00–23:30 IST) —
+  verify current timings on MCX's own site/circulars, they are not fixed.
+
+Position sizing: `config.MCX_CAPITAL` split equally across whatever actually
+makes today's shortlist (see "Capital-based position sizing" above), each
+tracker's `lot_size` taken from `config.MCX_COMMODITY_UNIVERSE`. Scheduling:
+`job_mcx_commodity_scan()` runs at `config.MCX_OPENING_RANGE_SCAN_TIME`
+(mirrors the equity opening-range job, just later in the day); squares off
+separately, much later, at `config.MCX_SQUARE_OFF_TIME` via its own
+`job_mcx_square_off_and_report()` job — `job_check_signals()`'s own cron
+range widens automatically to cover MCX's later close whenever
+`ENABLE_MCX_COMMODITY_TRADING` is `True` (see `main()` in `main.py`).
+
+Trade books for options and MCX are saved to their own CSVs
+(`trade_book_YYYYMMDD_options.csv` / `..._mcx.csv`), separate from the
+equity trade book, so P&L across the three markets is never conflated.
 
 ## Backtesting
 
@@ -675,18 +809,28 @@ two for a full universe), but it's the only way to get correct numbers once
 ## Before you go live
 
 1. **Paper-trade first**, for at least a few weeks across different market
-   regimes, and sanity-check every logged BUY/EXIT against a chart.
+   regimes, and sanity-check every logged BUY/EXIT (and its logged `qty=`)
+   against a chart.
 2. **Add risk controls** the current scaffold intentionally leaves out:
    a hard stop-loss per trade, a max position size, a max number of
    concurrent positions, and a daily loss limit that halts new entries.
+   Capital-based sizing (see "Capital-based position sizing" above) bounds
+   how much any ONE trade can spend, but does NOT cap your total realised
+   loss across a bad day the way a daily loss limit would.
 3. **Check the current SEBI/exchange rules for API-based retail algo
    trading** before placing live orders through the API — brokers,
    including Fyers, have been rolling out requirements (such as
    registering a unique algo/strategy ID) for API-driven order placement.
    Confirm the current requirements directly with Fyers before flipping
    `config.DRY_RUN = False`.
-4. Only then wire `signal_engine.py`'s BUY/EXIT branches to
-   `fyers.place_order(...)`, starting with tiny size.
+4. **`fyers_service.FyersDataService.place_order()` is a real, live order
+   call** once `config.DRY_RUN = False` — there is no separate "wire it up"
+   step left to do. Start with a tiny `TRADING_CAPITAL` (and leave
+   `ENABLE_NIFTY_OPTIONS_TRADING`/`ENABLE_MCX_COMMODITY_TRADING` off) the
+   first time you flip `DRY_RUN`, and watch the logs closely.
+5. If you do enable options or MCX, re-read those two sections above in
+   full first — both depend on data (a current F&O symbol master, current
+   MCX lot sizes/contract symbols) this repo cannot keep current for you.
 
 ## "Which AI should I use to build/customize this agent?"
 

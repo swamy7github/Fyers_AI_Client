@@ -81,11 +81,13 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, timedelta
+from typing import Optional
 
 import pandas as pd
 import pytz, sys 
 
 import config
+from bootstrap import decide_direction_for_date
 from fyers_service import FyersDataService
 from opening_range_scanner import load_universe
 from sector_scanner import load_sector_map
@@ -260,7 +262,10 @@ def _run_backtest_for_date(data_service: FyersDataService, target_date: date, sy
                             sector_daily_by_symbol: Optional[dict] = None) -> dict:
     sector_leaderboard = _compute_historical_sector_leaderboard(sector_daily_by_symbol or {}, sector_map, target_date, tz)
     if not sector_leaderboard.empty:
-        top3 = sector_leaderboard.head(3)[["index_name", "pct_change"]].to_dict("records")
+        if direction == TradeDirection.LONG:
+            top3 = sector_leaderboard.head(5)[["index_name", "pct_change"]].to_dict("records")
+        else:
+            top3 = sector_leaderboard.tail(5)[["index_name", "pct_change"]].to_dict("records")
         logger.info("%s: sector leaderboard (top 3) -> %s", target_date, top3)
 
     shortlist = _build_shortlist_for_date(symbols, intraday_by_symbol, daily_by_symbol, target_date, tz, direction)
@@ -338,8 +343,16 @@ def run_backtest(data_service: FyersDataService, start_date: date, end_date: dat
         exit()
     
     leaderboard = get_sector_leaderboard(snapshot)
-    logger.info(f" leader board {leaderboard.head(5)}")
-    symbols = load_universe(leaderboard.head(5))
+    
+    if direction == TradeDirection.LONG:
+        logger.info("Backtesting %s strategy from %s to %s.", direction.value, start_date, end_date)
+        logger.info(f" leader board {leaderboard.head(5)}")
+        symbols = load_universe(leaderboard.head(5))
+    elif direction == TradeDirection.SHORT:
+        logger.info("Backtesting %s strategy from %s to %s.", direction.value, start_date, end_date)
+        logger.info(f" leader board {leaderboard.tail(5)}")
+        symbols = load_universe(leaderboard.tail(5))
+    
     trading_days = trading_days_between(start_date, end_date)
     if not trading_days:
         logger.warning("No weekdays in the requested range (%s to %s).", start_date, end_date)

@@ -1,10 +1,16 @@
 """
 test_live_tick_stream.py
 ----------------------------
-Tests for live_tick_stream.py's _handle_tick() routing logic and start()'s
-safe no-socket test path (on_tick_override). Doesn't touch a real WebSocket
-or fyers_apiv3.FyersWebsocket at all - that import only happens inside
-start() when on_tick_override is None, which none of these tests trigger.
+Tests for live_tick_stream.py's _handle_tick() message-validation logic and
+start()'s safe no-socket test path (on_tick_override). Doesn't touch a real
+WebSocket or fyers_apiv3.FyersWebsocket at all - that import only happens
+inside start() when on_tick_override is None, which none of these tests
+trigger.
+
+_handle_tick() is currently a no-op placeholder (tick-level risk management
+was removed - see live_tick_stream.py's module docstring), so these tests
+only confirm it validates message shape and never raises, for a tracked or
+untracked symbol, well-formed or malformed messages alike.
 
 Run with:
     python test_live_tick_stream.py
@@ -18,70 +24,46 @@ from live_tick_stream import LiveTickStream
 
 
 class FakeEngine:
-    """Only implements what LiveTickStream actually touches: .trackers and .check_tick_for_exit()."""
+    """Only implements what LiveTickStream actually touches: .trackers."""
 
     def __init__(self, symbols):
         self.trackers = {s: object() for s in symbols}
-        self.calls: list[tuple] = []
-        self.raise_on_call = False
-
-    def check_tick_for_exit(self, symbol, ltp, now_str):
-        if self.raise_on_call:
-            raise RuntimeError("simulated failure inside check_tick_for_exit")
-        self.calls.append((symbol, ltp, now_str))
-        return None
 
 
 class TestHandleTick(unittest.TestCase):
-    def test_valid_tick_for_tracked_symbol_calls_check_tick_for_exit(self):
+    """_handle_tick() has nothing left to call on the engine - these just confirm it
+    never raises, for every combination of tracked/untracked symbol and well-formed/
+    malformed message."""
+
+    def test_valid_tick_for_tracked_symbol_does_not_raise(self):
         engine = FakeEngine(["NSE:TEST-EQ"])
         stream = LiveTickStream(access_token="fake", engine=engine, on_tick_override=lambda m: None)
-        stream._handle_tick({"symbol": "NSE:TEST-EQ", "ltp": 101.5})
-        self.assertEqual(len(engine.calls), 1)
-        symbol, ltp, now_str = engine.calls[0]
-        self.assertEqual(symbol, "NSE:TEST-EQ")
-        self.assertEqual(ltp, 101.5)
-        self.assertIsInstance(now_str, str)
+        stream._handle_tick({"symbol": "NSE:TEST-EQ", "ltp": 101.5})  # should not raise
 
-    def test_ltp_is_coerced_to_float(self):
+    def test_ltp_as_a_string_does_not_raise(self):
         engine = FakeEngine(["NSE:TEST-EQ"])
         stream = LiveTickStream(access_token="fake", engine=engine, on_tick_override=lambda m: None)
         stream._handle_tick({"symbol": "NSE:TEST-EQ", "ltp": "101.5"})  # string, as some feeds send it
-        self.assertEqual(engine.calls[0][1], 101.5)
-        self.assertIsInstance(engine.calls[0][1], float)
 
     def test_untracked_symbol_is_silently_ignored(self):
         engine = FakeEngine(["NSE:TEST-EQ"])
         stream = LiveTickStream(access_token="fake", engine=engine, on_tick_override=lambda m: None)
-        stream._handle_tick({"symbol": "NSE:OTHER-EQ", "ltp": 50.0})
-        self.assertEqual(engine.calls, [])
+        stream._handle_tick({"symbol": "NSE:OTHER-EQ", "ltp": 50.0})  # should not raise
 
-    def test_missing_symbol_field_does_not_crash_or_call_engine(self):
+    def test_missing_symbol_field_does_not_crash(self):
         engine = FakeEngine(["NSE:TEST-EQ"])
         stream = LiveTickStream(access_token="fake", engine=engine, on_tick_override=lambda m: None)
         stream._handle_tick({"ltp": 101.5})  # no 'symbol' key
-        self.assertEqual(engine.calls, [])
 
-    def test_missing_ltp_field_does_not_crash_or_call_engine(self):
+    def test_missing_ltp_field_does_not_crash(self):
         engine = FakeEngine(["NSE:TEST-EQ"])
         stream = LiveTickStream(access_token="fake", engine=engine, on_tick_override=lambda m: None)
         stream._handle_tick({"symbol": "NSE:TEST-EQ"})  # no 'ltp' key
-        self.assertEqual(engine.calls, [])
 
     def test_empty_message_does_not_crash(self):
         engine = FakeEngine(["NSE:TEST-EQ"])
         stream = LiveTickStream(access_token="fake", engine=engine, on_tick_override=lambda m: None)
         stream._handle_tick({})
-        self.assertEqual(engine.calls, [])
-
-    def test_exception_inside_check_tick_for_exit_is_caught_not_propagated(self):
-        engine = FakeEngine(["NSE:TEST-EQ"])
-        engine.raise_on_call = True
-        stream = LiveTickStream(access_token="fake", engine=engine, on_tick_override=lambda m: None)
-        try:
-            stream._handle_tick({"symbol": "NSE:TEST-EQ", "ltp": 100.0})
-        except Exception:
-            self.fail("_handle_tick should catch exceptions from check_tick_for_exit, not propagate them")
 
 
 class TestStart(unittest.TestCase):

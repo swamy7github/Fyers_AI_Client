@@ -1,9 +1,9 @@
 # NSE Master Breakout Engine - Configuration
 
 fyers:
-  client_id: "MOCK_CLIENT_ID"
-  access_token: "MOCK_ACCESS_TOKEN"
-  use_mock: true  # Set to false when live FYERS API credentials are provided
+  client_id: "YFLRWVHU2G"  # Replace with your actual FYERS client ID
+  access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOlsiZDoxIiwiZDoyIiwieDowIiwieDoxIl0sImF0X2hhc2giOiJnQUFBQUFCcXd4R19FZ1Jua1JNdWdOcTlTRC0tZE5Xb2VHZzE5bzNUMmhtUlFheVh3TlBmeVkzcXpOOW5hRjUydHpXZGJLZXltNGFMeWV2cjRiSGI4UFVJb0QxMEpjX3VkQmJzSVdxcUlBMERTYmJPRGE0bWtLZz0iLCJkaXNwbGF5X25hbWUiOiIiLCJvbXMiOiJLMSIsImhzbV9rZXkiOiI5MmE2ZWEyODkzNTdjZGQwYjBiMzAyNDBjMGIwNzRiNTMyZDcyODQ0ZDUxYWVlODE1NzAzODNiMSIsImlzRGRwaUVuYWJsZWQiOiJZIiwiaXNNdGZFbmFibGVkIjoiWSIsImZ5X2lkIjoiWVkwMTQ3OSIsImFwcFR5cGUiOjEwMCwiZXhwIjoxNzkxMjQ2NjAwLCJpYXQiOjE3OTExNjg5NTksImlzcyI6ImFwaS5meWVycy5pbiIsIm5iZiI6MTc5MTE2ODk1OSwic3ViIjoiYWNjZXNzX3Rva2VuIn0.kdqJ_7lacv9FtitD6tmcCSQylMucK2vzQr0p550_gcM"
+  use_mock: false  # Set to false when live FYERS API credentials are provided
 
 timeframe:
   primary: "DAILY"                  # Daily bars for base pattern screening

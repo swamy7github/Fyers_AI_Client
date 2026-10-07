@@ -255,9 +255,9 @@ class FyersDataService:
                 logger.error("Fyers API call failed (attempt %d/%d): %s",
                              attempt, config.API_MAX_RETRIES, exc)
                 if _looks_like_rate_limit_error(getattr(exc, "response", {})):
-                    logger.warning("Fyers API call failed due to rate limit - will retry with exponential backoff.")
+                    logger.warning(f"Fyers API call failed due to rate limit - will retry with exponential backoff.\n kwargs = {kwargs}")
                 elif "invalid symbol" in str(exc).lower():
-                    logger.warning("Fyers API call failed due to invalid symbol - will not retry.")
+                    logger.warning(f"Fyers API call failed due to invalid symbol - will not retry.\n kwargs = {kwargs}")
                     return {}  # caller should handle empty response gracefully
                 logger.info(f" kwargs = {kwargs}")
                 time.sleep(config.API_RETRY_BACKOFF_SECONDS * attempt)
@@ -332,6 +332,61 @@ class FyersDataService:
             logger.info("Fetched %d %s-resolution candle(s) for %s (%s to %s).",
                         len(candles), resolution, symbol, range_from_date, range_to_date)
             return candles
+
+
+
+    def place_order(self, symbol: str, qty: int, side: str, product_type: str = "INTRADAY",
+                     order_tag: str = "orb_agent") -> dict:
+        """
+        Places a REAL market order at the broker. This is the ONLY place in
+        the codebase that actually sends an order to Fyers - everywhere else
+        (signal_engine.SignalEngine._maybe_place_live_order) gates on
+        config.DRY_RUN before ever reaching here, so this method itself
+        doesn't know or care about DRY_RUN: if it's called, an order is
+        placed, full stop.
+
+        side: "BUY" or "SELL" (case-insensitive) - translated to Fyers' own
+        +1/-1 `side` convention internally so callers never have to
+        remember that encoding.
+
+        Always a MARKET order (type=2) with DAY validity - this agent's
+        entries/exits are all decided from a just-closed 5-min candle, so a
+        limit order sitting unfilled while price moves on would silently
+        break the "acted on the candle that justified it" guarantee the
+        rest of this codebase works hard to keep (see signal_engine.py's
+        module docstring on is_backfill). product_type defaults to
+        "INTRADAY" (MIS-style same-day margin/auto-square-off at the
+        exchange level), matching this agent's own EOD square-off job -
+        change it only if you specifically want CNC/NRML instead and
+        understand the margin implications of doing so.
+
+        Raises ValueError without calling the broker at all for a
+        non-positive qty - a silent 0-qty order is never useful and some
+        broker APIs will happily "succeed" at doing nothing, which is worse
+        than a loud local failure.
+        """
+        if qty <= 0:
+            raise ValueError(f"place_order called with non-positive qty={qty} for {symbol} - refusing "
+                              f"to call the broker.")
+        side_code = 1 if side.strip().upper() == "BUY" else -1
+        data = {
+            "symbol": symbol,
+            "qty": int(qty),
+            "type": 2,          # 2 = MARKET order
+            "side": side_code,  # 1 = BUY, -1 = SELL
+            "productType": product_type,
+            "limitPrice": 0,
+            "stopPrice": 0,
+            "validity": "DAY",
+            "disclosedQty": 0,
+            "offlineOrder": False,
+            "orderTag": order_tag,
+        }
+        response = self._call_with_retry(self.client.place_order, data=data)
+        order_id = response.get("id") if isinstance(response, dict) else None
+        logger.warning("LIVE ORDER PLACED: %s qty=%d %s (productType=%s) -> broker order id=%s | raw=%s",
+                        side, qty, symbol, product_type, order_id, response)
+        return response
 
     def get_previous_close(self, symbol: str) -> float | None:
         """Fetches the previous trading day's daily close, used for gain% calculations."""

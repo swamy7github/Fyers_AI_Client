@@ -1,9 +1,20 @@
+import sys
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import logging
+from pathlib import Path
 
+# 1. Dynamically parse the parent path ('C:\NS\Fyers_AI_Client')
+# This gets the folder containing the current script and looks one level up
+project_root = Path(__file__).resolve().parent.parent.parent.parent
+
+# 2. Add 'C:\NS\Fyers_AI_Client' to Python's search path
+if str(project_root) not in sys.path:
+    sys.path.append(str(project_root))
+    
 logger = logging.getLogger("fyers_client")
+
 
 class FyersDataClient:
     """
@@ -20,12 +31,14 @@ class FyersDataClient:
         if not self.use_mock:
             try:
                 from fyers_apiv3 import fyersModel
-                self.fyers_instance = fyersModel.FyersModel(
-                    client_id=self.client_id,
-                    is_async=False,
-                    token=self.access_token,
-                    log_path=""
-                )
+                from fyers_auto_login_v2 import APP_ID, get_fyers_session_handle
+
+                fyers = get_fyers_session_handle()
+                if not fyers:
+                    logger.error(f"Failed to get fyers token and authenticate for the APP {APP_ID}")
+                    return
+                
+                self.fyers_instance = fyers
                 logger.info("FYERS API client initialized successfully.")
             except Exception as e:
                 logger.warning(f"Could not initialize FYERS API client ({e}). Falling back to Mock mode.")
@@ -198,7 +211,7 @@ class FyersDataClient:
         return df
 
 
-def get_historical_data(symbol: str, resolution: str = "D", start_date: str = "2023-01-01", end_date: str = "2026-09-30") -> pd.DataFrame:
+def get_historical_data(symbol: str, resolution: str = "D", start_date: str = "2025-09-01", end_date: str = "2026-09-30") -> pd.DataFrame:
     """Standalone wrapper function matching FYERS module convention."""
     client = FyersDataClient(use_mock=True)
     return client.get_historical_data(symbol, resolution, start_date, end_date)

@@ -1,0 +1,5 @@
+symbol,entry_type,direction,entry_time,entry_price,exit_time,exit_price,points,pnl_pct,is_backfill,exit_is_backfill
+NSE:CREDITACC-EQ,INITIAL,LONG,09:30:02,1282.6,10:06:13,1270.7,-11.9,-0.93,False,False
+NSE:NIACL-EQ,INITIAL,LONG,09:35:02,163.2,09:36:40,161.55,-1.65,-1.01,False,False
+NSE:GROWW-EQ,INITIAL,LONG,12:05:02,193.7,14:40:18,192.54,-1.16,-0.6,False,False
+NSE:GROWW-EQ,INITIAL,LONG,14:55:02,193.65,15:10:30,193.15,-0.5,-0.26,False,False

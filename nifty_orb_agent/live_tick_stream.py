@@ -1,11 +1,23 @@
 """
 live_tick_stream.py
 ----------------------
-Thin wrapper around Fyers' WebSocket tick feed (fyers_apiv3.FyersWebsocket.data_ws),
-routing every incoming tick for a tracked symbol into
-SignalEngine.check_tick_for_exit() - fast, tick-level stop-loss/target/
-trailing-SL management, separate from and quicker to react than the 5-min-
-candle-close weakness-event checks in signal_engine.py.
+Thin wrapper around Fyers' WebSocket tick feed (fyers_apiv3.FyersWebsocket.data_ws).
+
+NOT CURRENTLY USED by main.py. This module originally routed every incoming
+tick into SignalEngine.check_tick_for_exit() for fast, tick-level stop-loss/
+target/trailing-SL management. That tick-level risk management has been
+removed - stop-loss is now purely candle/VWAP-driven (see signal_engine.py's
+module docstring): the ONLY way a position closes before EOD is 2
+consecutive 5-min candles confirming the move against it, checked by
+main.py's job_check_signals every CANDLE_INTERVAL_MINUTES, not by anything
+tick-based. With no consumer left for tick data, main.py no longer
+constructs or starts a LiveTickStream.
+
+This class is kept, fully working and fully testable (via on_tick_override,
+see below), in case you want to wire ticks to something else later - e.g.
+a live LTP/unrealized-P&L display, or feeding a future, deliberately
+reintroduced tick-level check. _handle_tick() below is currently a no-op
+placeholder for that reason.
 
 Verify against your installed fyers_apiv3 version before relying on this:
 the WebSocket class name, callback signatures, and tick message field names
@@ -39,7 +51,8 @@ class LiveTickStream:
     Wraps the Fyers WebSocket connection. Construct with an already-caught-up
     SignalEngine (see bootstrap.bootstrap_and_catchup()) and call start()
     once - every tick for a symbol the engine is tracking is routed to
-    check_tick_for_exit() automatically.
+    _handle_tick(), currently a no-op placeholder (see module docstring -
+    tick-level exits were removed; risk management is candle-only now).
 
     Testable without a real socket: pass on_tick_override to bypass the
     actual WebSocket entirely (start() then just logs and returns), and
@@ -55,6 +68,14 @@ class LiveTickStream:
         self._socket = None
 
     def _handle_tick(self, message: dict) -> None:
+        """
+        Currently a no-op placeholder: validates the message shape and
+        drops anything for a symbol this engine isn't tracking, then
+        returns. There is no tick-level exit to call any more - see the
+        module docstring. Kept as the integration point for whatever a
+        future tick consumer turns out to be (live LTP display, etc.) so
+        that work is a one-line addition here, not new wiring in main.py.
+        """
         symbol = message.get("symbol")
         ltp = message.get("ltp")
         if symbol is None or ltp is None:
@@ -65,10 +86,8 @@ class LiveTickStream:
         if symbol not in self.engine.trackers:
             return  # not one of today's tracked symbols - normal/expected, not an error
         now_str = datetime.now(self._tz).strftime("%H:%M:%S")
-        try:
-            self.engine.check_tick_for_exit(symbol, float(ltp), now_str)
-        except Exception as exc:
-            logger.error("check_tick_for_exit failed for %s @ %s: %s", symbol, ltp, exc)
+        logger.debug("Tick received for %s @ %.2f (%s) - no-op, risk management is candle-only now.",
+                     symbol, float(ltp), now_str)
 
     def start(self) -> None:
         symbols = list(self.engine.trackers.keys())

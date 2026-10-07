@@ -268,7 +268,6 @@ class TestReconcileBrokerState(unittest.TestCase):
         tracker = engine.trackers["NSE:TEST-EQ"]
         tracker.position_open = True
         tracker.entry_price_for_risk = 100.0
-        tracker.highest_price_since_entry = 105.0
         tracker.weakness_events_on_position = 1
 
         provider = FakePositionsDataService(positions=[])  # broker reports nothing open
@@ -276,7 +275,6 @@ class TestReconcileBrokerState(unittest.TestCase):
 
         self.assertFalse(tracker.position_open)
         self.assertIsNone(tracker.entry_price_for_risk)
-        self.assertIsNone(tracker.highest_price_since_entry)
         self.assertEqual(tracker.weakness_events_on_position, 0)
 
     def test_agreement_between_replay_and_broker_leaves_state_untouched(self):
@@ -284,7 +282,6 @@ class TestReconcileBrokerState(unittest.TestCase):
         tracker = engine.trackers["NSE:TEST-EQ"]
         tracker.position_open = True
         tracker.entry_price_for_risk = 100.0
-        tracker.highest_price_since_entry = 100.0
 
         provider = FakePositionsDataService(positions=[
             {"symbol": "NSE:TEST-EQ", "netQty": 10, "netAvg": 99.5},  # slightly different avg - still "confirmed"

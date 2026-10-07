@@ -44,6 +44,16 @@ single engine never trades both directions at once.
   EOD  - any position still open at SQUARE_OFF_TIME (15:10:30) is closed at
          the last traded price, so nothing is left open overnight.
 
+The WEAKNESS EVENT detector and EOD square-off are the ONLY two ways a
+position closes - there is no separate tick-level stop-loss, target, or
+trailing-stop. Stop-loss is purely dynamic/candle-driven: a position (LONG
+or SHORT) only closes once 2 consecutive 5-min candles confirm the move
+against it, exactly like entry requires 2 consecutive candles to confirm
+the move in its favor. (Earlier revisions also had a fixed-%, tick-by-tick
+stop-loss/target/trailing-SL in check_tick_for_exit, fed by a live
+WebSocket in live_tick_stream.py - that has been removed; see this
+module's git history or README for why.)
+
 All trades are PAPER trades recorded in a TradeBook; nothing is sent to the
 broker unless you explicitly wire up order placement (see README) and set
 config.DRY_RUN = False.
@@ -61,6 +71,7 @@ import pandas as pd
 import pytz
 
 import config
+import position_sizing
 from fyers_service import FyersDataService
 from trade_direction import TradeDirection
 
@@ -88,10 +99,31 @@ class StockTracker:
     consecutive_weak: int = 0
     weakness_events_on_position: int = 0  # how many confirmed weakness events since the last flat state
 
-    # -- tick-level risk management (see check_tick_for_exit) --
-    entry_price_for_risk: Optional[float] = None       # the INITIAL entry price SL/target/trailing-SL are computed off
-    highest_price_since_entry: Optional[float] = None  # LONG trailing-SL reference; ratchets up, never down
-    lowest_price_since_entry: Optional[float] = None   # SHORT trailing-SL reference; ratchets down, never up
+    # -- entry price bookkeeping --
+    # The INITIAL entry price for the currently open position. There is no tick-level
+    # stop-loss/target/trailing-SL any more (see the module docstring) - the ONLY way a
+    # position closes before EOD is the candle-level weakness detector above - but this is
+    # still recorded for broker reconciliation (adopt_broker_position) and general bookkeeping.
+    entry_price_for_risk: Optional[float] = None
+
+    # -- capital-based position sizing (see position_sizing.py) --
+    # lot_size: 1 for an NSE equity (any whole share is its own "lot"); >1 for an
+    # options contract or commodity future, which only transacts in fixed lot multiples
+    # (options_engine.py / commodity_engine.py set this explicitly per tracker when they
+    # build a non-equity SignalEngine - the default of 1 here is correct for plain equities
+    # and is what every existing equity call site gets unchanged).
+    lot_size: int = 1
+    # capital_allocated: rupees this ONE tracker is allowed to spend per BUY/SELL (an
+    # entry, or any later ADD - see _check_weakness_and_act) - defaults to the equity
+    # per-slot share of config.TRADING_CAPITAL, but options_engine.py/commodity_engine.py
+    # override it per tracker with their own dedicated capital bucket
+    # (config.NIFTY_OPTIONS_CAPITAL / config.MCX_CAPITAL).
+    capital_allocated: float = field(default_factory=lambda: config.CAPITAL_PER_TRADE)
+    # total_qty_open: running total of shares/units currently held for this position
+    # (initial entry + every ADD since), so an exit (weakness stop-loss or EOD square-off)
+    # closes the EXACT quantity that was actually bought, not a guess. Reset to 0 once the
+    # position is fully closed.
+    total_qty_open: int = 0
 
     def vwap(self) -> float:
         return self.cum_pv / self.cum_vol if self.cum_vol else 0.0
@@ -146,25 +178,32 @@ def seed_volume_windows_from_candles(trackers: dict[str, StockTracker], candles_
 
 class TradeBook:
     """
-    Records every entry/exit and derives points captured (profit/loss) and
-    P&L%, direction-aware: for a SHORT, profit is entry-minus-exit (you sell
-    first, buy back later), the mirror image of a LONG's exit-minus-entry.
-    Each entry (the original, or a later add-on) is its own row, tagged via
-    `entry_type` ("INITIAL" or "ADD") so the position-sizing history stays
-    visible in the printed trade book. A square-off closes every still-open
-    row for that symbol at the same exit price/time, since the whole
-    position (initial + adds) always exits together.
+    Records every entry/exit and derives points captured (profit/loss),
+    P&L%, and now (with capital-based sizing - see position_sizing.py) a
+    rupee P&L amount too, direction-aware: for a SHORT, profit is
+    entry-minus-exit (you sell first, buy back later), the mirror image of
+    a LONG's exit-minus-entry. Each entry (the original, or a later add-on)
+    is its own row, tagged via `entry_type` ("INITIAL" or "ADD") so the
+    position-sizing history stays visible in the printed trade book, and
+    now carries its own `qty` (how many shares/lots THAT row bought) so
+    pnl_amount can be computed per-row even when an ADD's size differs from
+    the INITIAL entry's. A square-off closes every still-open row for that
+    symbol at the same exit price/time, since the whole position (initial +
+    adds) always exits together - pnl_amount is still computed per-row
+    using THAT row's own qty, then summed in summary().
     """
 
     def __init__(self):
         self.trades: list[dict] = []
 
     def record_entry(self, symbol: str, entry_time: str, entry_price: float, entry_type: str = "INITIAL",
-                      is_backfill: bool = False, direction: TradeDirection = TradeDirection.LONG):
+                      is_backfill: bool = False, direction: TradeDirection = TradeDirection.LONG,
+                      qty: int = 0):
         self.trades.append({
             "symbol": symbol, "entry_type": entry_type, "direction": direction.value,
-            "entry_time": entry_time, "entry_price": entry_price,
+            "entry_time": entry_time, "entry_price": entry_price, "qty": qty,
             "exit_time": None, "exit_price": None, "points": None, "pnl_pct": None,
+            "pnl_amount": None,
             # is_backfill marks an entry the engine reconstructed from historical replay
             # (or seeded from the broker's own reported state) rather than detected live.
             # This is the flag SignalEngine._maybe_place_live_order() checks before ever
@@ -187,6 +226,7 @@ class TradeBook:
                 else:
                     trade["points"] = round(exit_price - trade["entry_price"], 2)
                     trade["pnl_pct"] = round((exit_price - trade["entry_price"]) / trade["entry_price"] * 100, 2)
+                trade["pnl_amount"] = round(trade["points"] * (trade.get("qty") or 0), 2)
                 trade["exit_is_backfill"] = exit_is_backfill
                 closed_count += 1
         return closed_count
@@ -200,6 +240,7 @@ class TradeBook:
         return {
             "total_trades": int(len(closed)),
             "total_points": round(float(closed["points"].sum()), 2) if not closed.empty else 0.0,
+            "total_pnl_amount": round(float(closed["pnl_amount"].sum()), 2) if not closed.empty else 0.0,
             "win_rate_pct": round(float((closed["points"] > 0).mean() * 100), 2) if not closed.empty else 0.0,
         }
 
@@ -289,22 +330,29 @@ class SignalEngine:
         tracker.consecutive_qualifying = tracker.consecutive_qualifying + 1 if qualifies else 0
 
         if tracker.consecutive_qualifying >= config.CONSECUTIVE_CANDLES_FOR_BUY:
+            qty = self._size_order(tracker, c)
+            if qty == 0:
+                logger.warning("Entry signal for %s @ %.2f fired, but capital_allocated=%.2f (lot_size=%d) "
+                                "can't afford even one lot - SKIPPING this entry entirely (not placing an "
+                                "order, not opening a tracked position).",
+                                tracker.symbol, c, tracker.capital_allocated, tracker.lot_size)
+                tracker.consecutive_qualifying = 0
+                return
             tracker.position_open = True
             tracker.weakness_events_on_position = 0
             tracker.consecutive_weak = 0
             tracker.entry_price_for_risk = c
-            tracker.highest_price_since_entry = c
-            tracker.lowest_price_since_entry = c
+            tracker.total_qty_open = qty
             self.trade_book.record_entry(tracker.symbol, now_str, c, entry_type="INITIAL",
-                                          is_backfill=is_backfill, direction=tracker.direction)
+                                          is_backfill=is_backfill, direction=tracker.direction, qty=qty)
             if tracker.direction == TradeDirection.LONG:
-                logger.info("BUY   %s @ %.2f (2 consecutive candles above OR high %.2f, VWAP & volume MA)%s",
-                             tracker.symbol, c, tracker.or_high, " [BACKFILL]" if is_backfill else "")
-                self._maybe_place_live_order(tracker, "BUY", c, is_backfill, now_str)
+                logger.info("BUY   %s qty=%d @ %.2f (2 consecutive candles above OR high %.2f, VWAP & volume MA)%s",
+                             tracker.symbol, qty, c, tracker.or_high, " [BACKFILL]" if is_backfill else "")
+                self._maybe_place_live_order(tracker, "BUY", c, is_backfill, now_str, qty)
             else:
-                logger.info("SHORT %s @ %.2f (2 consecutive candles below OR low %.2f, VWAP & volume MA)%s",
-                             tracker.symbol, c, tracker.or_low, " [BACKFILL]" if is_backfill else "")
-                self._maybe_place_live_order(tracker, "SELL (SHORT)", c, is_backfill, now_str)
+                logger.info("SHORT %s qty=%d @ %.2f (2 consecutive candles below OR low %.2f, VWAP & volume MA)%s",
+                             tracker.symbol, qty, c, tracker.or_low, " [BACKFILL]" if is_backfill else "")
+                self._maybe_place_live_order(tracker, "SELL (SHORT)", c, is_backfill, now_str, qty)
             tracker.consecutive_qualifying = 0  # reset so it doesn't immediately re-fire
 
     def _check_weakness_and_act(self, tracker: StockTracker, c: float, vwap: float, v: float,
@@ -339,37 +387,64 @@ class SignalEngine:
         if tracker.weakness_events_on_position <= config.MAX_POSITION_ADDS:
             # First (or Nth, up to MAX_POSITION_ADDS) weakness event on this position,
             # and no square-off has happened yet -> add to the position instead of exiting.
+            add_qty = self._size_order(tracker, c)
+            if add_qty == 0:
+                logger.warning("Weakness-ADD signal for %s @ %.2f fired, but capital_allocated=%.2f "
+                                "(lot_size=%d) can't afford another lot - SKIPPING the add (position "
+                                "stays open at its current size; this does NOT count as a square-off).",
+                                tracker.symbol, c, tracker.capital_allocated, tracker.lot_size)
+                return
+            tracker.total_qty_open += add_qty
             self.trade_book.record_entry(tracker.symbol, now_str, c, entry_type="ADD",
-                                          is_backfill=is_backfill, direction=tracker.direction)
+                                          is_backfill=is_backfill, direction=tracker.direction, qty=add_qty)
             logger.info(
-                "ADD   %s @ %.2f (weakness event #%d: 2 consecutive candles %s VWAP %.2f "
+                "ADD   %s qty=%d @ %.2f (weakness event #%d: 2 consecutive candles %s VWAP %.2f "
                 "with volume > 20-period volume MA(%d) - adding to position, not exiting)%s",
-                tracker.symbol, c, tracker.weakness_events_on_position, vs_vwap, vwap,
+                tracker.symbol, add_qty, c, tracker.weakness_events_on_position, vs_vwap, vwap,
                 config.VOLUME_MA_PERIOD, " [BACKFILL]" if is_backfill else "",
             )
-            self._maybe_place_live_order(tracker, add_side, c, is_backfill, now_str)
+            self._maybe_place_live_order(tracker, add_side, c, is_backfill, now_str, add_qty)
         else:
             # A further weakness event after we've already added -> full stop-loss.
+            exit_qty = tracker.total_qty_open
             closed_count = self.trade_book.close_all_open(tracker.symbol, now_str, c, exit_is_backfill=is_backfill)
             logger.info(
-                "STOP-LOSS / SQUARE OFF %s @ %.2f (weakness event #%d: closing all %d open "
+                "STOP-LOSS / SQUARE OFF %s qty=%d @ %.2f (weakness event #%d: closing all %d open "
                 "row(s) for this position - close %s VWAP %.2f, vol > 20-period volume MA(%d) "
                 "on both confirming candles)%s",
-                tracker.symbol, c, tracker.weakness_events_on_position, closed_count, vs_vwap, vwap,
+                tracker.symbol, exit_qty, c, tracker.weakness_events_on_position, closed_count, vs_vwap, vwap,
                 config.VOLUME_MA_PERIOD, " [BACKFILL]" if is_backfill else "",
             )
-            self._maybe_place_live_order(tracker, exit_side, c, is_backfill, now_str)
+            self._maybe_place_live_order(tracker, exit_side, c, is_backfill, now_str, exit_qty)
             tracker.position_open = False
             tracker.weakness_events_on_position = 0
             tracker.entry_price_for_risk = None
-            tracker.highest_price_since_entry = None
-            tracker.lowest_price_since_entry = None
+            tracker.total_qty_open = 0
+
+    def _size_order(self, tracker: StockTracker, price: float) -> int:
+        """
+        Capital-based quantity for ONE order (an entry or an ADD) on `tracker`,
+        via position_sizing.calculate_quantity(tracker.capital_allocated, price,
+        tracker.lot_size) - see position_sizing.py for the rounding rule. Falls
+        back to config.DEFAULT_ORDER_QTY ONLY if that comes back 0 for a reason
+        OTHER than "capital can't afford a lot" (i.e. tracker.capital_allocated
+        itself is misconfigured as <= 0) - a genuine "can't afford one lot" 0 is
+        returned as-is so callers skip the trade instead of silently overspending.
+        """
+        qty = position_sizing.calculate_quantity(tracker.capital_allocated, price, tracker.lot_size)
+        if qty == 0 and tracker.capital_allocated <= 0:
+            logger.error("%s has no capital_allocated (%.2f) - falling back to "
+                          "config.DEFAULT_ORDER_QTY=%d. Fix capital_allocated instead of relying "
+                          "on this fallback.", tracker.symbol, tracker.capital_allocated,
+                          config.DEFAULT_ORDER_QTY)
+            return config.DEFAULT_ORDER_QTY
+        return qty
 
     def _maybe_place_live_order(self, tracker: StockTracker, side: str, price: float,
-                                 is_backfill: bool, now_str: str):
+                                 is_backfill: bool, now_str: str, qty: int):
         """
         Central gate for EVERY real order this engine could place - entries,
-        adds, and weakness/tick-level exits, for BOTH directions, all route
+        adds, and weakness-event exits, for BOTH directions, all route
         through here. Two independent, always-checked reasons this no-ops
         instead of touching the broker:
 
@@ -387,34 +462,39 @@ class SignalEngine:
 
         A broker-ADOPTED real position (see adopt_broker_position()) never
         calls this method for its entry at all - there's nothing to place,
-        the position already exists for real - but it DOES get full live
-        tick-level risk management (check_tick_for_exit) from the moment
-        it's adopted, and an exit for it routes through here exactly like
-        any other live exit (is_backfill=False), regardless of config.DRY_RUN,
-        because turning off risk management for real, already-open money
-        just because this process restarted would be actively dangerous.
+        the position already exists for real - but it IS managed by the
+        same candle-level weakness detector as any other open position from
+        the next candle check onward, and an exit for it routes through
+        here exactly like any other live exit (is_backfill=False),
+        regardless of config.DRY_RUN.
 
-        Wire your actual fyers.place_order(...) call in below once you've
-        paper-traded this gating logic and are ready to go live (README
-        "Before you go live"). `side` already encodes BUY vs SELL correctly
-        for both LONG and SHORT positions - this method itself has no
-        direction-specific logic, it's purely a gate.
+        `qty` is the caller's already-computed capital-based order size (see
+        _size_order) - this method itself has no sizing opinion, it's purely
+        a gate plus (once DRY_RUN=False) the actual broker call. `side`
+        already encodes BUY vs SELL correctly for both LONG and SHORT
+        positions; the raw side Fyers needs is just its first word (e.g.
+        "SELL (SHORT)" -> "SELL") - see fyers_service.FyersDataService.place_order.
         """
         if config.DRY_RUN:
             logger.info("[DRY_RUN] Would place %s order: %s qty=%d @ ~%.2f",
-                        side, tracker.symbol, config.DEFAULT_ORDER_QTY, price)
+                        side, tracker.symbol, qty, price)
             return
         if is_backfill:
             logger.info("[BACKFILL] Skipping live %s order for %s (signal reconstructed from "
                         "history at catch-up, not a live decision) - price has likely moved on.",
                         side, tracker.symbol)
             return
-        # TODO: replace this with a real fyers.place_order(...) call. Left as an explicit,
-        # loud placeholder rather than silently doing nothing, so DRY_RUN=False with no real
-        # order wired in yet is obvious in the logs immediately, not a silent no-op.
-        logger.warning("[LIVE ORDER PLACEHOLDER] Would place a REAL %s order for %s qty=%d @ ~%.2f "
-                       "here - wire up fyers.place_order() before this line does anything.",
-                       side, tracker.symbol, config.DEFAULT_ORDER_QTY, price)
+        raw_side = side.split()[0]  # "BUY" or "SELL" - every `side` string above starts with one of these
+        try:
+            self.data_service.place_order(tracker.symbol, qty, raw_side)
+        except Exception as exc:
+            # A failed broker call must not crash the whole candle-check loop (other symbols'
+            # signals still need evaluating) - it's logged loudly instead; the paper trade_book
+            # row above was already recorded either way, so what the engine INTENDED is never
+            # lost even if the broker leg itself failed and needs manual reconciliation.
+            logger.error("LIVE %s order for %s qty=%d @ ~%.2f FAILED: %s - this position may now "
+                         "be out of sync with the broker; check manually.",
+                         side, tracker.symbol, qty, price, exc)
 
     def adopt_broker_position(self, symbol: str, avg_price: float, qty: int, now_str: str) -> bool:
         """
@@ -436,14 +516,18 @@ class SignalEngine:
         vice versa - e.g. a manual trade, or yesterday's position that
         didn't get squared off), the tracker's direction is corrected to
         match reality, because managing a real position under the wrong
-        direction's risk logic (mirrored stop/target) would be actively
+        direction's mirrored weakness-event logic would be actively
         dangerous, not just inconsistent.
 
         Unlike a normal entry, this does NOT go through
         _maybe_place_live_order (there is nothing to place - the position
-        already exists) and it enables full live tick-level stop-loss /
-        target / trailing-SL management (check_tick_for_exit) immediately,
-        regardless of config.DRY_RUN - real money is already at risk.
+        already exists). From this point on it's managed exactly like any
+        other open position: the next candle check (job_check_signals,
+        every 5 minutes) runs the same weakness-event detector against it.
+        There is no faster, tick-level check any more - see the module
+        docstring - so a real, broker-adopted position's first protection
+        after being adopted is up to CANDLE_INTERVAL_MINUTES away, not
+        immediate. Know that trade-off before relying on this in production.
         """
         tracker = self.trackers.get(symbol)
         if tracker is None:
@@ -462,90 +546,16 @@ class SignalEngine:
 
         tracker.position_open = True
         tracker.entry_price_for_risk = avg_price
-        tracker.highest_price_since_entry = avg_price
-        tracker.lowest_price_since_entry = avg_price
         tracker.weakness_events_on_position = 0
         tracker.consecutive_weak = 0
+        tracker.total_qty_open = abs(qty)  # broker's own reported size, not a fresh capital-based calc
         self.trade_book.record_entry(symbol, now_str, avg_price, entry_type="BROKER_SYNC",
-                                      is_backfill=True, direction=tracker.direction)
-        logger.warning("ADOPTED real broker %s position: %s qty=%d avg_price=%.2f - now under full "
-                        "live risk management (stop-loss/target/trailing-SL) from this point forward.",
-                        tracker.direction.value, symbol, qty, avg_price)
+                                      is_backfill=True, direction=tracker.direction, qty=abs(qty))
+        logger.warning("ADOPTED real broker %s position: %s qty=%d avg_price=%.2f - now managed by "
+                        "the candle-level weakness detector from the next check onward (every %d "
+                        "min; no tick-level protection - see adopt_broker_position's docstring).",
+                        tracker.direction.value, symbol, qty, avg_price, config.CANDLE_INTERVAL_MINUTES)
         return True
-
-    def check_tick_for_exit(self, symbol: str, ltp: float, now_str: str) -> Optional[str]:
-        """
-        Fast, TICK-level stop-loss / target / trailing-SL check - distinct
-        from the 5-min-candle-close weakness-event exit above, and reacts
-        far sooner. Called by live_tick_stream.py on every incoming tick
-        for every symbol with an open position. Returns the exit reason
-        string ("STOP-LOSS", "TRAILING-SL", or "TARGET") if it acted, else
-        None. Always a live decision (is_backfill=False) - there's no
-        historical-replay equivalent of a live tick.
-
-        All three levels are computed as a % of entry_price_for_risk (the
-        INITIAL entry, not any later add-on price - see config.STOP_LOSS_PCT
-        / TARGET_PCT / TRAILING_SL_PCT), MIRRORED for a SHORT:
-
-          LONG:  stop BELOW entry, target ABOVE entry, trailing stop trails
-                 the HIGHEST price since entry (ratchets up only), exit if
-                 price falls to/below the (tightening) stop or rises
-                 to/above target.
-          SHORT: stop ABOVE entry, target BELOW entry, trailing stop trails
-                 the LOWEST price since entry (ratchets down only), exit if
-                 price rises to/above the (tightening) stop or falls
-                 to/below target.
-
-        One property worth knowing, confirmed by test rather than assumed:
-        on the tick that first sets a new best price (a new high for LONG,
-        a new low for SHORT), the trailing-stop level is always strictly on
-        the favorable side of that new best price, so the stop check can
-        never preempt the target check on that same tick - target is
-        effectively a hard ceiling/floor, however large a single move is.
-        """
-        tracker = self.trackers.get(symbol)
-        if tracker is None or not tracker.position_open or tracker.entry_price_for_risk is None:
-            return None
-
-        entry = tracker.entry_price_for_risk
-
-        if tracker.direction == TradeDirection.LONG:
-            tracker.highest_price_since_entry = max(tracker.highest_price_since_entry or entry, ltp)
-            stop_loss_price = entry * (1 - config.STOP_LOSS_PCT / 100)
-            target_price = entry * (1 + config.TARGET_PCT / 100)
-            trailing_sl_price = tracker.highest_price_since_entry * (1 - config.TRAILING_SL_PCT / 100)
-            effective_stop = max(stop_loss_price, trailing_sl_price)  # trailing only ever tightens the exit
-            if ltp <= effective_stop:
-                reason = "TRAILING-SL" if trailing_sl_price > stop_loss_price else "STOP-LOSS"
-            elif ltp >= target_price:
-                reason = "TARGET"
-            else:
-                return None
-            exit_side = "SELL"
-        else:  # SHORT - every comparison mirrored
-            tracker.lowest_price_since_entry = min(tracker.lowest_price_since_entry or entry, ltp)
-            stop_loss_price = entry * (1 + config.STOP_LOSS_PCT / 100)
-            target_price = entry * (1 - config.TARGET_PCT / 100)
-            trailing_sl_price = tracker.lowest_price_since_entry * (1 + config.TRAILING_SL_PCT / 100)
-            effective_stop = min(stop_loss_price, trailing_sl_price)  # trailing only ever tightens the exit
-            if ltp >= effective_stop:
-                reason = "TRAILING-SL" if trailing_sl_price < stop_loss_price else "STOP-LOSS"
-            elif ltp <= target_price:
-                reason = "TARGET"
-            else:
-                return None
-            exit_side = "BUY"
-
-        closed_count = self.trade_book.close_all_open(symbol, now_str, ltp, exit_is_backfill=False)
-        logger.info("%s %s @ %.2f (entry %.2f, %d row(s) closed) [tick-level, %s]",
-                    reason, symbol, ltp, entry, closed_count, tracker.direction.value)
-        self._maybe_place_live_order(tracker, f"{exit_side} ({reason})", ltp, is_backfill=False, now_str=now_str)
-        tracker.position_open = False
-        tracker.weakness_events_on_position = 0
-        tracker.entry_price_for_risk = None
-        tracker.highest_price_since_entry = None
-        tracker.lowest_price_since_entry = None
-        return reason
 
     def square_off_all(self, at_time_str: str | None = None):
         """
@@ -570,14 +580,14 @@ class SignalEngine:
         for symbol, tracker in self.trackers.items():
             if tracker.position_open and tracker.candles:
                 last_close = tracker.candles[-1][4]
+                exit_qty = tracker.total_qty_open
                 closed_count = self.trade_book.close_all_open(symbol, now_str, last_close, exit_is_backfill=False)
                 exit_side = "BUY" if tracker.direction == TradeDirection.SHORT else "SELL"
-                logger.info("EOD SQUARE-OFF %s @ %.2f (%d row(s) closed) [%s]",
-                            symbol, last_close, closed_count, tracker.direction.value)
+                logger.info("EOD SQUARE-OFF %s qty=%d @ %.2f (%d row(s) closed) [%s]",
+                            symbol, exit_qty, last_close, closed_count, tracker.direction.value)
                 self._maybe_place_live_order(tracker, f"{exit_side} (EOD square-off)", last_close,
-                                              is_backfill=False, now_str=now_str)
+                                              is_backfill=False, now_str=now_str, qty=exit_qty)
                 tracker.position_open = False
                 tracker.weakness_events_on_position = 0
                 tracker.entry_price_for_risk = None
-                tracker.highest_price_since_entry = None
-                tracker.lowest_price_since_entry = None
+                tracker.total_qty_open = 0

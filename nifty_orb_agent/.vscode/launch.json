@@ -12,11 +12,11 @@
             "console": "integratedTerminal",
             "args": [
                 "--start",
-                "2026-09-01",
+                "2026-10-07",
                 "--end",
-                "2026-09-26",
+                "2026-10-07",
                 "--direction",
-                "SHORT",
+                "LONG",
                 "--out",
                 "backtest_trades.csv"
             ]
