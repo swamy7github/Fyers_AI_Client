@@ -1,5 +1,5 @@
 """
-fyers_service.py - Integrated Fyers API v3 Service & Unit Test Suite
+fyers_client.py - Integrated Fyers API v3 Service & Unit Test Suite
 
 This single-file solution contains:
 1. get_fyers_client(): Exposes zero-argument authentication & token persistence returning an authenticated Fyers client handle.
@@ -47,7 +47,7 @@ except ImportError:
     fyersModel = None
 
 # Setup logger
-logger = logging.getLogger("orb_agent.fyers_service")
+logger = logging.getLogger("orb_agent.fyers_client")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
 
@@ -606,7 +606,8 @@ def get_fyers_client() -> Any:
         )
     """
     data_service = FyersDataService(client=raw_client, access_token=access_token, auth_manager=auth_mgr)
-    return FyersClientProxy(raw_client=raw_client, data_service=data_service)
+    #return FyersClientProxy(raw_client=raw_client, data_service=data_service)
+    return data_service
 
 
 # ==============================================================================
@@ -702,7 +703,19 @@ class FyersDataService:
     def get_quotes(self, symbols: list[str]) -> dict:
         data = {"symbols": ",".join(symbols)}
         return self._call_with_retry(self.client.quotes, data=data)
-
+    
+    def quotes(self, symbols: list[str]) -> dict:
+        """Returns a dictionary of quotes for the given symbols."""
+        return self.get_quotes(symbols)
+    
+    def get_token(self) -> str:
+        """Returns the current access token."""
+        return str(self.access_token)
+    
+    def token(self) -> str:
+        """Returns the current access token."""
+        return str(self.access_token)
+    
     def get_quotes_batched(self, symbols: list[str]) -> dict[str, dict]:
         merged: dict[str, dict] = {}
         batch_size = getattr(config, "QUOTES_BATCH_SIZE", 50)
@@ -932,8 +945,8 @@ class TestFyersService(unittest.TestCase):
 
     def test_get_candles_bulk(self):
         """Tests FyersDataService bulk historical data fetching with date chunking."""
-        client = get_fyers_client()
-        ds = FyersDataService(client=client)
+        ds = client = get_fyers_client()
+        #ds = FyersDataService(client=client)
         bulk_data = ds.get_candles_bulk(
             symbols=["NSE:SBIN-EQ", "NSE:RELIANCE-EQ"],
             resolution="D",

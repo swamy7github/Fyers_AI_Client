@@ -70,9 +70,9 @@ TRADE_LOG_CSV = os.path.join(LOG_DIR, "trade_book_{date}.csv")
 # ----------------------------------------------------------------------------
 TIMEZONE = "Asia/Kolkata"
 
-SECTOR_SCAN_TIME = "09:12:00"           # pre-open sector snapshot (see caveat in sector_scanner.py)
-SECTOR_SCAN_TIME_POSTOPEN = "09:19:30"  # re-run shortly after the normal session starts, for real numbers
-OPENING_RANGE_SCAN_TIME = "09:20:10"    # 2s buffer after the 09:15-09:20 candle closes
+SECTOR_SCAN_TIME = "09:30:00"           # pre-open sector snapshot (see caveat in sector_scanner.py)
+SECTOR_SCAN_TIME_POSTOPEN = "09:45:30"  # re-run shortly after the normal session starts, for real numbers
+OPENING_RANGE_SCAN_TIME = "09:46:10"    # 2s buffer after the 09:15-09:20 candle closes
 SIGNAL_ENGINE_LAST_RUN = "15:11:00"     # stop looking for NEW signals after this time
 SQUARE_OFF_TIME = "15:11:30"            # force-close any open paper positions
 CANDLE_INTERVAL_MINUTES = 5
@@ -143,7 +143,7 @@ CONSECUTIVE_CANDLES_FOR_STOPLOSS = 2
 # triggers a full square-off of the whole position (all adds included).
 # Set MAX_POSITION_ADDS = 0 to disable adding and square off on the very
 # first weakness event instead.
-MAX_POSITION_ADDS = 1
+MAX_POSITION_ADDS = 0
 
 # Retry / resilience for API calls
 API_MAX_RETRIES = 3
