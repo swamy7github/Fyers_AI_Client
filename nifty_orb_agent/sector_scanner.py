@@ -66,7 +66,10 @@ import logging
 import pandas as pd
 
 import config
-from fyers_service import FyersDataService
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import fyersclient
 
 logger = logging.getLogger("orb_agent.sector_scanner")
 

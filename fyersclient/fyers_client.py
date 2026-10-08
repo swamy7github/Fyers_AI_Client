@@ -24,6 +24,8 @@ from collections import deque
 from datetime import date, datetime, timedelta
 from typing import Any, Callable, List, Optional, Tuple, Dict, Union
 from dotenv import load_dotenv
+import os
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 # Load environment variables
@@ -50,34 +52,40 @@ except ImportError:
 logger = logging.getLogger("orb_agent.fyers_client")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
-
 # ==============================================================================
 # CONFIGURATION DEFAULT / FALLBACK
 # ==============================================================================
+# Load environment variables
 try:
-    import config
-except ImportError:
-    class ConfigFallback:
-        FYERS_APP_ID: str = os.getenv("FYERS_APP_ID", "XXXXXX-100")
-        FYERS_SECRET_KEY: str = os.getenv("FYERS_SECRET_KEY", "XXXXXXXXXX")
-        FYERS_REDIRECT_URI: str = os.getenv("FYERS_REDIRECT_URI", "https://trade.fyers.in/api-product/front/tools/redirect.png")
-        FYERS_FY_ID: str = os.getenv("FYERS_FY_ID", "")
-        FYERS_PIN: str = os.getenv("FYERS_PIN", "")
-        FYERS_TOTP_SECRET: str = os.getenv("FYERS_TOTP_SECRET", "")
-        TOKEN_FILE_PATH: str = os.getenv("FYERS_TOKEN_FILE", f"{FYERS_APP_ID}_fyers_token.txt")
-        APP_TYPE: str = os.getenv("APP_TYPE", "100")  # Default to "100" for API v3
-        
-        FYERS_MAX_CALLS_PER_SECOND: int = 8
-        API_MAX_RETRIES: int = 3
-        API_RETRY_BACKOFF_SECONDS: float = 0.1
-        RATE_LIMIT_MAX_RETRIES: int = 5
-        RATE_LIMIT_BACKOFF_BASE_SECONDS: float = 0.2
-        QUOTES_BATCH_SIZE: int = 50
-        INTRADAY_HISTORY_MAX_DAYS_PER_CHUNK: int = 10
-        DAILY_HISTORY_MAX_DAYS_PER_CHUNK: int = 100
-        LOG_DIR: str = os.getenv("LOG_DIR", "./logs")
+    # Get the directory where config.py is located (which is the B2 folder)
+    Config_DIR = Path(__file__).parent
+    load_dotenv(f"{Config_DIR}/.envfyers")  # Load environment variables from .env.fyers if present
+except Exception as e:
+    logging.warning(f"Failed to load .envfyers file: {e}")
+  
+    
+class Config:
+    FYERS_APP_ID: str = os.getenv("FYERS_APP_ID", "XXXXXX-100")
+    FYERS_SECRET_KEY: str = os.getenv("FYERS_SECRET_KEY", "XXXXXXXXXX")
+    FYERS_REDIRECT_URI: str = os.getenv("FYERS_REDIRECT_URI", "https://trade.fyers.in/api-product/front/tools/redirect.png")
+    FYERS_FY_ID: str = os.getenv("FYERS_FY_ID", "")
+    FYERS_PIN: str = os.getenv("FYERS_PIN", "")
+    FYERS_TOTP_SECRET: str = os.getenv("FYERS_TOTP_SECRET", "")
+    TOKEN_FILE_PATH: str = os.getenv("FYERS_TOKEN_FILE", f"{FYERS_APP_ID}_{os.getenv('TOKEN_FILE')}")
+    APP_TYPE: str = os.getenv("APP_TYPE", "100")  # Default to "100" for API v3
+    API_MAX_RETRIES: int = int(os.getenv("API_MAX_RETRIES", 3))
+    API_RETRY_BACKOFF_SECONDS: float = float(os.getenv("API_RETRY_BACKOFF_SECONDS", 2))
+    RATE_LIMIT_MAX_RETRIES: int = int(os.getenv("RATE_LIMIT_MAX_RETRIES", 5))
+    RATE_LIMIT_BACKOFF_BASE_SECONDS: float = float(os.getenv("RATE_LIMIT_BACKOFF_BASE_SECONDS", 3))
+    QUOTES_BATCH_SIZE: int = int(os.getenv("QUOTES_BATCH_SIZE", 50))
+    INTRADAY_HISTORY_MAX_DAYS_PER_CHUNK: int = int(os.getenv("INTRADAY_HISTORY_MAX_DAYS_PER_CHUNK", 10))
+    DAILY_HISTORY_MAX_DAYS_PER_CHUNK: int = int(os.getenv("DAILY_HISTORY_MAX_DAYS_PER_CHUNK", 100))
+    FYERS_MAX_CALLS_PER_SECOND: int = int(os.getenv("FYERS_MAX_CALLS_PER_SECOND", 5))
+    LOG_DIR: str = os.getenv("LOG_DIR", "./logs")
 
-    config = ConfigFallback()
+
+config = Config()
+
 SUCCESS = 1
 ERROR = -1
 
@@ -627,27 +635,23 @@ class FyersDataService:
             self.client = client
             self.access_token = getattr(client, "token", access_token or "")
         else:
-            self.access_token = access_token or self.auth_manager.get_valid_access_token()
-            self._init_client()
+            self.access_token, self.client = self.auth_manager.get_valid_access_token()
+            """
+            Rate Limits
+                Transactional APIs (All API Keys):
 
-        self._rate_limiter = limiter or FyersRateLimiter([
-            (getattr(config, "FYERS_MAX_CALLS_PER_SECOND", 8), 1.0),
-            (480, 60.0)
-        ])
+                Timeframe	Rate Limit
+                Per Second	10
+                Per Minute	200
+                Per Day	10,000
+            """
+        self._rate_limiter = FyersRateLimiter([(getattr(config, "FYERS_MAX_CALLS_PER_SECOND", 7), 1.0), (190, 60.0)])
 
-    def _init_client(self) -> None:
-        if fyersModel is not None:
-            self.client = fyersModel.FyersModel(
-                client_id=f"({config.FYERS_APP_ID}-{config.APP_TYPE})",
-                is_async=False,
-                token=self.access_token,
-                log_path=getattr(config, "LOG_DIR", "./logs")
-            )
 
     def refresh_session(self) -> None:
         logger.info("Refreshing Fyers session token...")
-        self.access_token = self.auth_manager.get_valid_access_token(force_refresh=True)
-        self._init_client()
+        self.access_token, self.client = self.auth_manager.get_valid_access_token(force_refresh=True)
+
 
     def _call_with_retry(self, fn, *args, rate_limit_max_retries: int | None = None, **kwargs):
         rate_limit_max_retries = (config.RATE_LIMIT_MAX_RETRIES if rate_limit_max_retries is None else rate_limit_max_retries)
@@ -682,19 +686,22 @@ class FyersDataService:
                         continue
 
                     raise RuntimeError(response.get("message", "Unknown Fyers API error"))
-
+                symb = kwargs['data']
+                logger.info(f"{symb.get('symbol', 'N/A')} -- resolution {symb.get('resolution', 'N/A')} - attempt {attempt}.")
                 return response
 
-            except Exception as exc:
+            except Exception as exc:  # broad on purpose: network, auth, and API-level errors all retry
                 last_exc = exc
-                logger.error("Fyers API call failed (attempt %d/%d): %s", attempt, config.API_MAX_RETRIES, exc)
-                if _looks_like_token_expired_error(getattr(exc, "response", {})) and not token_refreshed:
-                    self.refresh_session()
-                    token_refreshed = True
-                    continue
+                logger.error("Fyers API call failed (attempt %d/%d): %s",
+                                attempt, config.API_MAX_RETRIES, exc)
+                if "invalid symbol" in str(exc).lower():
+                    logger.warning(f"Fyers API call failed due to invalid symbol - will not retry.\n kwargs = {kwargs}")
+                    return {}  # caller should handle empty response gracefully
+                logger.info(f" kwargs = {kwargs}")
                 time.sleep(config.API_RETRY_BACKOFF_SECONDS * attempt)
-
-        raise last_exc
+                
+        logger.critical("Fyers API call failed after %d attempts: %s", config.API_MAX_RETRIES, last_exc)
+        #raise last_exc
 
     def history(self, data: dict) -> dict:
         """EXPOSED API IMPLEMENTATION: Calls client.history with rate limiting and exponential backoff."""

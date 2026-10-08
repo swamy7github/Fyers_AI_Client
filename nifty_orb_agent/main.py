@@ -34,8 +34,7 @@ Startup flow
 from __future__ import annotations
 
 import logging
-import os
-import sys
+
 import time
 from datetime import datetime, time as dt_time, timedelta
 
@@ -48,7 +47,6 @@ import config
 import options_engine
 from bootstrap import (MarketPhase, _time_from_hms, bootstrap_and_catchup, decide_todays_direction,
                         fetch_and_seed_volume_windows)
-from fyers_service import FyersAuthManager, FyersDataService
 from global_sentiment import fetch_global_snapshot, score_global_bias, get_stock_news_ema_bias, evaluate_market_direction
 from live_tick_stream import LiveTickStream
 #from google_global_sentiment import fetch_global_snapshot, score_global_bias
@@ -56,14 +54,11 @@ from sector_scanner import get_index_snapshot, get_sector_leaderboard
 from opening_range_scanner import scan_opening_range, scan_opening_range_accurate
 from signal_engine import SignalEngine
 from pathlib import Path
-
-# 1. Dynamically parse the parent path ('C:\NS\Fyers_AI_Client')
-# This gets the folder containing the current script and looks one level up
-project_root = Path(__file__).resolve().parent.parent
-
-# 2. Add 'C:\NS\Fyers_AI_Client' to Python's search path
-if str(project_root) not in sys.path:
-    sys.path.append(str(project_root))
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import fyersclient.fyers_client as fyres_client
+from fyersclient.fyers_client import get_fyers_client, FyersDataService
 
 # ----------------------------------------------------------------------------
 # Logging: console + file handler, per the brief's "include logging" requirement
@@ -336,20 +331,7 @@ def job_mcx_square_off_and_report():
 def main():
     logger.info("Starting ORB scanning agent (DRY_RUN=%s)...", config.DRY_RUN)
 
-    from fyers_auto_login_v2 import APP_ID, get_fyers_session_handle
-
-    fyres = get_fyers_session_handle()
-    if not fyres:
-        logger.error(f"Failed to get fyres tocken and authenticat for the APP {APP_ID}")
-        return
-    '''
-     auth = FyersAuthManager()
-
-     access_token = auth.get_access_token()
-    '''
-    #access_token = fyres.token
-    access_token = fyres.token
-    state["data_service"] = FyersDataService(access_token)
+    state["data_service"] = get_fyers_client()
 
     job_global_sentiment()
     #job_sector_scan()

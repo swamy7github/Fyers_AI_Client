@@ -51,7 +51,11 @@ import pytz
 from datetime import datetime
 
 import config
-from fyers_service import FyersDataService
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import fyersclient.fyers_client as fyres_client
+from fyersclient.fyers_client import get_fyers_client, FyersDataService
 from opening_range_scanner import scan_symbols_accurate
 from signal_engine import SignalEngine
 from trade_direction import TradeDirection

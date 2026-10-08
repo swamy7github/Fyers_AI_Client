@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import os
 from dataclasses import dataclass, field
 from datetime import date, datetime, time as dt_time, timedelta
 from enum import Enum
@@ -65,7 +66,8 @@ import pandas as pd
 import pytz
 
 import config
-from fyers_service import FyersDataService
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import  fyersclient
 import global_sentiment
 from opening_range_scanner import load_universe, scan_opening_range_accurate
 from sector_scanner import compute_market_breadth, get_index_snapshot, get_sector_leaderboard

@@ -59,7 +59,9 @@ import pytz
 from pathlib import Path
 import config
 import sys
-from fyers_service import FyersDataService
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import fyersclient
 from sector_scanner import load_sector_map
 from trade_direction import TradeDirection
 

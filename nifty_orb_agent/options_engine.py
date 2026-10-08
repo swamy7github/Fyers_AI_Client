@@ -61,7 +61,11 @@ import pandas as pd
 import pytz
 
 import config
-from fyers_service import FyersDataService
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import fyersclient.fyers_client as fyres_client
+from fyersclient.fyers_client import get_fyers_client, FyersDataService
 from signal_engine import SignalEngine
 from trade_direction import TradeDirection
 

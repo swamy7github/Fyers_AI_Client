@@ -143,7 +143,7 @@ CONSECUTIVE_CANDLES_FOR_STOPLOSS = 2
 # triggers a full square-off of the whole position (all adds included).
 # Set MAX_POSITION_ADDS = 0 to disable adding and square off on the very
 # first weakness event instead.
-MAX_POSITION_ADDS = 0
+MAX_POSITION_ADDS = 1
 
 # Retry / resilience for API calls
 API_MAX_RETRIES = 3
@@ -185,7 +185,7 @@ DRY_RUN = True
 # whether the resulting order is logged or actually sent to the broker, see
 # fyers_service.FyersDataService.place_order and
 # signal_engine.SignalEngine._maybe_place_live_order).
-TRADING_CAPITAL = 200_000.0
+TRADING_CAPITAL = 200000.0
 
 # Equal-split allocation: with TOP_N_STOCKS shortlisted stocks tracked
 # concurrently (see opening_range_scanner.py), each gets an equal share of
@@ -256,7 +256,7 @@ NIFTY_FO_MASTER_COLUMNS = {
 # silently double-spend one real capital pool. If you only have ONE real
 # pool of money, divide it across these yourself and don't run the
 # strategies you're not funding.
-NIFTY_OPTIONS_CAPITAL = 200_000.0
+NIFTY_OPTIONS_CAPITAL = 200000.0
 
 # ----------------------------------------------------------------------------
 # MCX commodities trading (see commodity_engine.py) - OFF by default

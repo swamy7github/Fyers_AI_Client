@@ -88,7 +88,11 @@ import pytz, sys
 
 import config
 from bootstrap import decide_direction_for_date
-from fyers_service import FyersDataService
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import fyersclient.fyers_client as fyres_client
+from fyersclient.fyers_client import get_fyers_client
 from opening_range_scanner import load_universe
 from sector_scanner import load_sector_map
 from signal_engine import SignalEngine, seed_volume_windows_from_candles
@@ -441,7 +445,10 @@ def run_backtest(data_service: FyersDataService, start_date: date, end_date: dat
 if __name__ == "__main__":
     import argparse
 
-    from fyers_service import FyersAuthManager
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    import fyersclient
 
     parser = argparse.ArgumentParser(
         description="Backtest the ORB strategy over a historical date range, with direction "
@@ -459,16 +466,8 @@ if __name__ == "__main__":
 
     start = datetime.strptime(args.start, "%Y-%m-%d").date()
     end = datetime.strptime(args.end, "%Y-%m-%d").date()
-    from fyers_auto_login_v2 import APP_ID, get_fyers_session_handle
     direction = TradeDirection[args.direction]
-    fyres = get_fyers_session_handle()
-    if not fyres:
-        logger.error(f"Failed to get fyres tocken and authenticat for the APP {APP_ID}")
-        exit()
-    
-    #auth = FyersAuthManager()
-    access_token = fyres.token
-    data_service = FyersDataService(access_token)
+    data_service = get_fyers_client()
 
     results = run_backtest(data_service, start, end, direction=direction)
 
