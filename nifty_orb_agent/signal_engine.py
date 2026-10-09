@@ -179,6 +179,47 @@ def seed_volume_windows_from_candles(trackers: dict[str, StockTracker], candles_
                     symbol, len(volumes), ready)
 
 
+def place_or_log_order(data_service: FyersDataService, symbol: str, side: str, qty: int,
+                        price: float, is_backfill: bool) -> None:
+    """
+    THE single gate every real order in this codebase routes through -
+    equities/SHORT-equities via SignalEngine._maybe_place_live_order (which
+    is now a thin wrapper around this), and NIFTY options via
+    options_engine.NiftyOptionsEngine - factored out here specifically so
+    both share the exact same DRY_RUN / is_backfill / broker-failure rules
+    instead of re-implementing them. See SignalEngine._maybe_place_live_order's
+    docstring for the full rationale behind each of these:
+
+      - config.DRY_RUN is True (the default): paper-trading only, logs and
+        returns, unconditionally, regardless of is_backfill.
+      - is_backfill is True: this signal was reconstructed from historical
+        candle replay, not detected live - logs and returns without ever
+        reaching the broker ("entering late at a stale price").
+      - Otherwise, places a REAL order via data_service.place_order(), and
+        a broker-call failure is logged loudly rather than raised - one
+        failed order must not crash the whole candle-check loop (other
+        symbols/instruments still need evaluating that tick).
+
+    `side` already encodes BUY vs SELL correctly for both directions; the
+    raw side Fyers needs is just its first word (e.g. "SELL (SHORT)" ->
+    "SELL") - see fyers_service.FyersDataService.place_order.
+    """
+    if config.DRY_RUN:
+        logger.info("[DRY_RUN] Would place %s order: %s qty=%d @ ~%.2f", side, symbol, qty, price)
+        return
+    if is_backfill:
+        logger.info("[BACKFILL] Skipping live %s order for %s (signal reconstructed from "
+                    "history at catch-up, not a live decision) - price has likely moved on.",
+                    side, symbol)
+        return
+    raw_side = side.split()[0]  # "BUY" or "SELL" - every `side` string in this codebase starts with one of these
+    try:
+        data_service.place_order(symbol, qty, raw_side)
+    except Exception as exc:
+        logger.error("LIVE %s order for %s qty=%d @ ~%.2f FAILED: %s - this position may now "
+                     "be out of sync with the broker; check manually.", side, symbol, qty, price, exc)
+
+
 class TradeBook:
     """
     Records every entry/exit and derives points captured (profit/loss),
@@ -322,7 +363,9 @@ class SignalEngine:
         if tracker.position_open:
             self._check_weakness_and_act(tracker, c, vwap, v, vol_ma_slow, now_str, is_backfill)
             return
-
+        
+        logger.info("Checking %s for entry signal @ %s: close=%.2f, VWAP=%.2f, vol=%.0f, vol_MA=%.0f",
+                    tracker.symbol, now_str, c, vwap, v, vol_ma_slow if vol_ma_slow is not None else float("nan"))
         # ---- ENTRY check (only while flat), direction-aware ----
         if tracker.direction == TradeDirection.LONG:
             qualifies = (vol_ma_slow is not None and tracker.or_high is not None
@@ -472,32 +515,13 @@ class SignalEngine:
         regardless of config.DRY_RUN.
 
         `qty` is the caller's already-computed capital-based order size (see
-        _size_order) - this method itself has no sizing opinion, it's purely
-        a gate plus (once DRY_RUN=False) the actual broker call. `side`
-        already encodes BUY vs SELL correctly for both LONG and SHORT
-        positions; the raw side Fyers needs is just its first word (e.g.
-        "SELL (SHORT)" -> "SELL") - see fyers_service.FyersDataService.place_order.
+        _size_order). This method itself now just forwards to the shared
+        place_or_log_order() (see its docstring for the DRY_RUN/is_backfill/
+        broker-failure rules) - kept as a method so existing call sites
+        (entry/add/exit/square-off above) don't all need to pass
+        self.data_service explicitly.
         """
-        if config.DRY_RUN:
-            logger.info("[DRY_RUN] Would place %s order: %s qty=%d @ ~%.2f",
-                        side, tracker.symbol, qty, price)
-            return
-        if is_backfill:
-            logger.info("[BACKFILL] Skipping live %s order for %s (signal reconstructed from "
-                        "history at catch-up, not a live decision) - price has likely moved on.",
-                        side, tracker.symbol)
-            return
-        raw_side = side.split()[0]  # "BUY" or "SELL" - every `side` string above starts with one of these
-        try:
-            self.data_service.place_order(tracker.symbol, qty, raw_side)
-        except Exception as exc:
-            # A failed broker call must not crash the whole candle-check loop (other symbols'
-            # signals still need evaluating) - it's logged loudly instead; the paper trade_book
-            # row above was already recorded either way, so what the engine INTENDED is never
-            # lost even if the broker leg itself failed and needs manual reconciliation.
-            logger.error("LIVE %s order for %s qty=%d @ ~%.2f FAILED: %s - this position may now "
-                         "be out of sync with the broker; check manually.",
-                         side, tracker.symbol, qty, price, exc)
+        place_or_log_order(self.data_service, tracker.symbol, side, qty, price, is_backfill)
 
     def adopt_broker_position(self, symbol: str, avg_price: float, qty: int, now_str: str) -> bool:
         """

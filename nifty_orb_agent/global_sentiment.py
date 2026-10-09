@@ -43,6 +43,56 @@ SENTIMENT_WEIGHTS = {
     "US VIX": -1.0, "Crude Oil (WTI)": -0.5, "Dollar Index": -0.5,
 }
 
+# A SEPARATE proxy set for MCX commodity sentiment (used by
+# bootstrap.decide_todays_commodity_direction(), NOT by the equity/options
+# decide_todays_direction() above) - MCX commodities trade against global
+# COMMODITY prices, not global equity indices, so reusing GLOBAL_TICKERS'
+# S&P500/Nasdaq/VIX-style equity-cue read for commodities would be scoring
+# the wrong market. Covers the same underlyings MCX_COMMODITY_UNIVERSE
+# trades (gold, silver, crude, copper, natural gas) plus the dollar index,
+# which commodity prices (quoted in USD globally) move inversely against.
+COMMODITY_GLOBAL_TICKERS = {
+    "Gold": "GC=F",
+    "Silver": "SI=F",
+    "Crude Oil (WTI)": "CL=F",
+    "Brent Crude": "BZ=F",
+    "Natural Gas": "NG=F",
+    "Copper": "HG=F",
+    "Dollar Index": "DX-Y.NYB",
+}
+
+# Rule-of-thumb weights: each commodity's own global (USD) price move is the
+# direct, dominant driver of its MCX (INR) contract, so those get a strong
+# positive weight. Dollar Index strength typically correlates with WEAKER
+# USD-denominated commodity prices (the classic inverse dollar-commodity
+# relationship) - note this is a simplification: a stronger dollar also
+# makes imports costlier in INR terms, a partially offsetting effect this
+# simple linear score doesn't attempt to model. Treat the output the same
+# way score_global_bias()'s docstring already does: a talking point, not a
+# signal to act on by itself.
+COMMODITY_SENTIMENT_WEIGHTS = {
+    "Gold": 1.0, "Silver": 1.0,
+    "Crude Oil (WTI)": 1.0, "Brent Crude": 0.5,
+    "Natural Gas": 0.5, "Copper": 0.5,
+    "Dollar Index": -0.75,
+}
+
+
+def _fetch_live_snapshot(tickers: dict[str, str]) -> dict[str, float]:
+    """Shared body for fetch_global_snapshot()/fetch_commodity_global_snapshot() - returns
+    {name: % change over the last completed session} for each ticker in `tickers`."""
+    snapshot = {}
+    for name, ticker in tickers.items():
+        try:
+            hist = yf.Ticker(ticker).history(period="5d", interval="1d")
+            if len(hist) < 2:
+                continue
+            prev_close, last_close = hist["Close"].iloc[-2], hist["Close"].iloc[-1]
+            pct_change = (last_close - prev_close) / prev_close * 100
+            snapshot[name] = round(float(pct_change), 2)
+        except Exception as exc:
+            logger.warning("Could not fetch global sentiment ticker %s (%s): %s", name, ticker, exc)
+    return snapshot
 
 def calculate_fallback_sentiment(global_bias, vix, crude_oil):
     """
@@ -153,41 +203,35 @@ def evaluate_market_direction(market_data):
 
 
 def fetch_global_snapshot() -> dict[str, float]:
-    """Returns {name: % change over the last completed session} for each ticker."""
-    snapshot = {}
-    for name, ticker in GLOBAL_TICKERS.items():
-        try:
-            hist = yf.Ticker(ticker).history(period="5d", interval="1d")
-            if len(hist) < 2:
-                continue
-            prev_close, last_close = hist["Close"].iloc[-2], hist["Close"].iloc[-1]
-            pct_change = (last_close - prev_close) / prev_close * 100
-            snapshot[name] = round(float(pct_change), 2)
-        except Exception as exc:
-            logger.warning("Could not fetch global sentiment ticker %s (%s): %s", name, ticker, exc)
-    return snapshot
+    """Returns {name: % change over the last completed session} for each ticker in
+    GLOBAL_TICKERS (the equity-cue set - see decide_todays_direction())."""
+    return _fetch_live_snapshot(GLOBAL_TICKERS)
 
 
-def fetch_global_snapshot_as_of(as_of_date: date) -> dict[str, float]:
-    """
-    Historical counterpart to fetch_global_snapshot(): the % change between
-    the last two COMPLETE trading sessions strictly before as_of_date - i.e.
-    what a trader's pre-market read would have shown on the morning of
-    as_of_date, using only data that existed by then. Used by backtest.py
-    (via bootstrap.decide_direction_for_date) to compute what direction
-    would ACTUALLY have been chosen each day of a historical backtest,
-    rather than replaying one fixed direction across the whole range.
+def fetch_commodity_global_snapshot() -> dict[str, float]:
+    """Same mechanics as fetch_global_snapshot(), over COMMODITY_GLOBAL_TICKERS (the
+    gold/silver/crude/copper/natural-gas/dollar-index set) instead - used by
+    bootstrap.decide_todays_commodity_direction() so MCX commodities get a direction
+    derived from global COMMODITY prices, not global equity indices."""
+    return _fetch_live_snapshot(COMMODITY_GLOBAL_TICKERS)
 
-    Note the deliberate `end=as_of_date` (exclusive of as_of_date itself in
-    yfinance's convention) - this must never include as_of_date's own
-    session, or the "sentiment" would be computed using data that wasn't
-    yet available before that day's Indian market open, silently leaking
-    future information into a backtest.
+
+def _fetch_snapshot_as_of(tickers: dict[str, str], as_of_date: date) -> dict[str, float]:
+    """Shared body for fetch_global_snapshot_as_of()/fetch_commodity_global_snapshot_as_of().
+
+    The % change between the last two COMPLETE trading sessions strictly before
+    as_of_date - i.e. what a trader's pre-market read would have shown on the morning of
+    as_of_date, using only data that existed by then.
+
+    Note the deliberate `end=as_of_date` (exclusive of as_of_date itself in yfinance's
+    convention) - this must never include as_of_date's own session, or the "sentiment"
+    would be computed using data that wasn't yet available before that day's Indian
+    market open, silently leaking future information into a backtest.
     """
     snapshot = {}
     start = (as_of_date - timedelta(days=15)).strftime("%Y-%m-%d")
     end = as_of_date.strftime("%Y-%m-%d")
-    for name, ticker in GLOBAL_TICKERS.items():
+    for name, ticker in tickers.items():
         try:
             hist = yf.Ticker(ticker).history(start=start, end=end, interval="1d")
             if len(hist) < 2:
@@ -201,13 +245,29 @@ def fetch_global_snapshot_as_of(as_of_date: date) -> dict[str, float]:
     return snapshot
 
 
-def score_global_bias(snapshot: dict[str, float]) -> tuple[str, float]:
+def fetch_global_snapshot_as_of(as_of_date: date) -> dict[str, float]:
     """
-    Combines the snapshot into a single heuristic score and label.
-    This is a rule-of-thumb, not a fitted model - treat the output as a
-    talking point / conversation starter, not a signal to act on.
+    Historical counterpart to fetch_global_snapshot(): see _fetch_snapshot_as_of()'s
+    docstring for the exact "only data available by then" contract. Used by backtest.py
+    (via bootstrap.decide_direction_for_date) to compute what direction would ACTUALLY
+    have been chosen each day of a historical backtest, rather than replaying one fixed
+    direction across the whole range.
     """
-    score = sum(snapshot.get(name, 0.0) * weight for name, weight in SENTIMENT_WEIGHTS.items())
+    return _fetch_snapshot_as_of(GLOBAL_TICKERS, as_of_date)
+
+
+def fetch_commodity_global_snapshot_as_of(as_of_date: date) -> dict[str, float]:
+    """Historical counterpart to fetch_commodity_global_snapshot(), over
+    COMMODITY_GLOBAL_TICKERS - see _fetch_snapshot_as_of()'s docstring."""
+    return _fetch_snapshot_as_of(COMMODITY_GLOBAL_TICKERS, as_of_date)
+
+
+def _score_bias(snapshot: dict[str, float], weights: dict[str, float]) -> tuple[str, float]:
+    """Shared body for score_global_bias()/score_commodity_global_bias() - combines a
+    snapshot into a single heuristic score and label using the given {name: weight} map.
+    This is a rule-of-thumb, not a fitted model - treat the output as a talking point /
+    conversation starter, not a signal to act on."""
+    score = sum(snapshot.get(name, 0.0) * weight for name, weight in weights.items())
     if score > 0.5:
         label = "BULLISH"
     elif score < -0.5:
@@ -215,6 +275,18 @@ def score_global_bias(snapshot: dict[str, float]) -> tuple[str, float]:
     else:
         label = "NEUTRAL"
     return label, round(score, 2)
+
+
+def score_global_bias(snapshot: dict[str, float]) -> tuple[str, float]:
+    """Scores a fetch_global_snapshot() result using SENTIMENT_WEIGHTS (the equity-cue
+    weights) - see _score_bias()'s docstring."""
+    return _score_bias(snapshot, SENTIMENT_WEIGHTS)
+
+
+def score_commodity_global_bias(snapshot: dict[str, float]) -> tuple[str, float]:
+    """Scores a fetch_commodity_global_snapshot() result using COMMODITY_SENTIMENT_WEIGHTS
+    - see _score_bias()'s docstring. Used by bootstrap.decide_todays_commodity_direction()."""
+    return _score_bias(snapshot, COMMODITY_SENTIMENT_WEIGHTS)
 
 
 def get_llm_news_sentiment(headlines: list[str], api_key: str,

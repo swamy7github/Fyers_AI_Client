@@ -1,0 +1,7 @@
+symbol,entry_type,direction,entry_time,entry_price,qty,exit_time,exit_price,points,pnl_pct,pnl_amount,is_backfill,exit_is_backfill
+NSE:POLYMED-EQ,INITIAL,SHORT,09:25:00,1564.2,25,,,,,,True,
+NSE:POLYMED-EQ,ADD,SHORT,09:45:00,1580.4,25,,,,,,True,
+NSE:SIEMENS-EQ,INITIAL,SHORT,09:25:00,3544.1,11,,,,,,True,
+NSE:HEGAM-EQ,INITIAL,SHORT,10:40:02,231.52,172,15:11:30,233.49,-1.97,-0.85,-338.84,False,False
+NSE:CHENNPETRO-EQ,INITIAL,SHORT,12:50:02,1491.0,26,15:11:30,1487.9,3.1,0.21,80.6,False,False
+NSE:HEGAM-EQ,ADD,SHORT,15:05:02,233.68,171,15:11:30,233.49,0.19,0.08,32.49,False,False

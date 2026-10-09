@@ -34,7 +34,7 @@ Startup flow
 from __future__ import annotations
 
 import logging
-
+import os
 import time
 from datetime import datetime, time as dt_time, timedelta
 
@@ -46,7 +46,7 @@ import commodity_engine
 import config
 import options_engine
 from bootstrap import (MarketPhase, _time_from_hms, bootstrap_and_catchup, decide_todays_direction,
-                        fetch_and_seed_volume_windows)
+                        decide_todays_commodity_direction, fetch_and_seed_volume_windows)
 from global_sentiment import fetch_global_snapshot, score_global_bias, get_stock_news_ema_bias, evaluate_market_direction
 from live_tick_stream import LiveTickStream
 #from google_global_sentiment import fetch_global_snapshot, score_global_bias
@@ -74,13 +74,17 @@ logger = logging.getLogger("orb_agent.main")
 TZ = pytz.timezone(config.TIMEZONE)
 
 # Shared mutable state the scheduled jobs read/write. "signal_engine" is the original
-# NSE-equity engine; "options_signal_engine" / "commodity_signal_engine" are the opt-in
-# (config.ENABLE_NIFTY_OPTIONS_TRADING / config.ENABLE_MCX_COMMODITY_TRADING) parallel
-# engines from options_engine.py / commodity_engine.py - all three run completely
-# independently (separate SignalEngine instances, separate trade books), so a failure or
-# empty shortlist in one never affects the others.
+# NSE-equity engine; "options_signal_engine" / "banknifty_options_signal_engine" /
+# "commodity_signal_engine" are the opt-in (config.ENABLE_NIFTY_OPTIONS_TRADING /
+# config.ENABLE_BANKNIFTY_OPTIONS_TRADING / config.ENABLE_MCX_COMMODITY_TRADING) parallel
+# engines from options_engine.py (NIFTY and BANKNIFTY are two independent instances of the
+# SAME NiftyOptionsEngine class, just constructed with different underlying/index/futures
+# config) / commodity_engine.py - all four run completely independently (separate engine
+# instances, separate trade books), so a failure or empty shortlist in one never affects
+# the others.
 state = {"data_service": None, "signal_engine": None,
-         "options_signal_engine": None, "commodity_signal_engine": None,
+         "options_signal_engine": None,          "banknifty_options_signal_engine": None,
+         "commodity_signal_engine": None,
          "top5_gaining_sectors": None, "top5_losing_sectors": None,
          "global_sentiment": {}, "live_tick_stream": None}
 
@@ -111,18 +115,17 @@ def job_global_sentiment():
     snapshot = fetch_global_snapshot()
     label, score = score_global_bias(snapshot)
     logger.info("Global cues bias: %s (score %.2f) | Snapshot: %s", label, score, snapshot)
-    logger.info(f"\n=== Global Market Bias: {label} (score {score:.2f}) ===")
-    logger.info(snapshot)
+    print(f"\n=== Global Market Bias: {label} (score {score:.2f}) ===")
+    print(snapshot)
 
     nifty_bias = get_stock_news_ema_bias("^NSEI", anthropic_api_key=config.ANTHROPIC_API_KEY)
     logger.info("Nifty 50 news+EMA bias: %s (ema=%s, news=%s)",
                 nifty_bias["combined_bias"], nifty_bias["ema_bias"], nifty_bias["news_bias"])
-    logger.info(f"\n=== Nifty 50 News + EMA Bias: {nifty_bias['combined_bias']} ===")
-    logger.info(f"EMA: {nifty_bias['ema_bias']} {nifty_bias['ema_detail']}")
-    
+    print(f"\n=== Nifty 50 News + EMA Bias: {nifty_bias['combined_bias']} ===")
+    print(f"EMA: {nifty_bias['ema_bias']} {nifty_bias['ema_detail']}")
     if nifty_bias["news_bias"]:
-        logger.info(f"News: {nifty_bias['news_bias']} - {nifty_bias['news_reason']}")
-        logger.info(f"(from {len(nifty_bias['headlines_used'])} headline(s))")
+        print(f"News: {nifty_bias['news_bias']} - {nifty_bias['news_reason']}")
+        print(f"(from {len(nifty_bias['headlines_used'])} headline(s))")
     else:
         logger.info("News: skipped (no ANTHROPIC_API_KEY configured, or no headlines returned)")
     sentiment_data = {
@@ -164,8 +167,8 @@ def job_sector_scan(label: str = ""):
     context_names = ["Nifty 50", "Nifty 500", "India VIX"]
     context = snapshot[snapshot["index_name"].isin(context_names)]
     if not context.empty:
-        logger.info("\n=== Broader Market Context ===")
-        logger.info(context[["index_name", "ltp", "pct_change"]].to_string(index=False))
+        print("\n=== Broader Market Context ===")
+        print(context[["index_name", "ltp", "pct_change"]].to_string(index=False))
 
 
 def job_opening_range_scan():
@@ -207,16 +210,18 @@ def job_opening_range_scan():
     # signal_engine.seed_volume_windows_from_candles's docstring.
     fetch_and_seed_volume_windows(engine, state["data_service"])
     state["signal_engine"] = engine
-    logger.info(f"\n=== Opening Range {direction.value} Shortlist (Top {config.TOP_N_STOCKS}) ===")
-    logger.info(shortlist.to_string(index=False))
+    print(f"\n=== Opening Range {direction.value} Shortlist (Top {config.TOP_N_STOCKS}) ===")
+    print(shortlist.to_string(index=False))
+
 
 def job_nifty_options_scan():
-    """Opt-in (config.ENABLE_NIFTY_OPTIONS_TRADING) - runs the SAME ORB logic against a
-    single ATM NIFTY option contract. Reuses today's ALREADY-COMPUTED equity direction
-    (decide_todays_direction() is called once per day, not once per market) so equities and
-    options can never silently disagree on today's sentiment-derived bias - see
-    options_engine.py's module docstring for why the engine itself always tracks
-    direction=LONG regardless (BUY-ONLY: calls on a LONG bias, puts on a SHORT bias)."""
+    """Opt-in (config.ENABLE_NIFTY_OPTIONS_TRADING) - builds today's dual-source NIFTY options
+    engine (options_engine.NiftyOptionsEngine): PRICE/VWAP signal from config.NIFTY_INDEX_SYMBOL,
+    VOLUME signal from config.NIFTY_FUTURES_SYMBOL, execution on a single OTM option contract -
+    see options_engine.py's module docstring for the full rule. Reuses today's
+    ALREADY-COMPUTED equity direction (decide_todays_direction() is called once per day, not
+    once per market) so equities and options can never silently disagree on today's
+    sentiment-derived bias."""
     if not config.ENABLE_NIFTY_OPTIONS_TRADING:
         return
     direction, sentiment_label, sentiment_score = decide_todays_direction()
@@ -232,29 +237,70 @@ def job_nifty_options_scan():
     fetch_and_seed_volume_windows(engine, state["data_service"])
     state["options_signal_engine"] = engine
     print(f"\n=== NIFTY Options Engine Ready ({direction.value} bias) ===")
-    print(engine.trackers)
+    print(f"Option leg: {engine.option.symbol} (lot_size={engine.option.lot_size}, "
+          f"capital_allocated={engine.option.capital_allocated:.2f})")
+    print(f"Signal sources: index={engine.index_tracker.symbol} "
+          f"(OR high={engine.index_tracker.or_high:.2f}, low={engine.index_tracker.or_low:.2f}), "
+          f"futures={engine.futures_tracker.symbol}")
+
+
+def job_banknifty_options_scan():
+    """Opt-in (config.ENABLE_BANKNIFTY_OPTIONS_TRADING) - identical dual-source engine to
+    job_nifty_options_scan() above (same NiftyOptionsEngine class, same rule set - see
+    options_engine.py's module docstring), pointed at BANKNIFTY's own index/futures/strike
+    universe (config.BANKNIFTY_*) instead of NIFTY's. Reuses the SAME today's-direction
+    value as equities/NIFTY-options (one sentiment decision for the whole day, never
+    recomputed per market) and runs completely independently of the NIFTY options engine -
+    both can be enabled at once, each with its own capital bucket and trade book."""
+    if not config.ENABLE_BANKNIFTY_OPTIONS_TRADING:
+        return
+    direction, sentiment_label, sentiment_score = decide_todays_direction()
+    if direction is None:
+        logger.warning("No clear sentiment direction today (%s) - skipping BANKNIFTY options for today.",
+                        sentiment_label)
+        return
+    engine = options_engine.run_banknifty_options_engine(state["data_service"], direction)
+    if engine is None:
+        logger.warning("BANKNIFTY options engine could not be built today (see options_engine logs "
+                        "above) - no options position will be tracked today.")
+        return
+    fetch_and_seed_volume_windows(engine, state["data_service"])
+    state["banknifty_options_signal_engine"] = engine
+    print(f"\n=== BANKNIFTY Options Engine Ready ({direction.value} bias) ===")
+    print(f"Option leg: {engine.option.symbol} (lot_size={engine.option.lot_size}, "
+          f"capital_allocated={engine.option.capital_allocated:.2f})")
+    print(f"Signal sources: index={engine.index_tracker.symbol} "
+          f"(OR high={engine.index_tracker.or_high:.2f}, low={engine.index_tracker.or_low:.2f}), "
+          f"futures={engine.futures_tracker.symbol}")
 
 
 def job_mcx_commodity_scan():
     """Opt-in (config.ENABLE_MCX_COMMODITY_TRADING) - mirrors job_nifty_options_scan() but
     for MCX commodity futures (commodity_engine.py), which - unlike options - trade
-    today's bias direction AS-IS (long or short, same as equities)."""
+    today's bias direction AS-IS (long or short, same as equities), against the WHOLE
+    config.MCX_COMMODITY_UNIVERSE directly (no sector/gain-band scan - see
+    commodity_engine.py's module docstring). Direction comes from
+    decide_todays_commodity_direction() - a COMMODITY-specific global sentiment read
+    (gold/silver/crude/copper/natural-gas/dollar-index cues), deliberately a SEPARATE
+    sentiment decision from equities'/NIFTY's/BANKNIFTY's equity-cue
+    decide_todays_direction(), since MCX trades against global commodity prices, not
+    global equity indices - the two can end up pointing different directions on the same
+    day."""
     if not config.ENABLE_MCX_COMMODITY_TRADING:
         return
-    direction = state['global_sentiment']['direction']
-    sentiment_label = state['global_sentiment']['label']
-    sentiment_score = state['global_sentiment']['score']  #decide_todays_direction()
+    direction, sentiment_label, sentiment_score = decide_todays_commodity_direction()
     if direction is None:
-        logger.warning("No clear sentiment direction today (%s) - skipping MCX commodities for today.",
-                        sentiment_label)
+        logger.warning("No clear commodity sentiment direction today (%s) - skipping MCX "
+                        "commodities for today.", sentiment_label)
         return
     engine = commodity_engine.run_mcx_commodity_engine(state["data_service"], direction)
     if engine is None:
-        logger.warning("No MCX commodity matched today's opening-range filter - nothing tracked today.")
+        logger.warning("No opening-range candle was available for any MCX commodity today - "
+                        "nothing tracked today.")
         return
     fetch_and_seed_volume_windows(engine, state["data_service"])
     state["commodity_signal_engine"] = engine
-    print(f"\n=== MCX Commodity Shortlist ({direction.value}) ===")
+    print(f"\n=== MCX Commodity Universe ({direction.value}, commodity sentiment: {sentiment_label}) ===")
     print(list(engine.trackers))
 
 
@@ -273,6 +319,7 @@ def job_check_signals():
     for label, engine, last_run_hms in (
         ("equity", state["signal_engine"], config.SIGNAL_ENGINE_LAST_RUN),
         ("options", state["options_signal_engine"], config.SIGNAL_ENGINE_LAST_RUN),
+        ("banknifty_options", state["banknifty_options_signal_engine"], config.SIGNAL_ENGINE_LAST_RUN),
         ("commodity", state["commodity_signal_engine"], config.MCX_SIGNAL_ENGINE_LAST_RUN),
     ):
         if engine is None:
@@ -298,10 +345,10 @@ def _report_and_save(engine: SignalEngine, label: str, csv_suffix: str = ""):
 
 
 def job_square_off_and_report():
-    """Squares off the equity engine, AND (if active) the options engine - both run on
-    the NSE equity session and close together at SQUARE_OFF_TIME. MCX runs its own,
-    separate square-off job (job_mcx_square_off_and_report) much later in the day, since
-    MCX's session stays open well past NSE's close."""
+    """Squares off the equity engine, AND (if active) the NIFTY/BANKNIFTY options engines -
+    all three run on the NSE equity session and close together at SQUARE_OFF_TIME. MCX runs
+    its own, separate square-off job (job_mcx_square_off_and_report) much later in the day,
+    since MCX's session stays open well past NSE's close."""
     engine = state["signal_engine"]
     if engine is None:
         logger.info("No equity signal engine was active today - nothing to square off.")
@@ -311,6 +358,10 @@ def job_square_off_and_report():
     options_eng = state["options_signal_engine"]
     if options_eng is not None:
         _report_and_save(options_eng, "NIFTY Options", csv_suffix="_options")
+
+    banknifty_options_eng = state["banknifty_options_signal_engine"]
+    if banknifty_options_eng is not None:
+        _report_and_save(banknifty_options_eng, "BANKNIFTY Options", csv_suffix="_banknifty_options")
 
 
 def job_mcx_square_off_and_report():
@@ -341,11 +392,11 @@ def main():
     
     result = bootstrap_and_catchup(state)
     logger.info("Bootstrap result: phase=%s | %s", result.phase.value, result.message)
-
+    '''
     if result.phase == MarketPhase.POST_CLOSE:
         logger.info("Exiting - market is closed, nothing left to do today.")
         return
-
+'''
     if result.signal_engine is not None:
         state["signal_engine"] = result.signal_engine
 
@@ -370,11 +421,14 @@ def main():
         scheduler.add_job(job_opening_range_scan, _cron_from_hms(config.OPENING_RANGE_SCAN_TIME),
                            id="opening_range_scan", misfire_grace_time=30, **common_kwargs)
 
-    # Both opt-in (self-gated on their own config.ENABLE_* flag - see each job's docstring)
+    # All opt-in (self-gated on their own config.ENABLE_* flag - see each job's docstring)
     # so these are always scheduled; they simply no-op immediately if their flag is False.
-    # Options shares the NSE equity session's opening-range time; MCX uses its own, later one.
+    # NIFTY/BANKNIFTY options share the NSE equity session's opening-range time; MCX uses
+    # its own, later one.
     scheduler.add_job(job_nifty_options_scan, _cron_from_hms(config.OPENING_RANGE_SCAN_TIME),
                        id="nifty_options_scan", misfire_grace_time=30, **common_kwargs)
+    scheduler.add_job(job_banknifty_options_scan, _cron_from_hms(config.OPENING_RANGE_SCAN_TIME),
+                       id="banknifty_options_scan", misfire_grace_time=30, **common_kwargs)
     scheduler.add_job(job_mcx_commodity_scan, _cron_from_hms(config.MCX_OPENING_RANGE_SCAN_TIME),
                        id="mcx_commodity_scan", misfire_grace_time=30, **common_kwargs)
 

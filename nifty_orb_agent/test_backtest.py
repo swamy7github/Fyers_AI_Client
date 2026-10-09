@@ -36,7 +36,9 @@ import pytz
 import backtest
 import config
 from trade_direction import TradeDirection
+from utilities import get_last_traded_day
 
+    
 TZ = pytz.timezone(config.TIMEZONE)
 
 
@@ -112,6 +114,15 @@ class FakeBacktestDataService:
     def get_candles_range(self, symbol, resolution, range_from_date, range_to_date):
         self.calls.append((symbol, resolution, range_from_date, range_to_date))
         return self._series.get((symbol, resolution), [])
+    
+    def get_quotes_batched(self, symbols):
+        # Used for sector index quotes (data/sector_index_map.csv rows) and for
+        # compute_market_breadth (the stock universe) - same shape either way.
+        out = {}
+        for s in symbols:
+            out[s] = {"lp": 101.0, "prev_close_price": 100.0,
+                        "open_price": 100.0, "high_price": 101.5, "low_price": 99.5, "volume": 1000}
+        return out
 
 
 class TestRunBacktestPerDayDirection(unittest.TestCase):
@@ -127,13 +138,13 @@ class TestRunBacktestPerDayDirection(unittest.TestCase):
         sector_csv = self.tmpdir / "sector_index_map.csv"
         universe_csv = self.tmpdir / "ind_nifty500list.csv"
         sector_csv.write_text(
-            "symbol,index_name,category,is_sector_index,sector\n"
-            "NSE:NIFTYIT-INDEX,Nifty IT,Information Technology,True,IT\n"
+            "symbol,index_name,category,is_sector_index,sector,sector_url\n"
+            "NSE:NIFTYIT-INDEX,Nifty IT,Information Technology,True,IT,https://example.com/it\n"
         )
         universe_csv.write_text(
-            "Symbol,Company Name,Industry\n"
-            "WINNER,Winner Ltd,IT\n"
-            "LOSER,Loser Ltd,IT\n"
+            "Symbol,Company Name,Industry,sector_url\n"
+            "WINNER,Winner Ltd,IT,https://example.com/it\n"
+            "LOSER,Loser Ltd,IT,https://example.com/it\n"
         )
         self._orig_sector_csv = config.SECTOR_INDEX_MAP_CSV
         self._orig_universe_csv = config.STOCK_UNIVERSE_CSV
@@ -256,8 +267,17 @@ class TestRunBacktestVolumeSeedingEnablesQuickEntry(unittest.TestCase):
         self.tmpdir = Path(tempfile.mkdtemp())
         sector_csv = self.tmpdir / "sector_index_map.csv"
         universe_csv = self.tmpdir / "ind_nifty500list.csv"
-        sector_csv.write_text("symbol,index_name,category,is_sector_index,sector\n")  # empty is fine here
-        universe_csv.write_text("Symbol,Company Name,Industry\nWINNER,Winner Ltd,IT\n")
+        sector_csv.write_text(
+            "symbol,index_name,category,is_sector_index,sector,sector_url\n"
+            "NSE:NIFTYIT-INDEX,Nifty IT,Information Technology,True,IT,https://example.com/it\n"
+        )
+        universe_csv.write_text(
+            "Symbol,Company Name,Industry,sector_url\n"
+            "WINNER,Winner Ltd,IT,https://example.com/it\n"
+            "LOSER,Loser Ltd,IT,https://example.com/it\n"
+        )
+        #sector_csv.write_text("symbol,index_name,category,is_sector_index,sector,sector_url\n")  # empty is fine here
+        #universe_csv.write_text("Symbol,Company Name,Industry,sector_url\nWINNER,Winner Ltd,IT,https://example.com/it\n")
         self._orig_sector_csv = config.SECTOR_INDEX_MAP_CSV
         self._orig_universe_csv = config.STOCK_UNIVERSE_CSV
         config.SECTOR_INDEX_MAP_CSV = str(sector_csv)
@@ -272,8 +292,11 @@ class TestRunBacktestVolumeSeedingEnablesQuickEntry(unittest.TestCase):
         shutil.rmtree(self.tmpdir)
 
     def test_buy_fires_on_2_candles_within_the_day_when_prior_day_data_exists(self):
-        target_day = date(2026, 3, 17)  # Tuesday
-        prior_day = date(2026, 3, 16)   # Monday - within the 7-day lookback window
+        d = get_last_traded_day()  # Tuesday
+        d=d.split("-")
+        target_day = date(int(d[0]), int(d[1]), int(d[2]))
+        prior_day = date(int(d[0]), int(d[1]), int(d[2])-1)  # 2026-03-17
+        #prior_day = date(2026, 3, 16)   # Monday - within the 7-day lookback window
 
         series = {}
         # Prior day: 20 flat candles for volume-MA seeding.
@@ -293,7 +316,7 @@ class TestRunBacktestVolumeSeedingEnablesQuickEntry(unittest.TestCase):
         ]
 
         provider = FakeBacktestDataService(series)
-        results = backtest.run_backtest(provider, target_day, target_day)
+        results = backtest.run_backtest(provider, target_day, target_day, direction=TradeDirection.LONG)
 
         trades = results["trades"]
         self.assertFalse(trades.empty, "expected a BUY to fire from just 2 in-day candles")

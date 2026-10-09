@@ -100,14 +100,6 @@ from trade_direction import TradeDirection
 from sector_scanner import get_index_snapshot, get_sector_leaderboard
 from pathlib import Path
 
-# 1. Dynamically parse the parent path ('C:\NS\Fyers_AI_Client')
-# This gets the folder containing the current script and looks one level up
-project_root = Path(__file__).resolve().parent.parent
-
-# 2. Add 'C:\NS\Fyers_AI_Client' to Python's search path
-if str(project_root) not in sys.path:
-    sys.path.append(str(project_root))
-    
 logger = logging.getLogger("orb_agent.backtest")
 
 INTRADAY_SEED_LOOKBACK_DAYS = 7  # calendar days of extra intraday history fetched before
@@ -347,7 +339,7 @@ def run_backtest(data_service: FyersDataService, start_date: date, end_date: dat
         exit()
     
     leaderboard = get_sector_leaderboard(snapshot)
-    
+    symbols = []
     if direction == TradeDirection.LONG:
         logger.info("Backtesting %s strategy from %s to %s.", direction.value, start_date, end_date)
         logger.info(f" leader board {leaderboard.head(5)}")

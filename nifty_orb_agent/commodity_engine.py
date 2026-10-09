@@ -7,9 +7,13 @@ separate commodities-specific strategy. A futures contract has its own
 continuously-traded OHLCV series just like a stock, so - unlike NIFTY
 options (see options_engine.py, which is BUY-ONLY because of options' very
 different risk profile) - commodities keep this agent's original
-LONG-AND-SHORT behaviour unchanged: config.decide_todays_direction()'s
-sentiment-derived bias for the day is used exactly as-is, long or short,
-same as equities.
+LONG-AND-SHORT behaviour unchanged: today's sentiment-derived bias is used
+exactly as-is, long or short, same as equities - except that bias comes
+from bootstrap.decide_todays_commodity_direction() (a COMMODITY-specific
+global sentiment read - gold/silver/crude/copper/natural-gas/dollar-index
+cues, see global_sentiment.COMMODITY_GLOBAL_TICKERS), deliberately NOT the
+equity-cue sentiment equities/NIFTY/BANKNIFTY options use, since MCX trades
+against global commodity prices, not global equity indices.
 
 Off by default (config.ENABLE_MCX_COMMODITY_TRADING = False) - read this
 module and the MCX config block in config.py (especially
@@ -24,22 +28,24 @@ most contracts, and trading futures keeps the equities-to-commodities
 mapping exact: one tradable instrument per commodity, its own opening
 range, VWAP, and volume, no strike/expiry-selection step at all (unlike
 NIFTY options, which need exactly that - see options_engine.py). If you
-specifically want MCX options instead, options_engine.py's ATM-resolution
+specifically want MCX options instead, options_engine.py's OTM-resolution
 pattern (resolve everything from a symbol master file, never hard-code a
 strike/expiry format) is the template to extend from, not this module.
 
-Why a fixed universe instead of a scanned one
---------------------------------------------------
+Why the FULL fixed universe, unfiltered - no scan, no shortlist
+---------------------------------------------------------------------
 Equities scan hundreds of NSE stocks (opening_range_scanner.load_universe())
-and filter by sector + gain/loss band down to a shortlist. MCX has nothing
-equivalent to scan - there is no broad "commodity universe" CSV, and most
-accounts only trade a handful of liquid contracts anyway. So
-config.MCX_COMMODITY_UNIVERSE is an explicit, short, hand-maintained list
-instead: this module reuses
-opening_range_scanner.scan_symbols_accurate() (factored out of
-scan_opening_range_accurate() specifically so this doesn't duplicate that
-logic) directly against that list, rather than load_universe()'s
-NSE-equity-specific CSV scan.
+and filter by sector + today's opening gain/loss band down to a shortlist,
+because the starting universe is far too large to trade all of it at once.
+MCX has nothing equivalent to scan, and doesn't need one:
+config.MCX_COMMODITY_UNIVERSE IS the universe - an explicit, short,
+hand-maintained list of the handful of contracts the account actually
+trades (see config.py's comment). There is no sector step and no
+gain/loss-band shortlist here: every symbol in MCX_COMMODITY_UNIVERSE is
+traded every day, directly, with no narrowing step in between (see
+fetch_mcx_universe_opening_ranges() below) - a symbol is only ever left out
+because its own opening-range candle wasn't available (a data problem,
+logged loudly), never because of its price move.
 """
 
 from __future__ import annotations
@@ -80,53 +86,74 @@ def _lot_size_lookup() -> dict[str, int]:
     return {row["symbol"]: int(row["lot_size"]) for row in config.MCX_COMMODITY_UNIVERSE}
 
 
-def scan_mcx_opening_range(data_service: FyersDataService,
-                            direction: TradeDirection = TradeDirection.LONG) -> pd.DataFrame:
+def fetch_mcx_universe_opening_ranges(data_service: FyersDataService) -> pd.DataFrame:
     """
-    MCX equivalent of opening_range_scanner.scan_opening_range_accurate(),
-    scanned against the fixed config.MCX_COMMODITY_UNIVERSE instead of the
-    NSE-equity CSV universe, using MCX's own session-open window instead of
-    NSE's 09:15. Reuses the exact same gain/loss-band filtering
-    (config.MIN_GAIN_PCT/MAX_GAIN_PCT/MIN_LOSS_PCT/MAX_LOSS_PCT,
-    config.TOP_N_STOCKS) as equities - change those in config.py if MCX
-    should use different thresholds than equities do.
+    Fetches EVERY symbol in config.MCX_COMMODITY_UNIVERSE's own opening-range candle (the
+    first CANDLE_INTERVAL_MINUTES bar from MCX's own session open - see
+    _mcx_915_window_epochs()) and returns them ALL as a DataFrame, UNFILTERED - no
+    gain/loss-band shortlisting step, unlike equities' scan_opening_range_accurate()/
+    opening_range_scanner.load_universe(). MCX_COMMODITY_UNIVERSE is already the full,
+    deliberately short, hand-picked trading universe (see this module's docstring), so
+    there is nothing left to filter down.
+
+    A symbol is left out of the returned DataFrame ONLY when its opening-range candle
+    simply isn't available yet (contract not listed today, feed gap, etc - a genuine
+    data-availability problem) - that's logged loudly so a silently shrinking universe is
+    obvious, never mistaken for "today's filter excluded it".
     """
     symbols = [row["symbol"] for row in config.MCX_COMMODITY_UNIVERSE]
-    return scan_symbols_accurate(data_service, symbols, direction, window_epochs=_mcx_915_window_epochs())
+    from_epoch, to_epoch = _mcx_915_window_epochs()
+    today_str = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
+    candles_by_symbol = data_service.get_candles_bulk(symbols, "5", today_str, today_str)
+
+    rows = []
+    missing = []
+    for symbol in symbols:
+        candles = candles_by_symbol.get(symbol, [])
+        window_candle = next((c for c in candles if from_epoch <= c[0] < to_epoch), None)
+        if window_candle is None:
+            missing.append(symbol)
+            continue
+        _, o, h, l, c, v = window_candle
+        rows.append({"symbol": symbol, "open": o, "high": h, "low": l, "close": c, "volume": v})
+
+    if missing:
+        logger.warning("No opening-range candle available yet for %s - skipped today (a data "
+                        "availability gap, not a strategy filter; every OTHER symbol in "
+                        "MCX_COMMODITY_UNIVERSE is still traded).", missing)
+    return pd.DataFrame(rows)
 
 
 def run_mcx_commodity_engine(data_service: FyersDataService,
                               bias_direction: TradeDirection) -> SignalEngine | None:
     """
-    bias_direction: today's sentiment-derived directional bias - pass in
-    EXACTLY what bootstrap.decide_todays_direction() returned for equities
-    today (same reasoning as options_engine.run_nifty_options_engine: reuse
-    the one sentiment read, don't recompute it per-market). Unlike options,
-    this trades bias_direction AS-IS (LONG or SHORT, same as equities) -
-    see this module's docstring for why.
+    bias_direction: today's COMMODITY-specific sentiment-derived directional bias - pass in
+    EXACTLY what bootstrap.decide_todays_commodity_direction() returned (NOT
+    decide_todays_direction(), which is equities'/NIFTY-options' equity-cue read - see this
+    module's docstring for why they're deliberately separate). Unlike options, this trades
+    bias_direction AS-IS (LONG or SHORT, same as equities).
 
-    Builds a SignalEngine exactly like equities do, then sets each
-    tracker's lot_size from config.MCX_COMMODITY_UNIVERSE and
-    capital_allocated from an equal split of config.MCX_CAPITAL across
-    however many commodities actually made the shortlist today (NOT a
-    fixed len(MCX_COMMODITY_UNIVERSE) split, since an under-filled
-    shortlist shouldn't leave capital idle - see
-    position_sizing.capital_per_slot).
+    Trades EVERY symbol in config.MCX_COMMODITY_UNIVERSE directly (see
+    fetch_mcx_universe_opening_ranges() - no gain/loss-band shortlisting, unlike equities).
+    Capital is split equally across whichever of those symbols actually had an
+    opening-range candle available today (see position_sizing.capital_per_slot) - normally
+    the whole universe, unless one symbol hit a genuine data gap.
 
-    Returns None if nothing in the MCX universe passed today's gain/loss
-    filter - callers should treat that like equities' "empty shortlist"
-    case: skip MCX trading for today, other markets keep going
-    independently.
+    Returns None only if NOT A SINGLE symbol in the universe had its opening-range candle
+    available (a data/connectivity problem - there's no filter left to fail) - callers
+    should treat that like equities' "empty shortlist" case: skip MCX trading for today,
+    other markets keep going independently.
     """
     import position_sizing  # local import: avoids a module-level dependency equities/options
                              # don't need; keeps this module's import list scoped to what it uses.
 
-    shortlist = scan_mcx_opening_range(data_service, bias_direction)
-    if shortlist.empty:
-        logger.warning("No MCX commodity matched today's %s opening-range filter.", bias_direction.value)
+    universe_df = fetch_mcx_universe_opening_ranges(data_service)
+    if universe_df.empty:
+        logger.warning("No opening-range candle was available for ANY symbol in "
+                        "MCX_COMMODITY_UNIVERSE today - nothing to trade.")
         return None
 
-    engine = SignalEngine(data_service, shortlist, direction=bias_direction)
+    engine = SignalEngine(data_service, universe_df, direction=bias_direction)
     lot_sizes = _lot_size_lookup()
     per_slot_capital = position_sizing.capital_per_slot(config.MCX_CAPITAL, len(engine.trackers))
     for symbol, tracker in engine.trackers.items():
@@ -136,6 +163,6 @@ def run_mcx_commodity_engine(data_service: FyersDataService,
             logger.error("%s has no lot_size entry in config.MCX_COMMODITY_UNIVERSE - defaulting to "
                           "1, which is almost certainly WRONG for a commodity future. Add it before "
                           "trusting this contract's sizing.", symbol)
-    logger.info("MCX commodity engine ready: %s, %d contract(s), %.2f capital/slot.",
-                bias_direction.value, len(engine.trackers), per_slot_capital)
+    logger.info("MCX commodity engine ready: %s, %d/%d universe contract(s) tracked, %.2f capital/slot.",
+                bias_direction.value, len(engine.trackers), len(config.MCX_COMMODITY_UNIVERSE), per_slot_capital)
     return engine

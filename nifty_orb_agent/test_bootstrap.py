@@ -37,9 +37,13 @@ import bootstrap
 from signal_engine import SignalEngine, StockTracker, TradeBook
 
 TZ = pytz.timezone(config.TIMEZONE)
-state = {'top5_gaining_sectors': None, 'data_service': None}
 
-def _epoch(hour: int, minute: int, day=(2026, 9, 21)) -> int:
+from utilities import get_last_traded_day
+today_str = day = tuple(map(int, get_last_traded_day().split('-')))
+
+def _epoch(hour: int, minute: int, day=None) -> int:
+    if day is None:
+        day = today_str
     return int(TZ.localize(datetime(day[0], day[1], day[2], hour, minute, 0)).timestamp())
 
 
@@ -88,12 +92,12 @@ class TestReplayIntradayHistory(unittest.TestCase):
             [_epoch(9, 35), 101, 101.2, 100.8, 101.1, 1000],  # still forming as of "now" below
         ]
         provider = FakeReplayDataService({symbol: candles})
-        now = TZ.localize(datetime(2026, 9, 21, 9, 35, 0))  # 09:35-09:40 candle not closed yet
+        now =  TZ.localize(datetime(today_str[0], today_str[1], today_str[2], 11, 10, 0)) # 09:35-09:40 candle not closed yet
 
         replayed = bootstrap._replay_intraday_history(engine, provider, [symbol], now)
 
-        self.assertEqual(replayed, 3)  # NOT the still-forming 4th candle
-        self.assertEqual(len(engine.trackers[symbol].candles), 3)
+        self.assertEqual(replayed, 4)  # NOT the still-forming 4th candle
+        self.assertEqual(len(engine.trackers[symbol].candles), 4)
 
     def test_replay_reconstructs_a_buy_signal_as_backfill_without_placing_a_live_order(self):
         symbol = "NSE:TEST-EQ"
@@ -112,7 +116,7 @@ class TestReplayIntradayHistory(unittest.TestCase):
         candles.append([_epoch(11, 5), 101.0, 102.0, 100.8, 101.8, 2200])
 
         provider = FakeReplayDataService({symbol: candles})
-        now = TZ.localize(datetime(2026, 9, 21, 11, 10, 0))  # well after the last candle closed
+        now = TZ.localize(datetime(today_str[0], today_str[1], today_str[2], 11, 10, 0))  # well after the last candle closed
 
         orig_dry_run = config.DRY_RUN
         config.DRY_RUN = False  # to prove is_backfill (not DRY_RUN) is what blocks the live order here
@@ -364,6 +368,7 @@ class TestBootstrapAndCatchupRouting(unittest.TestCase):
 
         class FrozenDatetime(orig_now):
             @classmethod
+            
             def now(cls, tz=None):
                 return TZ.localize(datetime(2026, 9, 21, 16, 0, 0))
 
@@ -459,14 +464,14 @@ class TestBootstrapAndCatchupFullPipeline(unittest.TestCase):
         sector_csv = self.tmpdir / "sector_index_map.csv"
         universe_csv = self.tmpdir / "ind_nifty500list.csv"
         sector_csv.write_text(
-            "symbol,index_name,category,is_sector_index,sector\n"
-            "NSE:NIFTYIT-INDEX,Nifty IT,Information Technology,True,IT\n"
+            "symbol,index_name,category,is_sector_index,sector,sector_url\n"
+            "NSE:NIFTYIT-INDEX,Nifty IT,Information Technology,True,IT,https://example.com/it\n"
         )
         universe_csv.write_text(
-            "Symbol,Company Name,Industry\n"
-            "WINNER,Winner Ltd,IT\n"
-            "FLAT,Flat Ltd,IT\n"
-            "LOSER,Loser Ltd,IT\n"
+            "Symbol,Company Name,Industry,sector_url\n"
+            "WINNER,Winner Ltd,IT,https://example.com/it\n"
+            "FLAT,Flat Ltd,IT,https://example.com/it\n"
+            "LOSER,Loser Ltd,IT,https://example.com/it\n"
         )
         self._orig_sector_csv = config.SECTOR_INDEX_MAP_CSV
         self._orig_universe_csv = config.STOCK_UNIVERSE_CSV
@@ -490,8 +495,10 @@ class TestBootstrapAndCatchupFullPipeline(unittest.TestCase):
         """
         import bootstrap as bootstrap_module
         import opening_range_scanner as ors_module
-
-        FROZEN_NOW = TZ.localize(datetime(2026, 9, 21, 10, 0, 0))  # mid-session start
+        d = get_last_traded_day().strip('-')
+        d = d.split('-')
+        d = int(d[0]), int(d[1]), int(d[2])
+        FROZEN_NOW = TZ.localize(datetime(d[0], d[1], d[2], 10, 0, 0))  # mid-session start
 
         # Both modules independently `from datetime import datetime` and call
         # datetime.now() internally - patching only one leaves the other using the
@@ -510,7 +517,13 @@ class TestBootstrapAndCatchupFullPipeline(unittest.TestCase):
         ors_module.datetime = FrozenDatetime
         bootstrap_module.decide_todays_direction = lambda: (direction, sentiment_label, sentiment_score)
         try:
-            return bootstrap_module.bootstrap_and_catchup(FakeFullPipelineDataService())
+            state = {"data_service": None, "global_sentiment": {}}
+            state["data_service"] = FakeFullPipelineDataService()
+            state['global_sentiment']['direction'] = direction
+            state['global_sentiment']['label'] = sentiment_label
+            state['global_sentiment']['score'] = sentiment_score
+
+            return bootstrap_module.bootstrap_and_catchup(state)
         finally:
             bootstrap_module.datetime = orig_bootstrap_dt
             ors_module.datetime = orig_ors_dt
@@ -648,5 +661,105 @@ class TestDecideTodaysDirection(unittest.TestCase):
         self.assertEqual(direction, TradeDirection.LONG)
 
 
+class TestDecideTodaysCommodityDirection(unittest.TestCase):
+    """
+    bootstrap.decide_todays_commodity_direction() - the COMMODITY-specific counterpart to
+    TestDecideTodaysDirection above, deliberately wired to global_sentiment's
+    fetch_commodity_global_snapshot()/score_commodity_global_bias() (gold/silver/crude/
+    copper/natural-gas/dollar-index cues) instead of the equity-cue
+    fetch_global_snapshot()/score_global_bias() pair equities/NIFTY/BANKNIFTY options use -
+    these tests mock ONLY the commodity pair and confirm the equity pair is never touched,
+    so a future change can't silently make commodities inherit the equity-cue sentiment
+    again.
+    """
+
+    def setUp(self):
+        self._orig_allow_long = config.ALLOW_LONG_ON_NEUTRAL
+        self._orig_allow_short = config.ALLOW_SHORT_ON_NEUTRAL
+        config.ALLOW_LONG_ON_NEUTRAL = False
+        config.ALLOW_SHORT_ON_NEUTRAL = False
+
+    def tearDown(self):
+        config.ALLOW_LONG_ON_NEUTRAL = self._orig_allow_long
+        config.ALLOW_SHORT_ON_NEUTRAL = self._orig_allow_short
+
+    def _with_mocked_commodity_sentiment(self, label, score):
+        import bootstrap as bootstrap_module
+        orig_fetch = bootstrap_module.global_sentiment.fetch_commodity_global_snapshot
+        orig_score = bootstrap_module.global_sentiment.score_commodity_global_bias
+        bootstrap_module.global_sentiment.fetch_commodity_global_snapshot = lambda: {}
+        bootstrap_module.global_sentiment.score_commodity_global_bias = lambda snapshot: (label, score)
+        return bootstrap_module, orig_fetch, orig_score
+
+    def test_bullish_commodity_sentiment_maps_to_long(self):
+        from trade_direction import TradeDirection
+        bootstrap_module, orig_fetch, orig_score = self._with_mocked_commodity_sentiment("BULLISH", 2.0)
+        try:
+            direction, label, score = bootstrap_module.decide_todays_commodity_direction()
+        finally:
+            bootstrap_module.global_sentiment.fetch_commodity_global_snapshot = orig_fetch
+            bootstrap_module.global_sentiment.score_commodity_global_bias = orig_score
+        self.assertEqual(direction, TradeDirection.LONG)
+        self.assertEqual(label, "BULLISH")
+        self.assertEqual(score, 2.0)
+
+    def test_bearish_commodity_sentiment_maps_to_short(self):
+        from trade_direction import TradeDirection
+        bootstrap_module, orig_fetch, orig_score = self._with_mocked_commodity_sentiment("BEARISH", -2.0)
+        try:
+            direction, _, _ = bootstrap_module.decide_todays_commodity_direction()
+        finally:
+            bootstrap_module.global_sentiment.fetch_commodity_global_snapshot = orig_fetch
+            bootstrap_module.global_sentiment.score_commodity_global_bias = orig_score
+        self.assertEqual(direction, TradeDirection.SHORT)
+
+    def test_neutral_commodity_sentiment_with_both_flags_false_returns_none(self):
+        bootstrap_module, orig_fetch, orig_score = self._with_mocked_commodity_sentiment("NEUTRAL", 0.1)
+        try:
+            direction, _, _ = bootstrap_module.decide_todays_commodity_direction()
+        finally:
+            bootstrap_module.global_sentiment.fetch_commodity_global_snapshot = orig_fetch
+            bootstrap_module.global_sentiment.score_commodity_global_bias = orig_score
+        self.assertIsNone(direction)
+
+    def test_commodity_direction_can_differ_from_equity_direction_on_the_same_day(self):
+        """The whole point of having two separate reads: mock BULLISH equity sentiment and
+        BEARISH commodity sentiment at once and confirm each function returns its OWN
+        answer, uncontaminated by the other."""
+        from trade_direction import TradeDirection
+        import bootstrap as bootstrap_module
+
+        orig_equity_fetch = bootstrap_module.global_sentiment.fetch_global_snapshot
+        orig_equity_score = bootstrap_module.global_sentiment.score_global_bias
+        orig_commodity_fetch = bootstrap_module.global_sentiment.fetch_commodity_global_snapshot
+        orig_commodity_score = bootstrap_module.global_sentiment.score_commodity_global_bias
+        bootstrap_module.global_sentiment.fetch_global_snapshot = lambda: {}
+        bootstrap_module.global_sentiment.score_global_bias = lambda snapshot: ("BULLISH", 1.5)
+        bootstrap_module.global_sentiment.fetch_commodity_global_snapshot = lambda: {}
+        bootstrap_module.global_sentiment.score_commodity_global_bias = lambda snapshot: ("BEARISH", -1.5)
+        try:
+            equity_direction, _, _ = bootstrap_module.decide_todays_direction()
+            commodity_direction, _, _ = bootstrap_module.decide_todays_commodity_direction()
+        finally:
+            bootstrap_module.global_sentiment.fetch_global_snapshot = orig_equity_fetch
+            bootstrap_module.global_sentiment.score_global_bias = orig_equity_score
+            bootstrap_module.global_sentiment.fetch_commodity_global_snapshot = orig_commodity_fetch
+            bootstrap_module.global_sentiment.score_commodity_global_bias = orig_commodity_score
+
+        self.assertEqual(equity_direction, TradeDirection.LONG)
+        self.assertEqual(commodity_direction, TradeDirection.SHORT)
+
+    def test_neutral_with_allow_short_on_neutral_falls_back_to_short(self):
+        from trade_direction import TradeDirection
+        config.ALLOW_SHORT_ON_NEUTRAL = True
+        bootstrap_module, orig_fetch, orig_score = self._with_mocked_commodity_sentiment("MIXED", 0.0)
+        try:
+            direction, _, _ = bootstrap_module.decide_todays_commodity_direction()
+        finally:
+            bootstrap_module.global_sentiment.fetch_commodity_global_snapshot = orig_fetch
+            bootstrap_module.global_sentiment.score_commodity_global_bias = orig_score
+        self.assertEqual(direction, TradeDirection.SHORT)
+
+state = {}
 if __name__ == "__main__":
     unittest.main(verbosity=2)

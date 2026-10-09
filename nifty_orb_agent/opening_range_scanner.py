@@ -65,14 +65,6 @@ import fyersclient
 from sector_scanner import load_sector_map
 from trade_direction import TradeDirection
 
-# 1. Dynamically parse the parent path ('C:\NS\Fyers_AI_Client')
-# This gets the folder containing the current script and looks one level up
-project_root = Path(__file__).resolve().parent.parent
-
-# 2. Add 'C:\NS\Fyers_AI_Client' to Python's search path
-if str(project_root) not in sys.path:
-    sys.path.append(str(project_root))
-    
 logger = logging.getLogger("orb_agent.opening_range_scanner")
 
 
@@ -284,7 +276,7 @@ def scan_symbols_accurate(data_service: FyersDataService, symbols: list[str],
     
     #from_epoch, to_epoch = _today_915_window_epochs(datetime.strptime(today_str, "%Y-%m-%d"))
     from_epoch, to_epoch = window_epochs or _today_915_window_epochs(datetime.strptime(today_str, "%Y-%m-%d"))
-    today_str = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
+    #today_str = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
 
     candles_by_symbol = data_service.get_candles_bulk(symbols, "5", today_str, today_str)
 

@@ -325,6 +325,100 @@ class TestFeedCandleShortEntryAndWeakness(unittest.TestCase):
         self.assertLess(engine.trade_book.trades[1]["points"], 0)
 
 
+class TestCapitalBasedPositionSizing(unittest.TestCase):
+    """
+    Confirms entries/adds/exits now size orders from tracker.capital_allocated /
+    tracker.lot_size via position_sizing.calculate_quantity() (see config.TRADING_CAPITAL),
+    instead of the old flat config.DEFAULT_ORDER_QTY - and that TradeBook rows carry a
+    real qty and a correctly-derived rupee pnl_amount.
+    """
+
+    def setUp(self):
+        self.orig_dry_run = config.DRY_RUN
+        config.DRY_RUN = True
+
+    def tearDown(self):
+        config.DRY_RUN = self.orig_dry_run
+
+    def _feed_warmup_candles(self, engine, tracker, count=20, base_price=95.0):
+        for i in range(count):
+            c = base_price + i * 0.05
+            engine.feed_candle(tracker.symbol, [1700000000 + i, c, c + 0.2, c - 0.2, c, 1000],
+                                f"09:{20 + i}:00", is_backfill=False)
+
+    def test_entry_qty_is_computed_from_capital_allocated_and_price(self):
+        engine, tracker = _make_engine_with_tracker()
+        tracker.capital_allocated = 10_000.0
+        self._feed_warmup_candles(engine, tracker)
+        engine.feed_candle(tracker.symbol, [1, 100.5, 101.5, 100.2, 101.0, 2000], "09:45:00", is_backfill=False)
+        engine.feed_candle(tracker.symbol, [2, 101.0, 102.0, 100.8, 101.8, 2200], "09:50:00", is_backfill=False)
+
+        self.assertTrue(tracker.position_open)
+        expected_qty = int(10_000.0 // 101.8)  # floor(capital / entry price), lot_size=1
+        self.assertGreater(expected_qty, 0)
+        self.assertEqual(tracker.total_qty_open, expected_qty)
+        self.assertEqual(engine.trade_book.trades[0]["qty"], expected_qty)
+
+    def test_lot_size_rounds_quantity_down_to_whole_lots(self):
+        engine, tracker = _make_engine_with_tracker()
+        tracker.capital_allocated = 10_000.0
+        tracker.lot_size = 75
+        self._feed_warmup_candles(engine, tracker)
+        engine.feed_candle(tracker.symbol, [1, 100.5, 101.5, 100.2, 101.0, 2000], "09:45:00", is_backfill=False)
+        engine.feed_candle(tracker.symbol, [2, 101.0, 102.0, 100.8, 101.8, 2200], "09:50:00", is_backfill=False)
+
+        self.assertTrue(tracker.position_open)
+        self.assertGreater(tracker.total_qty_open, 0)
+        self.assertEqual(tracker.total_qty_open % 75, 0)
+
+    def test_entry_is_skipped_entirely_when_capital_cant_afford_one_lot(self):
+        engine, tracker = _make_engine_with_tracker()
+        tracker.capital_allocated = 10.0  # can't afford even 1 share at ~100
+        self._feed_warmup_candles(engine, tracker)
+        engine.feed_candle(tracker.symbol, [1, 100.5, 101.5, 100.2, 101.0, 2000], "09:45:00", is_backfill=False)
+        engine.feed_candle(tracker.symbol, [2, 101.0, 102.0, 100.8, 101.8, 2200], "09:50:00", is_backfill=False)
+
+        self.assertFalse(tracker.position_open)  # skipped entirely, never opened at qty=0
+        self.assertEqual(engine.trade_book.trades, [])
+
+    def test_close_all_open_computes_rupee_pnl_amount_from_qty(self):
+        book = TradeBook()
+        book.record_entry("NSE:A-EQ", "09:30:00", 100.0, direction=TradeDirection.LONG, qty=50)
+        book.close_all_open("NSE:A-EQ", "10:00:00", 105.0)
+        trade = book.trades[0]
+        self.assertEqual(trade["points"], 5.0)
+        self.assertEqual(trade["pnl_amount"], 250.0)  # 5 points x 50 qty
+
+    def test_weakness_add_accumulates_qty_and_full_squareoff_closes_the_total(self):
+        # Reuses TestAdoptBrokerPosition's hand-verified LONG adopt + weakness-ADD candle
+        # sequence (see that class's test_adopted_position_is_managed_by_the_candle_level_
+        # weakness_detector), then continues it two more weak candles to also exercise the
+        # full square-off path's qty bookkeeping.
+        engine, tracker = _make_engine_with_tracker()  # defaults to LONG
+        tracker.capital_allocated = 40_000.0
+        engine.adopt_broker_position(tracker.symbol, 100.0, 10, "10:00:00")
+        initial_qty = tracker.total_qty_open
+        self.assertEqual(initial_qty, 10)  # broker-adopted qty, NOT a fresh capital-based calc
+        seed_volume_windows_from_candles(
+            engine.trackers, {tracker.symbol: [[i, 100, 100.2, 99.8, 100.0, 1000] for i in range(20)]})
+
+        engine.feed_candle(tracker.symbol, [1, 105, 105.2, 104.8, 105.0, 1000], "10:05:00", is_backfill=False)
+        engine.feed_candle(tracker.symbol, [2, 100, 100.2, 99.8, 100.0, 2000], "10:10:00", is_backfill=False)
+        engine.feed_candle(tracker.symbol, [3, 97, 97.2, 96.8, 97.0, 2200], "10:15:00", is_backfill=False)
+        self.assertTrue(tracker.position_open)  # 1st weakness event -> ADD, not exit
+        add_qty = engine.trade_book.trades[-1]["qty"]
+        self.assertGreater(add_qty, 0)
+        self.assertEqual(tracker.total_qty_open, initial_qty + add_qty)
+
+        # A second weakness event -> full square-off, closing the TOTAL accumulated qty.
+        engine.feed_candle(tracker.symbol, [4, 90, 90.2, 89.8, 90.0, 2500], "10:20:00", is_backfill=False)
+        engine.feed_candle(tracker.symbol, [5, 85, 85.2, 84.8, 85.0, 2700], "10:25:00", is_backfill=False)
+        self.assertFalse(tracker.position_open)
+        self.assertEqual(tracker.total_qty_open, 0)
+        self.assertEqual(engine.trade_book.trades[0]["qty"], initial_qty)
+        self.assertEqual(engine.trade_book.trades[1]["qty"], add_qty)
+
+
 class TestSeedVolumeWindowsFromCandles(unittest.TestCase):
     """
     seed_volume_windows_from_candles() in isolation - the pure function

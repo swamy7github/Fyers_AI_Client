@@ -165,7 +165,7 @@ RATE_LIMIT_BACKOFF_BASE_SECONDS = 3  # doubles each attempt: 3s, 6s, 12s, 24s, 4
 # value. Set it a little under your actual documented limit, not exactly at
 # it, to leave headroom for clock jitter and any other process sharing the
 # same API key (e.g. a separate WebSocket connection).
-FYERS_MAX_CALLS_PER_SECOND = 5
+FYERS_MAX_CALLS_PER_SECOND = 8
 
 # How many symbols to pack into a single batched /quotes call. Fyers caps
 # how many comma-separated symbols one quotes request accepts - verify the
@@ -212,17 +212,38 @@ DEFAULT_ORDER_QTY = 1
 # ----------------------------------------------------------------------------
 # NIFTY INDEX options trading (see options_engine.py) - OFF by default
 # ----------------------------------------------------------------------------
-# This runs the EXACT SAME ORB + VWAP + 20-period-volume-MA entry/exit rules
-# from signal_engine.py against a single ATM NIFTY option contract (a BUY-ONLY
-# strategy - CE when today's sentiment-derived bias is LONG, PE when it's
-# SHORT; see options_engine.py's module docstring for why this never writes/
-# sells options naked). Off by default because it depends on a locally
-# maintained F&O symbol master file (below) that THIS repo cannot keep
-# current for you - read options_engine.py fully, and verify your own
-# symbol master's column names/values, before setting this True.
+# DUAL-SOURCE signal, single-leg execution (see options_engine.py's module
+# docstring for the full picture):
+#   - PRICE/VWAP condition is read from NIFTY_INDEX_SYMBOL's own 5-min candles
+#     (opening-range high/low from its 09:15 candle, running VWAP).
+#   - VOLUME condition (> 20-period volume MA) is read from NIFTY_FUTURES_SYMBOL's
+#     own 5-min candles instead - the index itself typically reports ZERO
+#     volume in Fyers' feed (it isn't a tradable instrument), so a volume-MA
+#     check against the index's own candles would be meaningless. VERIFY this
+#     against a raw quote/candle for your NIFTY_INDEX_SYMBOL before enabling -
+#     if your feed DOES report real index volume, the VWAP computed from it
+#     is still literally what's used here either way.
+#   - The instrument actually BOUGHT is a single OTM (out-of-the-money) NIFTY
+#     option - CE when today's sentiment-derived bias is LONG, PE when it's
+#     SHORT - BUY-ONLY, same reasoning as before (capped risk, no naked
+#     writing). Off by default because it depends on a locally maintained F&O
+#     symbol master file (below) that THIS repo cannot keep current for you -
+#     read options_engine.py fully, and verify your own symbol master's
+#     column names/values, before setting this True.
 ENABLE_NIFTY_OPTIONS_TRADING = False
 
-NIFTY_INDEX_SYMBOL = "NSE:NIFTY50-INDEX"   # spot quote, used to find the ATM strike
+NIFTY_INDEX_SYMBOL = "NSE:NIFTY50-INDEX"   # PRICE/VWAP source - spot index, also used for OTM strike selection
+
+# VOLUME source - the current front-month NIFTY index future. Unlike the option
+# symbol (resolved fresh each day from the symbol master below), this is a
+# plain string you must update yourself each time the contract rolls
+# (monthly) - e.g. "NSE:NIFTY25DECFUT" is only valid for that one expiry
+# cycle. If you'd rather this stay current automatically, extend
+# options_engine.py to resolve it from the same symbol master file instead
+# (the FUTURE rows are typically alongside the OPTION rows in Fyers' combined
+# F&O master) - not done here since you only asked for the option leg to be
+# master-resolved.
+NIFTY_FUTURES_SYMBOL = "NSE:NIFTY25DECFUT"
 
 # Fyers publishes a downloadable NSE F&O instrument/symbol master file
 # (check their current API docs for the exact URL - it has moved before)
@@ -250,6 +271,13 @@ NIFTY_FO_MASTER_COLUMNS = {
     "lot_size": "lot_size",
 }
 
+# How many strikes OUT of the money to buy: 1 = the first OTM strike (the
+# listed strike immediately above spot for a CE, immediately below spot for
+# a PE), 2 = the second, etc. Not specified precisely in the original
+# request ("OTM CE"/"OTM PE") - 1 (the nearest OTM strike) is the most
+# common reading and this repo's default; change it if you mean further OTM.
+NIFTY_OTM_STRIKES_AWAY = 1
+
 # Independent capital bucket for the options strategy - deliberately
 # separate from TRADING_CAPITAL (equities) and MCX_CAPITAL (below) rather
 # than shared, so running more than one of these strategies at once doesn't
@@ -257,6 +285,51 @@ NIFTY_FO_MASTER_COLUMNS = {
 # pool of money, divide it across these yourself and don't run the
 # strategies you're not funding.
 NIFTY_OPTIONS_CAPITAL = 200000.0
+
+# ----------------------------------------------------------------------------
+# BANK NIFTY (NIFTYBANK) INDEX options trading - OFF by default
+# ----------------------------------------------------------------------------
+# The EXACT SAME dual-source engine as the NIFTY options block above
+# (options_engine.py's NiftyOptionsEngine/run_index_options_engine - see its
+# module docstring for the full rule set), just pointed at NIFTYBANK's own
+# index/futures/strike universe instead of NIFTY's:
+#   - PRICE/VWAP condition from BANKNIFTY_INDEX_SYMBOL's own 5-min candles.
+#   - VOLUME condition (> 20-period volume MA) from BANKNIFTY_FUTURES_SYMBOL's
+#     own 5-min candles, for the same reason as NIFTY's - the index itself
+#     typically reports ZERO volume. VERIFY against your own raw feed before
+#     enabling, same as the NIFTY caveat above.
+#   - BUYS a single OTM (out-of-the-money) BANKNIFTY option - CE on a LONG
+#     bias, PE on a SHORT bias - using the SAME today's sentiment-derived
+#     direction equities/NIFTY-options use (never recomputed per market).
+# Shares NIFTY_FO_SYMBOL_MASTER_CSV/NIFTY_FO_MASTER_COLUMNS above - Fyers'
+# F&O symbol master is one combined file covering every NSE underlying
+# (NIFTY, BANKNIFTY, FINNIFTY, single stocks, ...), so there's no separate
+# "BANKNIFTY" master file to point at; options_engine.py just filters that
+# same file's underlying_symbol column for "BANKNIFTY" rows instead of
+# "NIFTY" ones. Off by default for the same reasons as NIFTY options - read
+# options_engine.py fully, and verify your own symbol master's BANKNIFTY
+# rows, before setting this True.
+ENABLE_BANKNIFTY_OPTIONS_TRADING = False
+
+BANKNIFTY_INDEX_SYMBOL = "NSE:NIFTYBANK-INDEX"  # PRICE/VWAP source - VERIFY this exact string
+                                                  # against your own Fyers symbol master/quote
+                                                  # before enabling; exchange symbol strings do
+                                                  # change.
+
+# VOLUME source - the current front-month BANKNIFTY future. Same manual-roll
+# caveat as NIFTY_FUTURES_SYMBOL above: this is a plain string you must
+# update yourself each time the contract rolls (monthly).
+BANKNIFTY_FUTURES_SYMBOL = "NSE:BANKNIFTY25DECFUT"
+
+# Same meaning as NIFTY_OTM_STRIKES_AWAY above, independently configurable
+# since BANKNIFTY's strike gap (100) is wider than NIFTY's (50) - 1 = the
+# nearest listed OTM strike.
+BANKNIFTY_OTM_STRIKES_AWAY = 1
+
+# Independent capital bucket, same reasoning as NIFTY_OPTIONS_CAPITAL above -
+# deliberately separate so running NIFTY options and BANKNIFTY options at the
+# same time doesn't silently double-spend one real capital pool.
+BANKNIFTY_OPTIONS_CAPITAL = 200000.0
 
 # ----------------------------------------------------------------------------
 # MCX commodities trading (see commodity_engine.py) - OFF by default
@@ -268,7 +341,7 @@ NIFTY_OPTIONS_CAPITAL = 200000.0
 # just like a stock). Off by default - see commodity_engine.py and verify
 # every value below against Fyers' current MCX contract specs before
 # enabling.
-ENABLE_MCX_COMMODITY_TRADING = False
+ENABLE_MCX_COMMODITY_TRADING = True
 
 # MCX's session runs well past NSE's 09:15-15:30 (into the evening,
 # currently commonly 09:00-23:30 IST with a seasonal 23:00 close during
@@ -281,27 +354,30 @@ MCX_OPENING_RANGE_SCAN_TIME = "09:05:02"   # mirrors OPENING_RANGE_SCAN_TIME's "
 MCX_SIGNAL_ENGINE_LAST_RUN = "23:14:30"    # mirrors SIGNAL_ENGINE_LAST_RUN - stop looking for NEW signals
 MCX_SQUARE_OFF_TIME = "23:15:00"           # mirrors SQUARE_OFF_TIME - force-close before session close
 
-# Fixed commodity universe (MCX has nothing equivalent to the NSE-500 +
-# sector-filter screen equities use - opening_range_scanner.scan_symbols_accurate()
-# is reused directly against this small, explicit list instead). `symbol`
-# MUST be the exact current front-month Fyers trading symbol (these roll
-# monthly/bi-monthly - e.g. "MCX:GOLDM25DECFUT" is only valid for one
-# expiry cycle) - update this list yourself before each contract rolls.
-# `lot_size` values below are illustrative placeholders (approximate,
-# commonly-cited MCX contract sizes as of this scaffold's own knowledge) -
-# VERIFY every one against MCX's current contract specifications before
-# trusting them for real position sizing; MCX revises lot sizes too.
+# Fixed commodity universe - MCX has nothing equivalent to the NSE-500 +
+# sector-filter screen equities use, and doesn't need one: EVERY symbol
+# listed here is traded directly, every day, with NO sector scan and NO
+# gain/loss-band shortlisting step (unlike equities - see
+# commodity_engine.py's module docstring). This list IS the universe.
+# `symbol` MUST be the exact current front-month Fyers trading symbol
+# (these roll monthly/bi-monthly - e.g. "MCX:GOLDM25DECFUT" is only valid
+# for one expiry cycle) - update this list yourself before each contract
+# rolls. `lot_size` values below are illustrative placeholders
+# (approximate, commonly-cited MCX contract sizes as of this scaffold's own
+# knowledge) - VERIFY every one against MCX's current contract
+# specifications before trusting them for real position sizing; MCX
+# revises lot sizes too.
+#    {"symbol": "MCX:GOLDTEN26OCTFUT", "lot_size": 10},     # Gold Mini - ~10g/lot (verify)
+#    {"symbol": "MCX:COPPER26OCTFUT", "lot_size": 2500},   # Copper - ~2500 kg/lot (verify)
 MCX_COMMODITY_UNIVERSE = [
     {"symbol": "MCX:CRUDEOILM26OCTFUT", "lot_size": 10},  # Crude Oil - ~10 barrels/lot (verify) Silver Mini 
-    {"symbol": "MCX:GOLDTEN26OCTFUT", "lot_size": 10},     # Gold Mini - ~10g/lot (verify)
     {"symbol": "MCX:GOLDPETAL26OCTFUT", "lot_size": 1},  # Gold Petals - ~1g/lot (verify)
     {"symbol": "MCX:NATGASMINI26OCTFUT", "lot_size": 250},  # Natural Gas - ~250 mmBtu/lot (verify)
-    {"symbol": "MCX:COPPER26OCTFUT", "lot_size": 2500},   # Copper - ~2500 kg/lot (verify)
     {"symbol": "MCX:SILVERMIC26NOVFUT", "lot_size": 1},    # Silver micro - ~1 kg/lot (verify)
     {"symbol": "MCX:ZINCMINI26OCTFUT", "lot_size": 100}   # Zinc Mini - ~1MT/lot (verify)
 ]
 
-MCX_CAPITAL = 200_000.0  # see NIFTY_OPTIONS_CAPITAL's comment on why this is its own bucket
+MCX_CAPITAL = 1000000.0  # see NIFTY_OPTIONS_CAPITAL's comment on why this is its own bucket
 
 # Tick-level stop-loss/target/trailing-stop (STOP_LOSS_PCT/TARGET_PCT/TRAILING_SL_PCT)
 # has been removed. Stop-loss is now purely candle/VWAP-driven: see

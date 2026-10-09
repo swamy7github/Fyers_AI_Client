@@ -271,6 +271,8 @@ def get_nifty_stock_universe(session=None, url=None, csv_file_path=None):
     Returns a dictionary of {symbol: industry}.
     """
     print(f" args = 1 {session}  2{url} 3{csv_file_path}")
+    if session is None:
+        session = create_safe_session()
     if url:
         csv_file_path = f"./data/{os.path.basename(url.strip())}"
         print(f"====> {csv_file_path} ")

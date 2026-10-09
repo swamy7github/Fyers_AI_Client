@@ -198,6 +198,38 @@ def decide_direction_for_date(as_of_date: date) -> tuple[Optional[TradeDirection
     return direction, label, score
 
 
+def decide_todays_commodity_direction() -> tuple[Optional[TradeDirection], str, float]:
+    """
+    Commodity-specific counterpart to decide_todays_direction() - used ONLY by
+    main.py's job_mcx_commodity_scan(), never by equities/NIFTY/BANKNIFTY
+    options. Turns global_sentiment.score_commodity_global_bias() (gold,
+    silver, crude, copper, natural gas, dollar-index cues - see
+    global_sentiment.COMMODITY_GLOBAL_TICKERS) into today's MCX trading
+    direction: BULLISH -> LONG, BEARISH -> SHORT, same NEUTRAL/MIXED/UNKNOWN
+    -> None (subject to the same ALLOW_LONG_ON_NEUTRAL/ALLOW_SHORT_ON_NEUTRAL
+    fallback) as the equity-cue version. Deliberately a SEPARATE sentiment
+    read, not a reuse of decide_todays_direction()'s equity-cue result -
+    MCX commodities trade against global commodity prices, not global
+    equity indices, so the two markets can (and sometimes will) end up
+    trading in different directions on the same day.
+    """
+    snapshot = global_sentiment.fetch_commodity_global_snapshot()
+    label, score = global_sentiment.score_commodity_global_bias(snapshot)
+    direction = _apply_neutral_fallback(decide_trade_direction_from_sentiment(label))
+    return direction, label, score
+
+
+def decide_commodity_direction_for_date(as_of_date: date) -> tuple[Optional[TradeDirection], str, float]:
+    """Historical counterpart to decide_todays_commodity_direction(), mirroring
+    decide_direction_for_date()'s role for the equity-cue version - not currently called by
+    backtest.py (which is equity-only today), provided for symmetry/future commodity
+    backtesting."""
+    snapshot = global_sentiment.fetch_commodity_global_snapshot_as_of(as_of_date)
+    label, score = global_sentiment.score_commodity_global_bias(snapshot)
+    direction = _apply_neutral_fallback(decide_trade_direction_from_sentiment(label))
+    return direction, label, score
+
+
 # ----------------------------------------------------------------------------
 # Historical replay
 # ----------------------------------------------------------------------------
@@ -371,7 +403,7 @@ def _reconcile_broker_state(engine: SignalEngine, data_service: FyersDataService
 # ----------------------------------------------------------------------------
 def bootstrap_and_catchup(state) -> BootstrapResult:
     now = datetime.now(TZ)
-    data_service: FyersDataService = state["data_service"]
+   
     phase = detect_market_phase(now)
     logger.info("Bootstrap: detected market phase %s at %s IST.", phase.value, now.strftime("%H:%M:%S"))
     if phase == MarketPhase.PRE_OPEN:
@@ -400,18 +432,19 @@ def bootstrap_and_catchup(state) -> BootstrapResult:
     #    of the direction decision below, since it's cheap and useful either way.
     # to sync with the rest of the state, we store the top5_gaining_sectors and top5_losing_sectors in the main_module.state to be used by other jobs
     # stock is selected in sync with the sectors direction.
+    data_service: FyersDataService = state["data_service"]
     snapshot = get_index_snapshot(data_service)
     leaderboard = get_sector_leaderboard(snapshot)
-    main_module = sys.modules['__main__']
-    main_module.state['top5_gaining_sectors'] = leaderboard.head(5)
-    logger.info(f'{main_module.state["top5_gaining_sectors"]}')
-    universe = load_universe(main_module.state['top5_gaining_sectors'] )
+    #main_module = sys.modules['__main__']
+    state['top5_gaining_sectors'] = leaderboard.head(5)
+    logger.info(f'{state["top5_gaining_sectors"]}')
+    universe = load_universe(state['top5_gaining_sectors'] )
     breadth = compute_market_breadth(data_service, universe)
     logger.info("Market breadth snapshot LONG: %s", breadth)
     
-    main_module.state['top5_losing_sectors'] = leaderboard.tail(5)
-    logger.info(f'{main_module.state["top5_losing_sectors"]}')
-    universe = load_universe(main_module.state['top5_losing_sectors'] )
+    state['top5_losing_sectors'] = leaderboard.tail(5)
+    logger.info(f'{state["top5_losing_sectors"]}')
+    universe = load_universe(state['top5_losing_sectors'] )
     breadth = compute_market_breadth(data_service, universe)
     logger.info("Market breadth snapshot SHORT: %s", breadth)
 
@@ -432,7 +465,7 @@ def bootstrap_and_catchup(state) -> BootstrapResult:
     # 3. Gap screen -> shortlist (gap-UP for LONG, gap-DOWN for SHORT), via the
     #    always-correct historical path (we don't know how late "late" is, so the
     #    quotes-proxy shortcut is never safe here)
-    shortlist = scan_opening_range_accurate(main_module.state, direction=direction)
+    shortlist = scan_opening_range_accurate(state, direction=direction)
     if shortlist.empty:
         msg = f"Catch-up: no stocks matched the {direction.value} opening-range filter today - nothing to track."
         logger.warning(msg)
