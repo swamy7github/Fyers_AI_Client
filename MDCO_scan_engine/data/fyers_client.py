@@ -51,6 +51,12 @@ class FyersDataClient:
         """
         if not self.use_mock and self.fyers_instance:
             try:
+                # Check if resolution is NOT daily ("D")
+                if resolution != "D":
+                    # Parse end_date, subtract 100 days, and format back to string
+                    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+                    calculated_start_dt = end_dt - timedelta(days=100)
+                    start_date = calculated_start_dt.strftime("%Y-%m-%d")
                 data_req = {
                     "symbol": symbol,
                     "resolution": resolution,

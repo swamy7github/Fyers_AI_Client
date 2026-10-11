@@ -71,14 +71,15 @@ logger = logging.getLogger("orb_agent.commodities")
 
 def _mcx_915_window_epochs() -> tuple[int, int]:
     """MCX's session opens later than NSE's 09:15 - see config.MCX_MARKET_OPEN_TIME. The
-    'opening range' candle for MCX is the first CANDLE_INTERVAL_MINUTES bar from ITS OWN
-    session open, not NSE's 09:15, so this can't reuse
-    opening_range_scanner._today_915_window_epochs() as-is."""
+    'opening range' candle for MCX is the first MCX_CANDLE_INTERVAL_MINUTES bar from ITS OWN
+    session open, not NSE's 09:15 (and not necessarily the same width as NSE's own
+    CANDLE_INTERVAL_MINUTES - see config.MCX_CANDLE_INTERVAL_MINUTES/Task #6), so this can't
+    reuse opening_range_scanner._today_915_window_epochs() as-is."""
     tz = pytz.timezone(config.TIMEZONE)
     now = datetime.now(tz)
     open_h, open_m, open_s = (int(p) for p in config.MCX_MARKET_OPEN_TIME.split(":"))
     start = tz.localize(datetime(now.year, now.month, now.day, open_h, open_m, open_s))
-    end = start + pd.Timedelta(minutes=config.CANDLE_INTERVAL_MINUTES)
+    end = start + pd.Timedelta(minutes=config.MCX_CANDLE_INTERVAL_MINUTES)
     return int(start.timestamp()), int(end.timestamp())
 
 
@@ -104,7 +105,8 @@ def fetch_mcx_universe_opening_ranges(data_service: FyersDataService) -> pd.Data
     symbols = [row["symbol"] for row in config.MCX_COMMODITY_UNIVERSE]
     from_epoch, to_epoch = _mcx_915_window_epochs()
     today_str = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
-    candles_by_symbol = data_service.get_candles_bulk(symbols, "5", today_str, today_str)
+    resolution = str(config.MCX_CANDLE_INTERVAL_MINUTES)
+    candles_by_symbol = data_service.get_candles_bulk(symbols, resolution, today_str, today_str)
 
     rows = []
     missing = []
@@ -153,7 +155,8 @@ def run_mcx_commodity_engine(data_service: FyersDataService,
                         "MCX_COMMODITY_UNIVERSE today - nothing to trade.")
         return None
 
-    engine = SignalEngine(data_service, universe_df, direction=bias_direction)
+    engine = SignalEngine(data_service, universe_df, direction=bias_direction,
+                           candle_resolution=str(config.MCX_CANDLE_INTERVAL_MINUTES))
     lot_sizes = _lot_size_lookup()
     per_slot_capital = position_sizing.capital_per_slot(config.MCX_CAPITAL, len(engine.trackers))
     for symbol, tracker in engine.trackers.items():

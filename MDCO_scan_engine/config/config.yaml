@@ -42,6 +42,9 @@ market_regime:
   require_index_above_sma: true
   index_sma_period: 50
 
+screener_candle_timeframe:
+  candle_timeframe: "D"  # 3-hour candles for pattern recognition
+
 strategies:
   enable_short_screening: true  # Enable screening for SELL / Short Intraday setups
   minervini_vcp:

@@ -87,7 +87,7 @@ import pandas as pd
 import pytz, sys 
 
 import config
-from bootstrap import decide_direction_for_date
+from bootstrap import decide_commodity_direction_for_date, decide_direction_for_date
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -434,6 +434,170 @@ def run_backtest(data_service: FyersDataService, start_date: date, end_date: dat
             "sector_leaderboards": sector_leaderboards, "overall": overall}
 
 
+# ----------------------------------------------------------------------------
+# MCX commodity backtesting
+# ----------------------------------------------------------------------------
+# Mirrors the equity functions above, but MUCH simpler - no sector scan and no gain/loss-band
+# shortlist (see commodity_engine.py's module docstring): config.MCX_COMMODITY_UNIVERSE IS
+# the universe, traded directly and unconditionally every day, at config.
+# MCX_CANDLE_INTERVAL_MINUTES resolution instead of equities' fixed 5-min bars (Task #6).
+def _build_mcx_shortlist_for_date(symbols: list[str], intraday_by_symbol: dict,
+                                   target_date: date, tz) -> pd.DataFrame:
+    """MCX counterpart to _build_shortlist_for_date() above - NO gain/loss-band filtering and
+    NO previous-close lookup: every universe symbol with an opening-range candle available on
+    target_date is included, full stop (see commodity_engine.fetch_mcx_universe_opening_ranges,
+    whose live logic this mirrors, sliced from pre-fetched data instead of fresh API calls)."""
+    rows = []
+    for symbol in symbols:
+        day_candles = _candles_on_date(intraday_by_symbol.get(symbol, []), target_date, tz)
+        if not day_candles:
+            continue
+        _, o, h, l, c, v = day_candles[0]
+        rows.append({"symbol": symbol, "open": o, "high": h, "low": l, "close": c, "volume": v})
+    return pd.DataFrame(rows)
+
+
+def _run_mcx_backtest_for_date(data_service: FyersDataService, target_date: date, symbols: list[str],
+                                intraday_by_symbol: dict, tz, direction: TradeDirection,
+                                lot_sizes: dict[str, int], capital: float) -> dict:
+    import position_sizing  # local import: avoids a module-level dependency the equity path
+                             # above doesn't need - matches commodity_engine.py's own style.
+
+    shortlist = _build_mcx_shortlist_for_date(symbols, intraday_by_symbol, target_date, tz)
+    if shortlist.empty:
+        logger.info("%s: no MCX opening-range candle available for any universe symbol - skipping "
+                    "(holiday, or a data gap).", target_date)
+        return {"date": target_date, "shortlist": shortlist, "trades": pd.DataFrame(), "summary": {}}
+
+    logger.info("%s: MCX %s universe -> %s", target_date, direction.value, list(shortlist["symbol"]))
+    engine = SignalEngine(data_service, shortlist, direction=direction,
+                           candle_resolution=str(config.MCX_CANDLE_INTERVAL_MINUTES))
+
+    per_slot_capital = position_sizing.capital_per_slot(capital, len(engine.trackers))
+    for symbol, tracker in engine.trackers.items():
+        tracker.lot_size = lot_sizes.get(symbol, 1)
+        tracker.capital_allocated = per_slot_capital
+
+    # Seed volume-MA windows from the prior session(s), sliced out of the SAME pre-fetched
+    # intraday data (zero extra API calls) - identical reasoning to the equity path above.
+    seed_candles_by_symbol = {
+        row["symbol"]: _seed_candles_before_date(intraday_by_symbol.get(row["symbol"], []), target_date, tz,
+                                                  config.VOLUME_MA_PERIOD)
+        for _, row in shortlist.iterrows()
+    }
+    seed_volume_windows_from_candles(engine.trackers, seed_candles_by_symbol)
+
+    per_symbol_day_candles = {
+        row["symbol"]: _candles_on_date(intraday_by_symbol.get(row["symbol"], []), target_date, tz)
+        for _, row in shortlist.iterrows()
+    }
+    max_len = max((len(c) for c in per_symbol_day_candles.values()), default=0)
+
+    # Start at index 1: index 0 is the opening-range candle itself, already seeded into
+    # SignalEngine's VWAP above (see signal_engine.seed_opening_range_candle) - matches live.
+    for i in range(1, max_len):
+        for symbol, day_candles in per_symbol_day_candles.items():
+            if i >= len(day_candles):
+                continue
+            candle = day_candles[i]
+            candle_time_str = datetime.fromtimestamp(candle[0], tz).strftime("%H:%M:%S")
+            engine.feed_candle(symbol, candle, candle_time_str)
+
+    engine.square_off_all(at_time_str=_latest_candle_time_str(per_symbol_day_candles, tz))
+    trades_df = engine.trade_book.as_dataframe()
+    if not trades_df.empty:
+        trades_df.insert(0, "date", str(target_date))
+    return {"date": target_date, "shortlist": shortlist, "trades": trades_df, "summary": engine.trade_book.summary()}
+
+
+def run_mcx_backtest(data_service: FyersDataService, start_date: date, end_date: date,
+                      direction: Optional[TradeDirection] = None) -> dict:
+    """
+    MCX commodity counterpart to run_backtest() above - backtests config.MCX_COMMODITY_UNIVERSE
+    directly (no sector/universe scan, no gain/loss-band shortlist - see commodity_engine.py's
+    module docstring) over every weekday in [start_date, end_date], at config.
+    MCX_CANDLE_INTERVAL_MINUTES resolution (see config.py/Task #6) rather than equities' fixed
+    5-min bars.
+
+    direction=None (the default): decided FRESH FOR EACH DAY from historical COMMODITY
+    sentiment (bootstrap.decide_commodity_direction_for_date - gold/silver/crude/copper/
+    natural-gas/dollar-index cues), exactly matching what live MCX trading would have chosen -
+    deliberately NOT equities' decide_direction_for_date() (see that function's docstring for
+    why the two sentiment reads are kept separate).
+
+    direction=<a fixed TradeDirection>: overrides the per-day decision, same opt-in semantics
+    as run_backtest()'s own `direction` parameter - replays one fixed side across the whole
+    range regardless of commodity sentiment.
+
+    Returns the same shape as run_backtest() minus "sector_leaderboards" (an NSE-equity-only
+    concept with no MCX analogue): {"trades", "daily_summary", "overall"}.
+    """
+    symbols = [row["symbol"] for row in config.MCX_COMMODITY_UNIVERSE]
+    lot_sizes = {row["symbol"]: int(row["lot_size"]) for row in config.MCX_COMMODITY_UNIVERSE}
+    trading_days = trading_days_between(start_date, end_date)
+    if not trading_days:
+        logger.warning("No weekdays in the requested range (%s to %s).", start_date, end_date)
+        return {"trades": pd.DataFrame(), "daily_summary": pd.DataFrame(), "overall": {}}
+
+    resolution = str(config.MCX_CANDLE_INTERVAL_MINUTES)
+    intraday_fetch_start = start_date - timedelta(days=INTRADAY_SEED_LOOKBACK_DAYS)
+    intraday_chunks = len(_date_chunks(intraday_fetch_start, end_date, config.INTRADAY_HISTORY_MAX_DAYS_PER_CHUNK))
+    estimated_calls = len(symbols) * intraday_chunks
+    logger.info("Pre-fetching %d-symbol MCX universe history (%s-min resolution) for %d trading "
+                "day(s) (%s to %s). Estimated ~%d API calls.",
+                len(symbols), resolution, len(trading_days), start_date, end_date, estimated_calls)
+
+    intraday_by_symbol: dict[str, list] = {}
+    for idx, symbol in enumerate(symbols, start=1):
+        intraday_by_symbol[symbol] = _fetch_full_range_candles(
+            data_service, symbol, resolution, intraday_fetch_start, end_date,
+            config.INTRADAY_HISTORY_MAX_DAYS_PER_CHUNK)
+        logger.info("MCX pre-fetch progress: %d/%d symbols.", idx, len(symbols))
+
+    tz = pytz.timezone(config.TIMEZONE)
+    all_trades = []
+    daily_summaries = []
+    forced_direction = direction is not None
+
+    for d in trading_days:
+        if forced_direction:
+            day_direction, sentiment_label, sentiment_score = direction, "FORCED", 0.0
+        else:
+            day_direction, sentiment_label, sentiment_score = decide_commodity_direction_for_date(d)
+
+        if day_direction is None:
+            logger.info("%s: commodity sentiment is %s (score %.2f) - no clear direction and no "
+                        "ALLOW_LONG_ON_NEUTRAL/ALLOW_SHORT_ON_NEUTRAL fallback configured, "
+                        "skipping (no MCX trades today, matching what live trading would do).",
+                        d, sentiment_label, sentiment_score)
+            daily_summaries.append({"date": str(d), "direction": None, "sentiment": sentiment_label,
+                                     "sentiment_score": sentiment_score,
+                                     "total_trades": 0, "total_points": 0.0, "win_rate_pct": 0.0})
+            continue
+
+        result = _run_mcx_backtest_for_date(data_service, d, symbols, intraday_by_symbol, tz,
+                                             day_direction, lot_sizes, config.MCX_CAPITAL)
+        if not result["trades"].empty:
+            all_trades.append(result["trades"])
+        daily_summaries.append({"date": str(d), "direction": day_direction.value, "sentiment": sentiment_label,
+                                 "sentiment_score": sentiment_score, **result["summary"]})
+
+    combined_trades = pd.concat(all_trades, ignore_index=True) if all_trades else pd.DataFrame()
+    daily_summary_df = pd.DataFrame(daily_summaries)
+
+    overall = {
+        "days_tested": len(daily_summaries),
+        "days_skipped_no_direction": int(daily_summary_df["direction"].isna().sum()) if "direction" in daily_summary_df else 0,
+        "days_with_trades": (int((daily_summary_df["total_trades"] > 0).sum())
+                              if "total_trades" in daily_summary_df else 0),
+        "total_trades": int(combined_trades.shape[0]) if not combined_trades.empty else 0,
+        "total_points": round(float(combined_trades["points"].sum()), 2) if not combined_trades.empty else 0.0,
+        "win_rate_pct": (round(float((combined_trades["points"] > 0).mean() * 100), 2)
+                          if not combined_trades.empty else 0.0),
+    }
+    return {"trades": combined_trades, "daily_summary": daily_summary_df, "overall": overall}
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -447,6 +611,12 @@ if __name__ == "__main__":
                     "decided per-day from historical sentiment by default (matching live).")
     parser.add_argument("--start", required=True, help="YYYY-MM-DD")
     parser.add_argument("--end", required=True, help="YYYY-MM-DD")
+    parser.add_argument("--market", default="equity", choices=["equity", "mcx"],
+                         help="Which market to backtest: 'equity' (the NSE universe scan + "
+                              "gain/loss-band shortlist - the default) or 'mcx' (config."
+                              "MCX_COMMODITY_UNIVERSE, traded directly and unconditionally every "
+                              "day, at config.MCX_CANDLE_INTERVAL_MINUTES resolution - see "
+                              "run_mcx_backtest()).")
     parser.add_argument("--direction", default=None, choices=["LONG", "SHORT"],
                          help="Force one fixed direction across the whole range, overriding the "
                               "default per-day sentiment-based decision. Omit this to replay what "

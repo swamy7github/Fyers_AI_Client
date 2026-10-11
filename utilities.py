@@ -8,6 +8,7 @@ import os
 import csv
 import json
 import io
+from pathlib import Path
 
 NSE_ALL_URL = "https://archives.nseindia.com/content/equities/EQUITY_L.csv"
 
@@ -275,6 +276,12 @@ def get_nifty_stock_universe(session=None, url=None, csv_file_path=None):
         session = create_safe_session()
     if url:
         csv_file_path = f"./data/{os.path.basename(url.strip())}"
+        # Setup the path
+        csv_file_path = Path(f"./data/{os.path.basename(url.strip())}")
+        # Create directories and the file safely in two lines
+        csv_file_path.parent.mkdir(parents=True, exist_ok=True)
+        csv_file_path.touch(exist_ok=True)
+        
         print(f"====> {csv_file_path} ")
         print(f"URL ={url}")
         try:

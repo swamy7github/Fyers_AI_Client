@@ -141,6 +141,42 @@ def _within_signal_window(now: datetime) -> bool:
     return _is_market_open_now(now) and now.time() <= _time_from_hms(config.SIGNAL_ENGINE_LAST_RUN)
 
 
+def detect_mcx_market_phase(now: datetime) -> MarketPhase:
+    """
+    MCX-specific counterpart to detect_market_phase() above - MCX's own session
+    (config.MCX_MARKET_OPEN_TIME/MCX_MARKET_CLOSE_TIME, commonly 09:00-23:30 IST) runs far
+    longer than, and entirely INDEPENDENTLY of, NSE's 09:15-15:30 equity session. Before this
+    existed, main.py used the single equity-only detect_market_phase() result to decide
+    whether to exit the WHOLE process - which meant an NSE POST_CLOSE (e.g. starting the
+    agent at 17:51 IST) would stop MCX from ever being scheduled, even though MCX was still
+    open for another ~6 hours. See main.py's module docstring for the full story.
+
+    Same MarketPhase enum as detect_market_phase() (PRE_OPEN/POST_OPEN/POST_CLOSE) - there's
+    no need for a separate type, just a separate TIME WINDOW to evaluate it against. Does NOT
+    check MCX trading holidays - same caveat as detect_market_phase().
+    """
+    if now.weekday() >= 5:  # Saturday=5, Sunday=6
+        return MarketPhase.POST_CLOSE
+    t = now.time()
+    if t < _time_from_hms(config.MCX_MARKET_OPEN_TIME):
+        return MarketPhase.PRE_OPEN
+    if t > _time_from_hms(config.MCX_MARKET_CLOSE_TIME):
+        return MarketPhase.POST_CLOSE
+    return MarketPhase.POST_OPEN
+
+
+def _is_mcx_market_open_now(now: datetime) -> bool:
+    return detect_mcx_market_phase(now) == MarketPhase.POST_OPEN
+
+
+def _within_mcx_signal_window(now: datetime) -> bool:
+    """MCX counterpart to _within_signal_window() above - POST_OPEN (for MCX) AND not yet
+    past MCX's own config.MCX_SIGNAL_ENGINE_LAST_RUN cutoff, deliberately independent of
+    equities' SIGNAL_ENGINE_LAST_RUN (15:10) - MCX keeps accepting fresh catch-up starts for
+    many hours after equities/options have already stopped for the day."""
+    return _is_mcx_market_open_now(now) and now.time() <= _time_from_hms(config.MCX_SIGNAL_ENGINE_LAST_RUN)
+
+
 # ----------------------------------------------------------------------------
 # Sentiment -> direction decision. Public (no leading underscore) because
 # main.py's own on-time (09:20:02) path needs the exact same decision, not a
@@ -221,9 +257,9 @@ def decide_todays_commodity_direction() -> tuple[Optional[TradeDirection], str, 
 
 def decide_commodity_direction_for_date(as_of_date: date) -> tuple[Optional[TradeDirection], str, float]:
     """Historical counterpart to decide_todays_commodity_direction(), mirroring
-    decide_direction_for_date()'s role for the equity-cue version - not currently called by
-    backtest.py (which is equity-only today), provided for symmetry/future commodity
-    backtesting."""
+    decide_direction_for_date()'s role for the equity-cue version - called per-day by
+    backtest.run_mcx_backtest() (Task #7) so MCX backtests pick direction from historical
+    COMMODITY sentiment, exactly mirroring what live MCX trading would have chosen."""
     snapshot = global_sentiment.fetch_commodity_global_snapshot_as_of(as_of_date)
     label, score = global_sentiment.score_commodity_global_bias(snapshot)
     direction = _apply_neutral_fallback(decide_trade_direction_from_sentiment(label))
@@ -234,13 +270,19 @@ def decide_commodity_direction_for_date(as_of_date: date) -> tuple[Optional[Trad
 # Historical replay
 # ----------------------------------------------------------------------------
 def fetch_and_seed_volume_windows(engine: SignalEngine, data_service: FyersDataService,
-                                   reference_date: Optional[date] = None, lookback_days: int = 7) -> None:
+                                   reference_date: Optional[date] = None, lookback_days: int = 7,
+                                   resolution: str = "5") -> None:
     """
     Live counterpart to backtest.py's own pre-fetched-data seeding (see
     signal_engine.seed_volume_windows_from_candles for what this fixes and
     why): fetches the most recent trading session(s) before reference_date
     (today, if not given) via one bulk call per lookback day actually
     needed, and seeds every tracked symbol's volume windows from it.
+
+    resolution defaults to "5" (equities'/options' own candle width) - bootstrap_mcx_catchup()
+    below passes config.MCX_CANDLE_INTERVAL_MINUTES (stringified) instead, so the prior-session
+    volume-MA warm-up is sliced at the SAME candle width the live engine will actually check
+    (see config.MCX_CANDLE_INTERVAL_MINUTES/Task #6) rather than always assuming 5-min bars.
 
     Looks back up to `lookback_days` CALENDAR days, skipping weekends (NOT
     NSE holidays - same known limitation as the rest of this project),
@@ -273,7 +315,7 @@ def fetch_and_seed_volume_windows(engine: SignalEngine, data_service: FyersDataS
         days_checked += 1
         day_str = day.strftime("%Y-%m-%d")
         try:
-            candles_by_symbol = data_service.get_candles_bulk(symbols, "5", day_str, day_str)
+            candles_by_symbol = data_service.get_candles_bulk(symbols, resolution, day_str, day_str)
         except Exception as exc:
             logger.warning("Could not fetch %s history for volume-MA seeding: %s", day_str, exc)
             continue
@@ -288,28 +330,46 @@ def fetch_and_seed_volume_windows(engine: SignalEngine, data_service: FyersDataS
 
 
 def _replay_intraday_history(engine: SignalEngine, data_service: FyersDataService,
-                              symbols: list[str], now: datetime) -> int:
+                              symbols: list[str], now: datetime, *,
+                              market_open_time: Optional[str] = None,
+                              candle_interval_minutes: Optional[int] = None,
+                              resolution: Optional[str] = None) -> int:
     """
-    Fetches every symbol's 5-min candles for today in one rate-limit-hardened
+    Fetches every symbol's candles for today in one rate-limit-hardened
     bulk call, then feeds each FULLY CLOSED candle from market open up to
     "now" through engine.feed_candle(is_backfill=True), in chronological
     order per symbol. Returns how many candles were replayed in total.
 
-    "Fully closed" matters: a candle whose 5-minute window hasn't finished
-    yet (i.e. its close-time is still in the future relative to `now`) is
-    still forming - feeding a partial bar would corrupt VWAP/volume-MA
-    state with data that hasn't actually happened yet.
+    "Fully closed" matters: a candle whose window hasn't finished yet (i.e.
+    its close-time is still in the future relative to `now`) is still
+    forming - feeding a partial bar would corrupt VWAP/volume-MA state with
+    data that hasn't actually happened yet.
+
+    market_open_time/candle_interval_minutes/resolution default to equities' own config
+    (config.MARKET_OPEN_TIME / config.CANDLE_INTERVAL_MINUTES / "5") - bootstrap_mcx_catchup()
+    below passes MCX's own values instead, so this SAME replay logic serves both markets
+    without duplicating it (see config.MCX_MARKET_OPEN_TIME/MCX_CANDLE_INTERVAL_MINUTES).
+
+    The skip boundary is candle_open_time <= market_open (not strictly <): the very FIRST
+    candle of the session (whose open time EQUALS market open) is the opening-range candle,
+    and it's already seeded into cum_pv/cum_vol by SignalEngine.__init__ at construction time
+    (see signal_engine.seed_opening_range_candle) - replaying it again here would double-count
+    it in VWAP. Everything strictly after market open is replayed exactly as before.
     """
     if not symbols:
         return 0
 
-    today_str = now.strftime("%Y-%m-%d")
-    candles_by_symbol = data_service.get_candles_bulk(symbols, "5", today_str, today_str)
+    market_open_time = market_open_time or config.MARKET_OPEN_TIME
+    candle_interval_minutes = candle_interval_minutes or config.CANDLE_INTERVAL_MINUTES
+    resolution = resolution or "5"
 
-    market_open_t = _time_from_hms(config.MARKET_OPEN_TIME)
+    today_str = now.strftime("%Y-%m-%d")
+    candles_by_symbol = data_service.get_candles_bulk(symbols, resolution, today_str, today_str)
+
+    market_open_t = _time_from_hms(market_open_time)
     market_open_dt = TZ.localize(datetime(now.year, now.month, now.day,
                                            market_open_t.hour, market_open_t.minute, market_open_t.second))
-    candle_span = timedelta(minutes=config.CANDLE_INTERVAL_MINUTES)
+    candle_span = timedelta(minutes=candle_interval_minutes)
 
     replayed = 0
     for symbol in symbols:
@@ -317,8 +377,9 @@ def _replay_intraday_history(engine: SignalEngine, data_service: FyersDataServic
         for candle in candles:
             candle_open_time = datetime.fromtimestamp(candle[0], TZ)
             candle_close_time = candle_open_time + candle_span
-            if candle_open_time < market_open_dt or candle_close_time > now:
-                continue  # before today's open, or not fully closed yet - skip
+            if candle_open_time <= market_open_dt or candle_close_time > now:
+                continue  # at/before today's open (already seeded at construction - see
+                          # docstring above), or not fully closed yet - skip
             try:
                 engine.feed_candle(symbol, candle, candle_open_time.strftime("%H:%M:%S"), is_backfill=True)
                 replayed += 1
@@ -494,3 +555,113 @@ def bootstrap_and_catchup(state) -> BootstrapResult:
     logger.info(msg)
     return BootstrapResult(phase, engine, leaderboard, breadth, msg,
                             direction=direction, sentiment_label=sentiment_label, sentiment_score=sentiment_score)
+
+
+# ----------------------------------------------------------------------------
+# MCX orchestration - decoupled from the equity session entirely
+# ----------------------------------------------------------------------------
+def bootstrap_mcx_catchup(data_service: FyersDataService) -> BootstrapResult:
+    """
+    MCX counterpart to bootstrap_and_catchup() above, decoupled from the NSE equity session
+    entirely - see detect_mcx_market_phase()/_within_mcx_signal_window() above and main.py's
+    module docstring for why: MCX's own session runs 09:00-23:30 IST, far longer than and
+    completely independent of NSE's 09:15-15:30, so an equity POST_CLOSE (e.g. starting the
+    agent at 17:51 IST) must never prevent THIS from running while MCX is still open. main.py
+    calls this unconditionally alongside (not instead of) bootstrap_and_catchup() - the two
+    markets' bootstrap results are evaluated and acted on completely independently.
+
+    Mirrors bootstrap_and_catchup()'s overall shape, but notably simpler - no sector/breadth
+    snapshot (an NSE-equity-only concept with no MCX analogue) and no gain/loss-band
+    shortlist screen: MCX trades config.MCX_COMMODITY_UNIVERSE directly and unconditionally
+    every day (see commodity_engine.py's module docstring), so there's nothing to scan or
+    filter down to.
+
+      1. detect_mcx_market_phase()           - PRE_OPEN / POST_OPEN / POST_CLOSE, MCX's OWN
+         session window (config.MCX_MARKET_OPEN_TIME/MCX_MARKET_CLOSE_TIME)
+      2. decide_todays_commodity_direction() - COMMODITY-specific global sentiment (gold/
+         silver/crude/copper/natural-gas/dollar-index cues), deliberately separate from
+         equities' own decide_todays_direction() (see that function's docstring)
+      3. commodity_engine.run_mcx_commodity_engine() - builds the engine from the WHOLE
+         universe's own opening-range candles (no shortlist step), at MCX's own configurable
+         candle_resolution (config.MCX_CANDLE_INTERVAL_MINUTES - see Task #6)
+      4. fetch_and_seed_volume_windows()     - prior-session volume-MA warm-up, sliced at
+         MCX's own candle resolution
+      5. _replay_intraday_history()          - MCX_MARKET_OPEN_TIME-to-now replay, using
+         MCX's own open time/interval/resolution (see that function's docstring)
+      6. _reconcile_broker_state()           - broker truth overrides replay, identical to
+         equities (already fully generic over any engine.trackers - no MCX-specific change
+         needed there at all)
+
+    Returns a BootstrapResult - the SAME dataclass bootstrap_and_catchup() returns (its
+    `signal_engine` field holds the commodity engine here, not an equity one) rather than a
+    separate MCX-specific type, so main.py can handle both results with identical code.
+    """
+    if not config.ENABLE_MCX_COMMODITY_TRADING:
+        return BootstrapResult(MarketPhase.POST_CLOSE, None,
+                                message="MCX commodity trading is disabled (config.ENABLE_MCX_COMMODITY_TRADING "
+                                        "= False) - nothing to bootstrap.")
+
+    now = datetime.now(TZ)
+    phase = detect_mcx_market_phase(now)
+
+    if phase == MarketPhase.PRE_OPEN:
+        msg = (f"MCX: started pre-open at {now:%H:%M:%S} IST - nothing to catch up on; the "
+               f"scheduled MCX job in main.py will run at its normal time.")
+        logger.info(msg)
+        return BootstrapResult(phase, None, message=msg)
+
+    if phase == MarketPhase.POST_CLOSE:
+        day_kind = "a weekend" if now.weekday() >= 5 else "after today's MCX market close"
+        msg = f"MCX: market is closed ({day_kind}, {now:%Y-%m-%d %H:%M:%S} IST) - exiting, nothing to bootstrap."
+        logger.info(msg)
+        return BootstrapResult(phase, None, message=msg)
+
+    # phase == POST_OPEN
+    if not _within_mcx_signal_window(now):
+        msg = (f"MCX: started at {now:%H:%M:%S} IST - market is open but past the "
+               f"{config.MCX_SIGNAL_ENGINE_LAST_RUN} signal-checking cutoff, so no fresh catch-up "
+               f"will run today (see _within_mcx_signal_window's docstring for why).")
+        logger.info(msg)
+        return BootstrapResult(phase, None, message=msg)
+
+    logger.info("=== ENTERING MCX CATCH-UP MODE at %s IST ===", now.strftime("%H:%M:%S"))
+
+    direction, sentiment_label, sentiment_score = decide_todays_commodity_direction()
+    logger.info("MCX commodity global sentiment: %s (score %.2f) -> trade direction: %s",
+                sentiment_label, sentiment_score, direction.value if direction else "NONE")
+    if direction is None:
+        msg = (f"MCX catch-up: commodity sentiment is {sentiment_label} (score {sentiment_score:.2f}) - "
+               f"not a clear bullish/bearish read, so no new MCX positions will be opened today.")
+        logger.warning(msg)
+        return BootstrapResult(phase, None, message=msg, direction=None,
+                                sentiment_label=sentiment_label, sentiment_score=sentiment_score)
+
+    engine = commodity_engine.run_mcx_commodity_engine(data_service, direction)
+    if engine is None:
+        msg = ("MCX catch-up: no opening-range candle was available for any MCX commodity today - "
+               "nothing to track.")
+        logger.warning(msg)
+        return BootstrapResult(phase, None, message=msg, direction=direction,
+                                sentiment_label=sentiment_label, sentiment_score=sentiment_score)
+
+    resolution = str(config.MCX_CANDLE_INTERVAL_MINUTES)
+
+    # 4. Seed volume-MA windows from the prior session, BEFORE replay - same reasoning as
+    #    equities' own step 4 above, just at MCX's own candle resolution.
+    fetch_and_seed_volume_windows(engine, data_service, reference_date=now.date(), resolution=resolution)
+
+    # 5. Replay MCX_MARKET_OPEN_TIME -> now for every universe symbol (backfill-flagged).
+    _replay_intraday_history(engine, data_service, list(engine.trackers), now,
+                              market_open_time=config.MCX_MARKET_OPEN_TIME,
+                              candle_interval_minutes=config.MCX_CANDLE_INTERVAL_MINUTES,
+                              resolution=resolution)
+
+    # 6. Broker truth overrides replay wherever they disagree - identical to equities.
+    _reconcile_broker_state(engine, data_service)
+
+    open_count = sum(1 for t in engine.trackers.values() if t.position_open)
+    msg = (f"MCX catch-up complete: tracking {len(engine.trackers)} {direction.value} commodity "
+           f"contract(s), {open_count} with an open position reconstructed from today so far.")
+    logger.info(msg)
+    return BootstrapResult(phase, engine, message=msg, direction=direction,
+                            sentiment_label=sentiment_label, sentiment_score=sentiment_score)

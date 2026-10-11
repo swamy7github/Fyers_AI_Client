@@ -77,7 +77,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import fyersclient.fyers_client as fyres_client
 from fyersclient.fyers_client import get_fyers_client, FyersDataService
 
-from signal_engine import StockTracker, TradeBook, place_or_log_order
+from signal_engine import StockTracker, TradeBook, place_or_log_order, seed_opening_range_candle
 from trade_direction import TradeDirection
 
 logger = logging.getLogger("orb_agent.options")
@@ -211,6 +211,25 @@ def resolve_otm_option_symbol(data_service: FyersDataService, option_type: str,
     return symbol, lot_size
 
 
+def fetch_opening_range_candle(data_service: FyersDataService, symbol: str) -> list | None:
+    """
+    Fetches `symbol`'s own 09:15-09:20 opening-range candle as a raw [epoch, o, h, l, c, v]
+    row - the lower-level building block fetch_index_opening_range() below is built from.
+    Also used by run_index_options_engine() to seed BOTH the index and futures trackers'
+    VWAP from their own first candle (see signal_engine.seed_opening_range_candle), not just
+    to read the index's high/low - previously the futures symbol's own opening-range candle
+    was never fetched at all, and the index's was fetched only for (high, low), discarding
+    its open/close/volume. Returns None (never raises) if that candle isn't available yet.
+    """
+    tz = pytz.timezone(config.TIMEZONE)
+    now = datetime.now(tz)
+    start = tz.localize(datetime(now.year, now.month, now.day, 9, 15, 0))
+    end = tz.localize(datetime(now.year, now.month, now.day, 9, 20, 0))
+    candles = data_service.get_5min_candle(symbol, now.strftime("%Y-%m-%d"),
+                                            int(start.timestamp()), int(end.timestamp()))
+    return candles[0] if candles else None
+
+
 def fetch_index_opening_range(data_service: FyersDataService,
                                index_symbol: str | None = None) -> tuple[float, float] | None:
     """
@@ -221,17 +240,12 @@ def fetch_index_opening_range(data_service: FyersDataService,
     raises) if that candle isn't available yet.
     """
     index_symbol = index_symbol or config.NIFTY_INDEX_SYMBOL
-    tz = pytz.timezone(config.TIMEZONE)
-    now = datetime.now(tz)
-    start = tz.localize(datetime(now.year, now.month, now.day, 9, 15, 0))
-    end = tz.localize(datetime(now.year, now.month, now.day, 9, 20, 0))
-    candles = data_service.get_5min_candle(index_symbol, now.strftime("%Y-%m-%d"),
-                                            int(start.timestamp()), int(end.timestamp()))
-    if not candles:
+    candle = fetch_opening_range_candle(data_service, index_symbol)
+    if candle is None:
         logger.warning("No opening-range candle yet for %s - can't start today's options signal.",
                         index_symbol)
         return None
-    _, _, h, l, _, _ = candles[0]
+    _, _, h, l, _, _ = candle
     return h, l
 
 
@@ -464,14 +478,32 @@ def run_index_options_engine(data_service: FyersDataService, bias_direction: Tra
         return None
     option_symbol, lot_size = resolved
 
-    opening_range = fetch_index_opening_range(data_service, index_symbol=index_symbol)
-    if opening_range is None:
+    index_or_candle = fetch_opening_range_candle(data_service, index_symbol)
+    if index_or_candle is None:
+        logger.warning("No opening-range candle yet for %s - can't start today's options signal.",
+                        index_symbol)
         return None
-    or_high, or_low = opening_range
+    _, _, or_high, or_low, _, _ = index_or_candle
 
     engine = NiftyOptionsEngine(data_service, option_symbol, lot_size, bias_direction,
                                  or_high, or_low, capital_allocated, index_symbol=index_symbol,
                                  futures_symbol=futures_symbol, underlying=underlying)
+
+    # Seed BOTH trackers' VWAP from their own opening-range candle (see
+    # signal_engine.seed_opening_range_candle's docstring for why this is necessary and why
+    # it deliberately never touches volume_window - that's still seeded separately, right
+    # after this call returns, by main.py's fetch_and_seed_volume_windows(engine, ...)).
+    # The index's own OR candle was already fetched above; the future's is fetched fresh
+    # here since it was never fetched at all before this fix.
+    seed_opening_range_candle(engine.index_tracker, index_or_candle)
+    futures_or_candle = fetch_opening_range_candle(data_service, futures_symbol)
+    if futures_or_candle is not None:
+        seed_opening_range_candle(engine.futures_tracker, futures_or_candle)
+    else:
+        logger.warning("No opening-range candle yet for futures symbol %s - its VWAP seeding is "
+                        "skipped (the futures tracker only supplies the VOLUME condition, so this "
+                        "doesn't block the engine - see module docstring).", futures_symbol)
+
     logger.info("%s options engine ready: BUY-ONLY %s %s (lot_size=%d, capital_allocated=%.2f), "
                 "signal from index=%s (OR high=%.2f low=%.2f) + futures=%s",
                 underlying, option_type, option_symbol, lot_size, capital_allocated,

@@ -354,6 +354,16 @@ MCX_OPENING_RANGE_SCAN_TIME = "09:05:02"   # mirrors OPENING_RANGE_SCAN_TIME's "
 MCX_SIGNAL_ENGINE_LAST_RUN = "23:14:30"    # mirrors SIGNAL_ENGINE_LAST_RUN - stop looking for NEW signals
 MCX_SQUARE_OFF_TIME = "23:15:00"           # mirrors SQUARE_OFF_TIME - force-close before session close
 
+# MCX's own candle resolution, deliberately INDEPENDENT of equities'/options'
+# CANDLE_INTERVAL_MINUTES above - set to "5", "15", "30", etc. to change how wide each MCX
+# opening-range/signal-check candle is, without touching the NSE equity session's own
+# timeframe at all. Must be one of Fyers' documented intraday resolution strings when
+# stringified ("1", "2", "3", "5", "10", "15", "20", "30", "45", "60", "120", "180", "240").
+# Used by commodity_engine.py (opening-range window + per-tracker candle resolution) and by
+# main.py's separate MCX candle-check cron job (job_check_commodity_signals) - see that
+# job's docstring for why MCX needs its own cron trigger rather than sharing equities'.
+MCX_CANDLE_INTERVAL_MINUTES = 15
+
 # Fixed commodity universe - MCX has nothing equivalent to the NSE-500 +
 # sector-filter screen equities use, and doesn't need one: EVERY symbol
 # listed here is traded directly, every day, with NO sector scan and NO

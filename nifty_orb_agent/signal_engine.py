@@ -179,6 +179,47 @@ def seed_volume_windows_from_candles(trackers: dict[str, StockTracker], candles_
                     symbol, len(volumes), ready)
 
 
+def seed_opening_range_candle(tracker: StockTracker, candle: list) -> None:
+    """
+    Feeds the day's very first (opening-range) candle's VWAP contribution into a
+    freshly-built tracker, WITHOUT running entry/exit signal checks against it and WITHOUT
+    touching tracker.volume_window - call this once, right after a fresh SignalEngine is
+    constructed from a shortlist/universe DataFrame that already carries this candle's own
+    OHLCV (see SignalEngine.__init__, which calls this automatically for every tracker whose
+    row has open/close/volume available - true for every "fresh build" path: equities'
+    job_opening_range_scan, commodity_engine.run_mcx_commodity_engine, and
+    options_engine.run_index_options_engine's index/futures trackers).
+
+    WHY THIS EXISTS: before this, cum_pv/cum_vol (session VWAP) were only ever updated by
+    _update_tracker_and_check_signal() (via feed_candle()/check_all()) - and nothing ever
+    fed the opening-range candle itself through that path on a fresh build, because it's
+    consumed solely to set or_high/or_low. That silently excludes the day's FIRST candle
+    from VWAP, which is both economically wrong (TradingView and most charting platforms
+    anchor session VWAP to include the opening bar - this is the root cause of a reported
+    live mismatch: TradingView showing one VWAP for a contract while this engine computed a
+    different one) and inconsistent with a late/mid-session catch-up start, whose
+    _replay_intraday_history() does NOT skip the exact market-open candle (bootstrap.py) -
+    so two starts of the SAME day could silently disagree on VWAP otherwise.
+
+    WHY volume_window IS DELIBERATELY LEFT ALONE HERE: every caller already seeds
+    volume_window from the PRIOR session's candles via seed_volume_windows_from_candles()
+    (bootstrap.fetch_and_seed_volume_windows live, backtest.py's own slice) in a SEPARATE
+    call made right AFTER construction. That call does `volume_window.extend(...)`, which -
+    for a maxlen deque - evicts the OLDEST entries once it overflows. If this function also
+    pushed a volume entry into volume_window during __init__ (i.e. BEFORE that later
+    extend() runs), it would be the oldest entry in the deque and get evicted immediately by
+    the very seeding call meant to warm it up, silently undoing itself. Volume-MA warm-up
+    already has its own correct, separately-tested mechanism; this function only fixes
+    VWAP's missing-first-candle gap, not volume-MA's (which was never affected by this bug -
+    see this module's other seeding function above for that story).
+    """
+    _, o, h, l, c, v = candle
+    typical_price = (h + l + c) / 3
+    tracker.candles.append(list(candle))
+    tracker.cum_pv += typical_price * v
+    tracker.cum_vol += v
+
+
 def place_or_log_order(data_service: FyersDataService, symbol: str, side: str, qty: int,
                         price: float, is_backfill: bool) -> None:
     """
@@ -291,9 +332,18 @@ class TradeBook:
 
 class SignalEngine:
     def __init__(self, data_service: FyersDataService, shortlist_df: pd.DataFrame,
-                 direction: TradeDirection = TradeDirection.LONG):
+                 direction: TradeDirection = TradeDirection.LONG, candle_resolution: str = "5"):
+        """
+        candle_resolution: the Fyers resolution string (e.g. "5", "15", "30") this engine's
+        OWN live candle checks (_fetch_latest_candle/check_all) use - defaults to "5" for
+        equities/NIFTY-NIFTYBANK (unchanged behaviour). commodity_engine.py passes
+        config.MCX_CANDLE_INTERVAL_MINUTES (stringified) instead, so MCX can run on its own
+        configurable timeframe independent of equities' fixed 5-min bars - see
+        config.MCX_CANDLE_INTERVAL_MINUTES and fyers_service.FyersDataService.get_candle.
+        """
         self.data_service = data_service
         self.direction = direction
+        self.candle_resolution = candle_resolution
         self.trackers = {
             row["symbol"]: StockTracker(symbol=row["symbol"], or_high=row["high"], or_low=row["low"],
                                          direction=direction)
@@ -301,9 +351,30 @@ class SignalEngine:
         }
         self.trade_book = TradeBook()
 
+        # Seed each tracker's VWAP from its OWN opening-range candle (the same row already
+        # used for or_high/or_low above) - see seed_opening_range_candle()'s docstring for
+        # why this is necessary and why it deliberately does NOT touch volume_window. Every
+        # shortlist/universe DataFrame built by this codebase's scan functions
+        # (opening_range_scanner.scan_opening_range[_accurate]/scan_symbols_accurate,
+        # commodity_engine.fetch_mcx_universe_opening_ranges) already carries open/close/
+        # volume alongside high/low, so this is guarded defensively, not expected to skip.
+        required_cols = {"open", "close", "volume"}
+        if required_cols.issubset(shortlist_df.columns):
+            for _, row in shortlist_df.iterrows():
+                tracker = self.trackers[row["symbol"]]
+                seed_opening_range_candle(
+                    tracker, [0, row["open"], row["high"], row["low"], row["close"], row["volume"]])
+        else:
+            logger.warning("Shortlist is missing open/close/volume column(s) (has: %s) - skipping "
+                            "opening-range VWAP seeding for this engine's %d tracker(s); each "
+                            "tracker's VWAP will instead start from its first LIVE/replayed candle, "
+                            "as it always did before this seeding existed.",
+                            list(shortlist_df.columns), len(self.trackers))
+
     def _fetch_latest_candle(self, symbol: str, window_start_epoch: int, window_end_epoch: int):
-        candles = self.data_service.get_5min_candle(
-            symbol, datetime.now().strftime("%Y-%m-%d"), window_start_epoch, window_end_epoch
+        candles = self.data_service.get_candle(
+            symbol, self.candle_resolution, datetime.now().strftime("%Y-%m-%d"),
+            window_start_epoch, window_end_epoch
         )
         return candles[0] if candles else None
 

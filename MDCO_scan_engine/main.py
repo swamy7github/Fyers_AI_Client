@@ -6,6 +6,7 @@ import yaml
 import pandas as pd
 from tabulate import tabulate
 import unittest
+from typing import Dict, List
 
 from data.fyers_client import FyersDataClient
 from data.data_loader import IndicatorCalculator
@@ -29,7 +30,10 @@ DEFAULT_NSE_UNIVERSE = [
 url = 'https://www.niftyindices.com/IndexConstituent/ind_niftytotalmarket_list.csv'
 #symbols = pd.read_csv(os.path.join(os.path.dirname(__file__), "data", "ind_niftytotalmarket_list.csv"))["Symbol"].tolist()
 #symbols = pd.read_csv(os.path.join(os.path.dirname(__file__), "data", "ind_niftyconsumerdurableslist.csv"))["Symbol"].tolist()
-symbols = get_nifty_stock_universe(url=url)["Symbol"].tolist()
+symbols = get_nifty_stock_universe(url=url).get("Symbol", [])
+if symbols is None or len(symbols) == 0:
+    logger.warning("Failed to load NSE stock universe from the provided URL. Using default universe.")
+    exit()
 DEFAULT_NSE_UNIVERSE = [f"NSE:{str(s).strip()}-EQ" for s in symbols]
 
 def load_config():
@@ -202,7 +206,9 @@ def main():
     #    run_execution(signals)
     logger.info(f"=========================Execution completed.========================= ")
     logger.info(f"Execution Mode: {args.mode} | Total Breakout Signals: {len(signals)}")
-    logger.info(f"Breakout Signals: {signals[['symbol','signal','entry_price','target_price','stop_loss']]}")#[['symbol', 'strategy', 'entry_price', 'stop_loss', 'target']].to_dict(orient='records')}")
-    signals.to_csv(os.path.join(os.path.dirname(__file__), "data", "daily_breakout_signals.csv"), index=False)
+    if not signals.empty:
+        logger.info(f"Breakout Signals: {signals[['symbol','signal','entry_price','target_price','stop_loss']]}")#[['symbol', 'strategy', 'entry_price', 'stop_loss', 'target']].to_dict(orient='records')}")
+        signals.to_csv(os.path.join(os.path.dirname(__file__), "data", "daily_breakout_signals.csv"), index=False)
+
 if __name__ == "__main__":
     main()

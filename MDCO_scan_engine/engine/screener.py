@@ -52,8 +52,10 @@ class NSEScreenerEngine:
 
         for symbol in symbol_list:
             try:
-                raw_df = self.data_client.get_historical_data(symbol, "D", from_day, to_day)
+                tf_cfg = self.config.get("screener_candle_timeframe", "{}")
+                raw_df = self.data_client.get_historical_data(symbol, tf_cfg.get("candle_timeframe", "D"), from_day, to_day)
                 if raw_df.empty or len(raw_df) < 200:
+                    logger.warning(f"Insufficient data for {symbol}. Skipping.")
                     continue
 
                 ind_df = IndicatorCalculator.add_indicators(raw_df)
