@@ -1,17 +1,38 @@
 symbol,composite_score,strategy,signal,entry_price,stop_loss,target_price,risk_reward,position_shares,position_value,rationale,timestamp,strategy_confluence
-NSE:SKYGOLD-EQ,89.3,Christian Kullamagi Momentum,BUY,921.0,880.98,1021.04,2.5,187,172227.0,"Stairstep Momentum Breakout above 901.80 (10/20 EMA Aligned, ADR%: 4.34%).",2026-10-09,2
-NSE:SKYGOLD-EQ,88.5,Mark Minervini VCP,BUY,921.0,847.32,1142.04,3.0,135,124335.0,VCP Stage 2 Breakout above Pivot 834.45 with Volume Expansion (2291187 vs MA 1154584).,2026-10-09,2
-NSE:KARURVYSYA-EQ,73.5,Mark Minervini VCP,BUY,339.9,312.71,421.48,3.0,367,124743.3,VCP Stage 2 Breakout above Pivot 328.65 with Volume Expansion (2923419 vs MA 1969350).,2026-10-09,1
-NSE:KMEW-EQ,73.5,Mark Minervini VCP,BUY,3207.8,2951.18,3977.67,3.0,38,121896.4,VCP Stage 2 Breakout above Pivot 3170.00 with Volume Expansion (267896 vs MA 154468).,2026-10-09,1
-NSE:VMART-EQ,73.5,Mark Minervini VCP,BUY,821.95,756.19,1019.22,3.0,152,124936.4,VCP Stage 2 Breakout above Pivot 784.80 with Volume Expansion (144267 vs MA 88396).,2026-10-09,1
-NSE:AMBUJACEM-EQ,71.5,Mark Minervini VCP (SHORT),SELL,351.5,379.62,267.14,3.0,355,124782.5,VCP Stage 4 Breakdown below Floor 356.30 with Volume Expansion (2615221 vs MA 1862743).,2026-10-09,1
-NSE:BEL-EQ,71.5,Mark Minervini VCP (SHORT),SELL,368.15,387.65,309.65,3.0,512,188492.8,VCP Stage 4 Breakdown below Floor 377.00 with Volume Expansion (17198740 vs MA 10512053).,2026-10-09,1
-NSE:CHAMBLFERT-EQ,71.5,Mark Minervini VCP (SHORT),SELL,374.3,404.24,284.47,3.0,333,124641.9,VCP Stage 4 Breakdown below Floor 401.40 with Volume Expansion (943228 vs MA 487076).,2026-10-09,1
-NSE:COCHINSHIP-EQ,71.5,Mark Minervini VCP (SHORT),SELL,1230.0,1328.4,934.8,3.0,101,124230.0,VCP Stage 4 Breakdown below Floor 1265.60 with Volume Expansion (2284003 vs MA 1259776).,2026-10-09,1
-NSE:INOXWIND-EQ,71.5,Mark Minervini VCP (SHORT),SELL,66.65,70.24,55.88,3.0,2785,185620.25,VCP Stage 4 Breakdown below Floor 67.10 with Volume Expansion (37432425 vs MA 11348330).,2026-10-09,1
-NSE:JSLL-EQ,71.5,Mark Minervini VCP (SHORT),SELL,385.15,415.96,292.71,3.0,324,124788.6,VCP Stage 4 Breakdown below Floor 485.10 with Volume Expansion (3255837 vs MA 1014022).,2026-10-09,1
-NSE:MAXHEALTH-EQ,71.5,Mark Minervini VCP (SHORT),SELL,883.8,954.5,671.69,3.0,141,124615.8,VCP Stage 4 Breakdown below Floor 1021.10 with Volume Expansion (5377260 vs MA 3003032).,2026-10-09,1
-NSE:MAZDOCK-EQ,71.5,Mark Minervini VCP (SHORT),SELL,2010.0,2170.8,1527.6,3.0,62,124620.0,VCP Stage 4 Breakdown below Floor 2031.20 with Volume Expansion (883444 vs MA 623021).,2026-10-09,1
-NSE:NCC-EQ,71.5,Mark Minervini VCP (SHORT),SELL,125.06,131.39,106.07,3.0,1579,197469.74,VCP Stage 4 Breakdown below Floor 126.65 with Volume Expansion (17923816 vs MA 4492922).,2026-10-09,1
-NSE:SJVN-EQ,71.5,Mark Minervini VCP (SHORT),SELL,55.27,59.69,42.01,3.0,2261,124965.47,VCP Stage 4 Breakdown below Floor 56.73 with Volume Expansion (4370936 vs MA 2933824).,2026-10-09,1
-NSE:SOBHA-EQ,71.5,Mark Minervini VCP (SHORT),SELL,1161.7,1239.0,929.8,3.0,129,149859.3,VCP Stage 4 Breakdown below Floor 1176.60 with Volume Expansion (177353 vs MA 109286).,2026-10-09,1
+NSE:DBL-EQ,86.5,Mark Minervini VCP (SHORT),SELL,395.1,398.65,384.45,3.0,506,199920.6,VCP Stage 4 Breakdown below Floor 396.10 with Volume Expansion (12395 vs MA 5773).,2026-10-09 09:45:00,2
+NSE:HAPPYFORGE-EQ,86.5,Mark Minervini VCP (SHORT),SELL,1918.0,1952.0,1816.0,3.0,104,199472.0,VCP Stage 4 Breakdown below Floor 1928.00 with Volume Expansion (11102 vs MA 5390).,2026-10-09 09:45:00,2
+NSE:PCBL-EQ,86.5,Mark Minervini VCP (SHORT),SELL,311.9,323.75,276.35,3.0,641,199927.9,VCP Stage 4 Breakdown below Floor 313.70 with Volume Expansion (91847 vs MA 56746).,2026-10-09 09:45:00,2
+NSE:SMLMAH-EQ,86.5,Mark Minervini VCP (SHORT),SELL,5820.0,5994.5,5296.5,3.0,34,197880.0,VCP Stage 4 Breakdown below Floor 5836.50 with Volume Expansion (5075 vs MA 3259).,2026-10-09 09:45:00,2
+NSE:SOBHA-EQ,86.5,Mark Minervini VCP (SHORT),SELL,1155.2,1178.2,1086.2,3.0,173,199849.6,VCP Stage 4 Breakdown below Floor 1168.70 with Volume Expansion (17993 vs MA 11375).,2026-10-09 09:45:00,2
+NSE:RAMCOCEM-EQ,86.5,Mark Minervini VCP (SHORT),SELL,810.0,823.8,768.6,3.0,246,199260.0,VCP Stage 4 Breakdown below Floor 812.00 with Volume Expansion (19911 vs MA 8422).,2026-10-09 09:45:00,2
+NSE:DBL-EQ,85.3,Nicolas Darvas Box (SHORT),SELL,395.1,398.65,384.45,3.0,506,199920.6,Bearish Darvas Box Breakdown below Floor 396.10 (Ceiling: 398.65) on Volume Surge (12395).,2026-10-09 09:45:00,2
+NSE:HAPPYFORGE-EQ,85.3,Nicolas Darvas Box (SHORT),SELL,1918.0,1944.6,1838.2,3.0,104,199472.0,Bearish Darvas Box Breakdown below Floor 1928.00 (Ceiling: 1944.60) on Volume Surge (11102).,2026-10-09 09:45:00,2
+NSE:PCBL-EQ,85.3,Nicolas Darvas Box (SHORT),SELL,311.9,317.1,296.3,3.0,641,199927.9,Bearish Darvas Box Breakdown below Floor 313.70 (Ceiling: 317.10) on Volume Surge (91847).,2026-10-09 09:45:00,2
+NSE:SMLMAH-EQ,85.3,Nicolas Darvas Box (SHORT),SELL,5820.0,6026.0,5202.0,3.0,34,197880.0,Bearish Darvas Box Breakdown below Floor 5913.50 (Ceiling: 6026.00) on Volume Surge (5075).,2026-10-09 09:45:00,2
+NSE:SOBHA-EQ,85.3,Nicolas Darvas Box (SHORT),SELL,1155.2,1186.7,1060.7,3.0,173,199849.6,Bearish Darvas Box Breakdown below Floor 1168.70 (Ceiling: 1186.70) on Volume Surge (17993).,2026-10-09 09:45:00,2
+NSE:RAMCOCEM-EQ,85.3,Nicolas Darvas Box (SHORT),SELL,810.0,829.85,750.45,3.0,246,199260.0,Bearish Darvas Box Breakdown below Floor 811.60 (Ceiling: 829.85) on Volume Surge (19911).,2026-10-09 09:45:00,2
+MCX:NATGASMINI26OCTFUT,71.5,Nicolas Darvas Box,BUY,313.7,310.8,322.4,3.0,637,199826.9,Darvas Box Breakout above Ceiling 313.50 (Floor: 310.80) on Volume Surge (14773).,2026-10-09 17:30:00,1
+MCX:ZINCMINI26OCTFUT,71.5,Nicolas Darvas Box,BUY,422.3,421.4,425.0,3.0,473,199747.9,Darvas Box Breakout above Ceiling 422.25 (Floor: 421.40) on Volume Surge (192).,2026-10-09 17:30:00,1
+NSE:CPPLUS-EQ,71.5,Nicolas Darvas Box,BUY,4244.3,3933.0,5178.2,3.0,32,135817.6,Darvas Box Breakout above Ceiling 4014.90 (Floor: 3933.00) on Volume Surge (230852).,2026-10-09 09:45:00,1
+NSE:AEGISVOPAK-EQ,71.5,Nicolas Darvas Box,BUY,282.9,275.65,304.65,3.0,706,199727.4,Darvas Box Breakout above Ceiling 278.05 (Floor: 275.65) on Volume Surge (317452).,2026-10-09 09:45:00,1
+NSE:ANURAS-EQ,71.5,Nicolas Darvas Box,BUY,1145.1,1099.2,1282.8,3.0,174,199247.4,Darvas Box Breakout above Ceiling 1112.30 (Floor: 1099.20) on Volume Surge (85384).,2026-10-09 09:45:00,1
+NSE:CENTUM-EQ,71.5,Mark Minervini VCP (SHORT),SELL,4061.0,4165.0,3749.0,3.0,49,198989.0,VCP Stage 4 Breakdown below Floor 4116.00 with Volume Expansion (7475 vs MA 5309).,2026-10-09 09:45:00,1
+NSE:HSCL-EQ,71.5,Nicolas Darvas Box,BUY,660.3,650.1,690.9,3.0,302,199410.6,Darvas Box Breakout above Ceiling 658.10 (Floor: 650.10) on Volume Surge (143975).,2026-10-09 09:45:00,1
+NSE:ITI-EQ,71.5,Nicolas Darvas Box,BUY,241.8,238.28,252.36,3.0,827,199968.6,Darvas Box Breakout above Ceiling 240.26 (Floor: 238.28) on Volume Surge (13901).,2026-10-09 09:45:00,1
+NSE:KEC-EQ,71.5,Nicolas Darvas Box,BUY,365.75,349.5,414.5,3.0,546,199699.5,Darvas Box Breakout above Ceiling 356.40 (Floor: 349.50) on Volume Surge (1354234).,2026-10-09 09:45:00,1
+NSE:LTTS-EQ,71.5,Nicolas Darvas Box,BUY,3275.0,3207.6,3477.2,3.0,61,199775.0,Darvas Box Breakout above Ceiling 3245.00 (Floor: 3207.60) on Volume Surge (5785).,2026-10-09 09:45:00,1
+NSE:THELEELA-EQ,71.5,Nicolas Darvas Box,BUY,588.0,583.3,602.1,3.0,340,199920.0,Darvas Box Breakout above Ceiling 587.80 (Floor: 583.30) on Volume Surge (49298).,2026-10-09 09:45:00,1
+NSE:POONAWALLA-EQ,71.5,Nicolas Darvas Box,BUY,446.5,440.1,465.7,3.0,447,199585.5,Darvas Box Breakout above Ceiling 444.85 (Floor: 440.10) on Volume Surge (272829).,2026-10-09 09:45:00,1
+NSE:RITES-EQ,71.5,Nicolas Darvas Box,BUY,198.5,194.87,209.39,3.0,1007,199889.5,Darvas Box Breakout above Ceiling 197.16 (Floor: 194.87) on Volume Surge (70830).,2026-10-09 09:45:00,1
+NSE:SAFARI-EQ,71.5,Nicolas Darvas Box,BUY,1310.0,1283.8,1388.6,3.0,152,199120.0,Darvas Box Breakout above Ceiling 1304.90 (Floor: 1283.80) on Volume Surge (3389).,2026-10-09 09:45:00,1
+NSE:AARTIIND-EQ,70.3,Nicolas Darvas Box (SHORT),SELL,461.9,486.4,388.4,3.0,408,188455.2,Bearish Darvas Box Breakdown below Floor 474.00 (Ceiling: 486.40) on Volume Surge (92032).,2026-10-09 09:45:00,1
+NSE:AFCONS-EQ,70.3,Nicolas Darvas Box (SHORT),SELL,241.8,243.08,237.96,3.0,827,199968.6,Bearish Darvas Box Breakdown below Floor 242.10 (Ceiling: 243.08) on Volume Surge (45287).,2026-10-09 09:45:00,1
+NSE:CRAMC-EQ,70.3,Nicolas Darvas Box (SHORT),SELL,220.0,227.99,196.03,3.0,909,199980.0,Bearish Darvas Box Breakdown below Floor 225.51 (Ceiling: 227.99) on Volume Surge (51243).,2026-10-09 09:45:00,1
+NSE:CGCL-EQ,70.3,Nicolas Darvas Box (SHORT),SELL,241.5,243.09,236.73,3.0,828,199962.0,Bearish Darvas Box Breakdown below Floor 242.00 (Ceiling: 243.09) on Volume Surge (931955).,2026-10-09 09:45:00,1
+NSE:GALLANTT-EQ,70.3,Nicolas Darvas Box (SHORT),SELL,505.05,511.25,486.45,3.0,396,199999.8,Bearish Darvas Box Breakdown below Floor 508.10 (Ceiling: 511.25) on Volume Surge (10128).,2026-10-09 09:45:00,1
+NSE:GNFC-EQ,70.3,Nicolas Darvas Box (SHORT),SELL,592.05,605.3,552.3,3.0,337,199520.85,Bearish Darvas Box Breakdown below Floor 597.10 (Ceiling: 605.30) on Volume Surge (39466).,2026-10-09 09:45:00,1
+NSE:KRN-EQ,70.3,Nicolas Darvas Box (SHORT),SELL,1386.6,1413.4,1306.2,3.0,144,199670.4,Bearish Darvas Box Breakdown below Floor 1389.60 (Ceiling: 1413.40) on Volume Surge (32946).,2026-10-09 09:45:00,1
+NSE:LLOYDSME-EQ,70.3,Nicolas Darvas Box (SHORT),SELL,1803.6,1841.2,1690.8,3.0,110,198396.0,Bearish Darvas Box Breakdown below Floor 1828.30 (Ceiling: 1841.20) on Volume Surge (183434).,2026-10-09 09:45:00,1
+NSE:PARADEEP-EQ,70.3,Nicolas Darvas Box (SHORT),SELL,146.24,150.52,133.4,3.0,1367,199910.08,Bearish Darvas Box Breakdown below Floor 148.21 (Ceiling: 150.52) on Volume Surge (431966).,2026-10-09 09:45:00,1
+NSE:RESPONIND-EQ,70.3,Nicolas Darvas Box (SHORT),SELL,151.1,154.89,139.73,3.0,1323,199905.3,Bearish Darvas Box Breakdown below Floor 151.69 (Ceiling: 154.89) on Volume Surge (27900).,2026-10-09 09:45:00,1
+NSE:SURYAROSNI-EQ,70.3,Nicolas Darvas Box (SHORT),SELL,208.0,210.73,199.81,3.0,961,199888.0,Bearish Darvas Box Breakdown below Floor 208.60 (Ceiling: 210.73) on Volume Surge (40257).,2026-10-09 09:45:00,1

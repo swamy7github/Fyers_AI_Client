@@ -604,6 +604,8 @@ def get_fyers_client() -> Any:
     """
     auth_mgr = FyersAuthManager()
     access_token, raw_client = auth_mgr.get_valid_access_token()
+    if not access_token or not raw_client:
+        raise RuntimeError("Failed to obtain a valid Fyers access token. Please check your credentials and network connectivity.")
     """
     if fyersModel is not None:
         raw_client = fyersModel.FyersModel(
@@ -658,7 +660,9 @@ class FyersDataService:
         last_exc = None
         rate_limit_attempt = 0
         token_refreshed = False
-
+        if kwargs.get("data") is None:
+            logger.warning("No 'data' argument provided to _call_with_retry; kwargs = %s", kwargs)
+            return {}
         for attempt in range(1, config.API_MAX_RETRIES + 1):
             try:
                 self._rate_limiter.acquire()
@@ -687,6 +691,9 @@ class FyersDataService:
 
                     raise RuntimeError(response.get("message", "Unknown Fyers API error"))
                 symb = kwargs['data']
+
+                if "quotes" in target_fn.__name__:
+                    logger.warning("No symbol provided in kwargs['data']; cannot log symbol information.")
                 logger.info(f"{symb.get('symbol', 'N/A')} -- resolution {symb.get('resolution', 'N/A')} - attempt {attempt}.")
                 return response
 
@@ -695,8 +702,12 @@ class FyersDataService:
                 logger.error("Fyers API call failed (attempt %d/%d): %s",
                                 attempt, config.API_MAX_RETRIES, exc)
                 if "invalid symbol" in str(exc).lower():
-                    logger.warning(f"Fyers API call failed due to invalid symbol - will not retry.\n kwargs = {kwargs}")
-                    return {}  # caller should handle empty response gracefully
+                    if attempt == 1 and "-EQ" in str(kwargs.get("data", {}).get("symbol", "")):
+                        kwargs["data"]["symbol"] = kwargs["data"]["symbol"].replace("-EQ", "-BE")
+                        logger.warning(f"Fyers API call failed due to invalid symbol - will not retry.\n kwargs = {kwargs}")
+                    else:
+                        logger.warning(f"Fyers API call failed due to invalid symbol - will not retry.\n kwargs = {kwargs}")
+                        return {}  # caller should handle empty response gracefully
                 logger.info(f" kwargs = {kwargs}")
                 time.sleep(config.API_RETRY_BACKOFF_SECONDS * attempt)
                 
@@ -733,11 +744,21 @@ class FyersDataService:
                 merged[item["n"]] = item.get("v", {})
         return merged
     
-    def get_5min_candle(self, symbol: str, date_str: str, from_epoch: int, to_epoch: int) -> list:
-        """Returns the raw candle list [[epoch, o, h, l, c, v], ...] for one 5-min window."""
+    def get_candle(self, symbol: str, resolution: str, date_str: str, from_epoch: int, to_epoch: int) -> list:
+        """
+        Generalized counterpart to get_5min_candle() below - returns the raw candle list
+        [[epoch, o, h, l, c, v], ...] for one window at ANY intraday resolution ("5", "15",
+        "30", ...), not just "5". This is what lets a tracked instrument's LIVE/check-signals
+        candle fetch (SignalEngine._fetch_latest_candle) use a configurable timeframe - see
+        config.MCX_CANDLE_INTERVAL_MINUTES and SignalEngine's own `candle_resolution`
+        attribute - instead of being hardcoded to 5-min bars for every market this agent
+        trades. get_5min_candle() is now a thin backward-compatible wrapper around this for
+        every OTHER call site that genuinely only ever wants 5-min bars (equities' opening-
+        range scan, NIFTY/BANKNIFTY options).
+        """
         data = {
             "symbol": symbol,
-            "resolution": "5",
+            "resolution": resolution,
             "date_format": "0",      # 0 = epoch timestamps in range_from/range_to
             "range_from": str(from_epoch),
             "range_to": str(to_epoch),
@@ -745,8 +766,13 @@ class FyersDataService:
         }
         response = self._call_with_retry(self.client.history, data=data)
         candles = response.get("candles", [])
-        logger.info("Fetched %d x 5-min candle(s) for %s on %s.", len(candles), symbol, date_str)
+        logger.info("Fetched %d x %s-min candle(s) for %s on %s.", len(candles), resolution, symbol, date_str)
         return candles
+
+    def get_5min_candle(self, symbol: str, date_str: str, from_epoch: int, to_epoch: int) -> list:
+        """Returns the raw candle list [[epoch, o, h, l, c, v], ...] for one 5-min window -
+        a fixed-resolution convenience wrapper around get_candle() above."""
+        return self.get_candle(symbol, "5", date_str, from_epoch, to_epoch)
 
     def get_candles_range(self, symbol: str, resolution: str, range_from_date: str, range_to_date: str) -> list:
         data = {

@@ -1,0 +1,19 @@
+symbol,composite_score,strategy,signal,entry_price,stop_loss,target_price,risk_reward,position_shares,position_value,rationale,timestamp,strategy_confluence
+NSE:SKYGOLD-EQ,89.3,Christian Kullamagi Momentum,BUY,921.0,880.98,1021.04,2.5,187,172227.0,"Stairstep Momentum Breakout above 901.80 (10/20 EMA Aligned, ADR%: 4.34%).",2026-10-09,2
+NSE:SKYGOLD-EQ,88.5,Mark Minervini VCP,BUY,921.0,847.32,1142.04,3.0,135,124335.0,VCP Stage 2 Breakout above Pivot 834.45 with Volume Expansion (2291187 vs MA 1154584).,2026-10-09,2
+NSE:DIACABS-EQ,74.3,Christian Kullamagi Momentum,BUY,380.95,360.53,431.99,2.5,367,139808.65,"Stairstep Momentum Breakout above 380.75 (10/20 EMA Aligned, ADR%: 5.36%).",2026-10-09,1
+NSE:E2E-EQ,73.5,Mark Minervini VCP,BUY,704.6,648.23,873.7,3.0,177,124714.2,VCP Stage 2 Breakout above Pivot 679.00 with Volume Expansion (986137 vs MA 665241).,2026-10-09,1
+NSE:KARURVYSYA-EQ,73.5,Mark Minervini VCP,BUY,339.9,312.71,421.48,3.0,367,124743.3,VCP Stage 2 Breakout above Pivot 328.65 with Volume Expansion (2923419 vs MA 1969350).,2026-10-09,1
+NSE:KMEW-EQ,73.5,Mark Minervini VCP,BUY,3207.8,2951.18,3977.67,3.0,38,121896.4,VCP Stage 2 Breakout above Pivot 3170.00 with Volume Expansion (267896 vs MA 154468).,2026-10-09,1
+NSE:VMART-EQ,73.5,Mark Minervini VCP,BUY,821.95,756.19,1019.22,3.0,152,124936.4,VCP Stage 2 Breakout above Pivot 784.80 with Volume Expansion (144267 vs MA 88396).,2026-10-09,1
+NSE:AMBUJACEM-EQ,71.5,Mark Minervini VCP (SHORT),SELL,351.5,379.62,267.14,3.0,355,124782.5,VCP Stage 4 Breakdown below Floor 356.30 with Volume Expansion (2615221 vs MA 1862743).,2026-10-09,1
+NSE:BEL-EQ,71.5,Mark Minervini VCP (SHORT),SELL,368.15,387.65,309.65,3.0,512,188492.8,VCP Stage 4 Breakdown below Floor 377.00 with Volume Expansion (17198740 vs MA 10512053).,2026-10-09,1
+NSE:CHAMBLFERT-EQ,71.5,Mark Minervini VCP (SHORT),SELL,374.3,404.24,284.47,3.0,333,124641.9,VCP Stage 4 Breakdown below Floor 401.40 with Volume Expansion (943228 vs MA 487076).,2026-10-09,1
+NSE:COCHINSHIP-EQ,71.5,Mark Minervini VCP (SHORT),SELL,1230.0,1328.4,934.8,3.0,101,124230.0,VCP Stage 4 Breakdown below Floor 1265.60 with Volume Expansion (2284003 vs MA 1259776).,2026-10-09,1
+NSE:INOXWIND-EQ,71.5,Mark Minervini VCP (SHORT),SELL,66.65,70.24,55.88,3.0,2785,185620.25,VCP Stage 4 Breakdown below Floor 67.10 with Volume Expansion (37432425 vs MA 11348330).,2026-10-09,1
+NSE:JSLL-EQ,71.5,Mark Minervini VCP (SHORT),SELL,385.15,415.96,292.71,3.0,324,124788.6,VCP Stage 4 Breakdown below Floor 485.10 with Volume Expansion (3255837 vs MA 1014022).,2026-10-09,1
+NSE:MAXHEALTH-EQ,71.5,Mark Minervini VCP (SHORT),SELL,883.8,954.5,671.69,3.0,141,124615.8,VCP Stage 4 Breakdown below Floor 1021.10 with Volume Expansion (5377260 vs MA 3003032).,2026-10-09,1
+NSE:MAZDOCK-EQ,71.5,Mark Minervini VCP (SHORT),SELL,2010.0,2170.8,1527.6,3.0,62,124620.0,VCP Stage 4 Breakdown below Floor 2031.20 with Volume Expansion (883444 vs MA 623021).,2026-10-09,1
+NSE:NCC-EQ,71.5,Mark Minervini VCP (SHORT),SELL,125.06,131.39,106.07,3.0,1579,197469.74,VCP Stage 4 Breakdown below Floor 126.65 with Volume Expansion (17923816 vs MA 4492922).,2026-10-09,1
+NSE:SJVN-EQ,71.5,Mark Minervini VCP (SHORT),SELL,55.27,59.69,42.01,3.0,2261,124965.47,VCP Stage 4 Breakdown below Floor 56.73 with Volume Expansion (4370936 vs MA 2933824).,2026-10-09,1
+NSE:SOBHA-EQ,71.5,Mark Minervini VCP (SHORT),SELL,1161.7,1239.0,929.8,3.0,129,149859.3,VCP Stage 4 Breakdown below Floor 1176.60 with Volume Expansion (177353 vs MA 109286).,2026-10-09,1

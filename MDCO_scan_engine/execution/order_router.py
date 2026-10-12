@@ -113,7 +113,7 @@ class OrderRouter:
 
         return None
 
-    def process_screening_signals(self, signals_df: pd.DataFrame, data_client: Optional[FyersDataClient] = None) -> List[Dict[str, Any]]:
+    def process_screening_signals(self, signals_df: pd.DataFrame, data_client: Optional[FyersDataClient] = None, date_str: str = None) -> List[Dict[str, Any]]:
         """
         Takes ranked breakout/breakdown signals from Screener, evaluates 5m intraday ORB triggers
         if enabled, calculates risk-managed quantities, and executes BUY/SELL orders.
@@ -148,7 +148,7 @@ class OrderRouter:
 
             # Evaluate 5m Intraday ORB trigger if enabled
             if intraday_enabled and data_client is not None:
-                intraday_df = data_client.get_intraday_data(symbol, resolution="5")
+                intraday_df = data_client.get_intraday_data(symbol, resolution="5", date_str=date_str)
                 orb_trigger = self.evaluate_intraday_orb_trigger(symbol, row, intraday_df)
                 if orb_trigger:
                     entry_price = orb_trigger["entry_price"]

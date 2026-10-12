@@ -19,7 +19,7 @@ from strategies.minervini_vcp import MinerviniVCPStrategy
 from strategies.darvas_box import DarvasBoxStrategy
 from strategies.oneil_cup_handle import ONeilCupHandleStrategy
 from strategies.kullamagi_momentum import KullamagiMomentumStrategy
-from utilities import get_nifty_stock_universe
+from utilities import get_nifty_stock_universe, get_last_traded_day
 
 DEFAULT_NSE_UNIVERSE = [
     "NSE:RELIANCE-EQ", "NSE:INFY-EQ", "NSE:TCS-EQ", "NSE:TATASTEEL-EQ",
@@ -28,13 +28,16 @@ DEFAULT_NSE_UNIVERSE = [
 ]
 #symbols = pd.read_csv(os.path.join(os.path.dirname(__file__), "data", "ind_nifty500list.csv"))["Symbol"].tolist()
 url = 'https://www.niftyindices.com/IndexConstituent/ind_niftytotalmarket_list.csv'
+#url = 'https://www.niftyindices.com/IndexConstituent/ind_nifty_Alpha_Index.csv'
 #symbols = pd.read_csv(os.path.join(os.path.dirname(__file__), "data", "ind_niftytotalmarket_list.csv"))["Symbol"].tolist()
 #symbols = pd.read_csv(os.path.join(os.path.dirname(__file__), "data", "ind_niftyconsumerdurableslist.csv"))["Symbol"].tolist()
 symbols = get_nifty_stock_universe(url=url).get("Symbol", [])
 if symbols is None or len(symbols) == 0:
     logger.warning("Failed to load NSE stock universe from the provided URL. Using default universe.")
     exit()
-DEFAULT_NSE_UNIVERSE = [f"NSE:{str(s).strip()}-EQ" for s in symbols]
+DEFAULT_NSE_UNIVERSE = ["MCX:CRUDEOILM26OCTFUT", "MCX:GOLDPETAL26OCTFUT", "MCX:NATGASMINI26OCTFUT", "MCX:SILVERMIC26NOVFUT", "MCX:ZINCMINI26OCTFUT"]
+DEFAULT_NSE_UNIVERSE += [f"NSE:{str(s).strip()}-EQ" for s in symbols]
+
 
 def load_config():
     config_path = os.path.join(os.path.dirname(__file__), "config", "config.yaml")
@@ -44,15 +47,27 @@ def load_config():
 def run_screener():
     print("\n🔍 Running NSE Daily Master Breakout Screener...")
     screener = NSEScreenerEngine()
-    ranked_df = screener.run_screening(DEFAULT_NSE_UNIVERSE)
+    ranked_df_list = screener.run_screening(DEFAULT_NSE_UNIVERSE)
     
-    if ranked_df.empty:
+    if not ranked_df_list:
         print("\nNo breakout signals triggered for today across specified NSE universe.")
-        return ranked_df
+        return ranked_df_list
     else:
-        report_md = screener.generate_report(ranked_df)
-        print("\n" + report_md)
-        return ranked_df
+        items_keys = [list(item.keys())[0] for item in ranked_df_list]
+        logger.info(f"\nBreakout Signals Detected for Timeframes: {', '.join(items_keys)}")
+        for item in ranked_df_list:
+            key = list(item.keys())[0]
+            if not item[key].empty:
+                print(f"==============================================================================  ")
+                print(f"\n📊 Breakout Signals for Timeframe: {key} | Total Signals: {len(item[key])}")
+                print(f"==============================================================================  ")
+                report_md = screener.generate_report(item[key])
+                print("\n" + report_md)
+            else:
+                print("\nNo breakout signals triggered for today across specified NSE universe.")
+        #report_md = screener.generate_report(ranked_df)
+        #print("\n" + report_md)
+        return ranked_df_list
 
 def run_backtests():
     print("\n📊 Running Multi-Strategy Backtest Comparison Engine...")
@@ -151,7 +166,7 @@ def run_execution(signals_df=None):
 
     data_client = FyersDataClient(use_mock=False)
     router = OrderRouter(broker, config)
-    executed_orders = router.process_screening_signals(signals_df, data_client=data_client)
+    executed_orders = router.process_screening_signals(signals_df, data_client=data_client, date_str=get_last_traded_day())
 
     print("\n================================================================================")
     print("🛒 5m INTRADAY ORB ORDER ROUTING & EXECUTION SUMMARY")
@@ -202,13 +217,26 @@ def main():
         run_screener()
     if args.mode in ["execute", "paper", "all"]:
     '''
+    config = load_config()
+    tf_cfg = config.get("screener_candle_timeframe", {})
     signals = run_screener()
-    #    run_execution(signals)
-    logger.info(f"=========================Execution completed.========================= ")
+    
+    logger.info(f"=========================run_screener completed.========================= ")
     logger.info(f"Execution Mode: {args.mode} | Total Breakout Signals: {len(signals)}")
-    if not signals.empty:
-        logger.info(f"Breakout Signals: {signals[['symbol','signal','entry_price','target_price','stop_loss']]}")#[['symbol', 'strategy', 'entry_price', 'stop_loss', 'target']].to_dict(orient='records')}")
-        signals.to_csv(os.path.join(os.path.dirname(__file__), "data", "daily_breakout_signals.csv"), index=False)
+    if not signals:
+        for item in signals:
+            key = list(item.keys())[0]
+            logger.info(f"Timeframe: {key} | Breakout Signals Count: {len(item[key])}")
+            if not item[key].empty:
+                logger.info(f"Breakout Signals for {key}:\n{item[key][['symbol','signal','entry_price','target_price','stop_loss']].to_string(index=False)}")
+                item[key].to_csv(os.path.join(os.path.dirname(__file__), "data", f"daily_breakout_signals_{key}.csv"), index=False)
+                logger.info(f"Breakout Signals: {item[key][['symbol','signal','entry_price','target_price','stop_loss']]}")#[['symbol', 'strategy', 'entry_price', 'stop_loss', 'target']].to_dict(orient='records')}")
+            else:
+                logger.info(f"No breakout signals triggered for today across specified NSE universe for timeframe {key}.")
+       
+        #run_execution(signals)
+    
+        #signals.to_csv(os.path.join(os.path.dirname(__file__), "data", f"daily_breakout_signals_{tf_cfg.get('candle_timeframe')}.csv"), index=False)
 
 if __name__ == "__main__":
     main()

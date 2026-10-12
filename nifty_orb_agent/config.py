@@ -230,7 +230,7 @@ DEFAULT_ORDER_QTY = 1
 #     symbol master file (below) that THIS repo cannot keep current for you -
 #     read options_engine.py fully, and verify your own symbol master's
 #     column names/values, before setting this True.
-ENABLE_NIFTY_OPTIONS_TRADING = False
+ENABLE_NIFTY_OPTIONS_TRADING = True
 
 NIFTY_INDEX_SYMBOL = "NSE:NIFTY50-INDEX"   # PRICE/VWAP source - spot index, also used for OTM strike selection
 
@@ -243,7 +243,7 @@ NIFTY_INDEX_SYMBOL = "NSE:NIFTY50-INDEX"   # PRICE/VWAP source - spot index, als
 # (the FUTURE rows are typically alongside the OPTION rows in Fyers' combined
 # F&O master) - not done here since you only asked for the option leg to be
 # master-resolved.
-NIFTY_FUTURES_SYMBOL = "NSE:NIFTY25DECFUT"
+NIFTY_FUTURES_SYMBOL = "NSE:NIFTY25OCTFUT"
 
 # Fyers publishes a downloadable NSE F&O instrument/symbol master file
 # (check their current API docs for the exact URL - it has moved before)
@@ -276,7 +276,7 @@ NIFTY_FO_MASTER_COLUMNS = {
 # a PE), 2 = the second, etc. Not specified precisely in the original
 # request ("OTM CE"/"OTM PE") - 1 (the nearest OTM strike) is the most
 # common reading and this repo's default; change it if you mean further OTM.
-NIFTY_OTM_STRIKES_AWAY = 1
+NIFTY_OTM_STRIKES_AWAY = 2
 
 # Independent capital bucket for the options strategy - deliberately
 # separate from TRADING_CAPITAL (equities) and MCX_CAPITAL (below) rather
@@ -309,7 +309,7 @@ NIFTY_OPTIONS_CAPITAL = 200000.0
 # "NIFTY" ones. Off by default for the same reasons as NIFTY options - read
 # options_engine.py fully, and verify your own symbol master's BANKNIFTY
 # rows, before setting this True.
-ENABLE_BANKNIFTY_OPTIONS_TRADING = False
+ENABLE_BANKNIFTY_OPTIONS_TRADING = True
 
 BANKNIFTY_INDEX_SYMBOL = "NSE:NIFTYBANK-INDEX"  # PRICE/VWAP source - VERIFY this exact string
                                                   # against your own Fyers symbol master/quote

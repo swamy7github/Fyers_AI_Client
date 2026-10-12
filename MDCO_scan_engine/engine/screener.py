@@ -47,32 +47,38 @@ class NSEScreenerEngine:
 
         self.ranker = StockRanker(self.config.get("strategies", {}))
 
-    def run_screening(self, symbol_list: List[str]) -> pd.DataFrame:
-        raw_signals = []
-
-        for symbol in symbol_list:
-            try:
-                tf_cfg = self.config.get("screener_candle_timeframe", "{}")
-                raw_df = self.data_client.get_historical_data(symbol, tf_cfg.get("candle_timeframe", "D"), from_day, to_day)
-                if raw_df.empty or len(raw_df) < 200:
-                    logger.warning(f"Insufficient data for {symbol}. Skipping.")
-                    continue
-
-                ind_df = IndicatorCalculator.add_indicators(raw_df)
-
-                for strategy in self.strategies:
-                    if not strategy.enabled:
+    def run_screening(self, symbol_list: List[str]) -> List[Dict[str, Any]]:
+        """
+        Runs the screening process for the given list of symbols.
+        Returns a DataFrame of ranked breakout/breakdown signals.
+        """
+        df_signals = []
+        for TF in ["60", "180", "D"]:
+            raw_signals = []
+            for symbol in symbol_list:
+                try:
+                    #tf_cfg = self.config.get("screener_candle_timeframe", "{}")
+                    raw_df = self.data_client.get_historical_data(symbol, TF, from_day, to_day)
+                    if raw_df.empty or len(raw_df) < 200:
+                        logger.warning(f"Insufficient data for {symbol}. Skipping.")
                         continue
 
-                    sig = strategy.generate_signals(ind_df, symbol)
-                    if sig is not None and getattr(sig, "signal_type", None) in ["BUY", "SELL"]:
-                        raw_signals.append(sig)
+                    ind_df = IndicatorCalculator.add_indicators(raw_df)
 
-            except Exception as e:
-                logger.error(f"Error screening {symbol}: {str(e)}")
+                    for strategy in self.strategies:
+                        if not strategy.enabled:
+                            continue
 
-        ranked_df = self.ranker.rank_signals(raw_signals)
-        return ranked_df
+                        sig = strategy.generate_signals(ind_df, symbol)
+                        if sig is not None and getattr(sig, "signal_type", None) in ["BUY", "SELL"]:
+                            raw_signals.append(sig)
+
+                except Exception as e:
+                    logger.error(f"Error screening {symbol}: {str(e)}")
+
+            ranked_df = self.ranker.rank_signals(raw_signals)
+            df_signals.append({f"{TF}": ranked_df})
+        return df_signals
 
     def generate_report(self, ranked_df: pd.DataFrame) -> str:
         if ranked_df.empty:

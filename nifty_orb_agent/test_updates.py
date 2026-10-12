@@ -119,7 +119,7 @@ class TestSectorMapAndUniverseFiltering(unittest.TestCase):
             "NSE:TCS-EQ", "NSE:INFY-EQ", "NSE:HDFCBANK-EQ", "NSE:ICICIBANK-EQ",
         })
         self.assertNotIn("NSE:SUNPHARMA-EQ", symbols)
-	'''
+    '''
     def test_missing_industry_column_falls_back_to_full_universe(self):
         self.universe_csv.write_text("Symbol,Company Name\nTCS,Tata Consultancy Services\n")
         symbols = load_universe()
@@ -132,7 +132,7 @@ class TestSectorMapAndUniverseFiltering(unittest.TestCase):
         )
         symbols = load_universe()
         self.assertEqual(len(symbols), 5)  # all 5 rows retained, filtering skipped entirely
-'''
+    '''
     def test_missing_sector_csv_does_not_crash(self):
         config.SECTOR_INDEX_MAP_CSV = str(self.tmpdir / "does_not_exist.csv")
         df = load_sector_map()

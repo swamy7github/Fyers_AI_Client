@@ -70,6 +70,7 @@ class FyersDataClient:
                     candles = response.get("candles", [])
                     df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
                     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
+                    logger.info(f"Retrieved {len(df)} historical bars for {symbol}.")
                     return df
                 else:
                     logger.error(f"FYERS API Error for {symbol}: {response}")
@@ -86,7 +87,7 @@ class FyersDataClient:
         """
         if not self.use_mock and self.fyers_instance:
             try:
-                today_str = date_str or datetime.now().strftime("%Y-%m-%d")
+                today_str = date_str or get_last_traded_day()
                 data_req = {
                     "symbol": symbol,
                     "resolution": resolution,
@@ -100,6 +101,7 @@ class FyersDataClient:
                     candles = response.get("candles", [])
                     df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
                     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
+                    logger.info(f"Retrieved {len(df)} intraday 5m bars for {symbol}.")
                     return df
             except Exception as e:
                 logger.error(f"FYERS API Intraday Error for {symbol}: {e}")

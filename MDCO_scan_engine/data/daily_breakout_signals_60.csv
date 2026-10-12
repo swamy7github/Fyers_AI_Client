@@ -1,0 +1,6 @@
+symbol,composite_score,strategy,signal,entry_price,stop_loss,target_price,risk_reward,position_shares,position_value,rationale,timestamp,strategy_confluence
+NSE:PARADEEP-EQ,86.5,Mark Minervini VCP (SHORT),SELL,146.24,151.76,129.68,3.0,1367,199910.08,VCP Stage 4 Breakdown below Floor 148.21 with Volume Expansion (431966 vs MA 190143).,2026-10-09 09:45:00,2
+NSE:PARADEEP-EQ,85.3,Nicolas Darvas Box (SHORT),SELL,146.24,156.0,116.96,3.0,1024,149749.76,Bearish Darvas Box Breakdown below Floor 153.41 (Ceiling: 156.00) on Volume Surge (431966).,2026-10-09 09:45:00,2
+NSE:CPPLUS-EQ,71.5,Nicolas Darvas Box,BUY,4244.3,3933.0,5178.2,3.0,32,135817.6,Darvas Box Breakout above Ceiling 4038.80 (Floor: 3933.00) on Volume Surge (230852).,2026-10-09 09:45:00,1
+NSE:POONAWALLA-EQ,71.5,Nicolas Darvas Box,BUY,446.5,433.25,486.25,3.0,447,199585.5,Darvas Box Breakout above Ceiling 442.95 (Floor: 433.25) on Volume Surge (272829).,2026-10-09 09:45:00,1
+NSE:LOTUSDEV-EQ,71.5,Nicolas Darvas Box,BUY,240.25,227.15,279.55,3.0,763,183310.75,Darvas Box Breakout above Ceiling 236.50 (Floor: 227.15) on Volume Surge (302739).,2026-10-09 09:45:00,1
