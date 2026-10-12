@@ -78,7 +78,9 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import fyersclient.fyers_client as fyres_client
 from fyersclient.fyers_client import get_fyers_client, FyersDataService
-
+from fyersclient.nifty_fyers_symbol_generator import generate_fyers_nfo_symbols
+#m_expiry, m_atm, nifty_monthly = generate_fyers_symbols(input_date, nifty_spot, symbol_name="NIFTY", expiry_type="weekly")
+from utilities import get_last_traded_day
 # ----------------------------------------------------------------------------
 # Logging: console + file handler, per the brief's "include logging" requirement
 # ----------------------------------------------------------------------------
@@ -243,6 +245,18 @@ def job_nifty_options_scan():
     sentiment-derived bias."""
     if not config.ENABLE_NIFTY_OPTIONS_TRADING:
         return
+    nifty_spot = state["data_service"].get_quotes(['NSE:NIFTY50-INDEX'])
+    # Generate dictionary list for monthly NIFTY options
+    nifty_spot = (nifty_spot.get('d')[0]).get('v').get("lp")
+    nifty_contracts = generate_fyers_nfo_symbols(
+        target_date_str=get_last_traded_day(), 
+        spot_price=nifty_spot, 
+        symbol_name="NIFTY", 
+        num_strikes=20, 
+        expiry_type="weekly",
+        csv_filename=config.NIFTY_FO_SYMBOL_MASTER_CSV
+    )
+    
     direction, sentiment_label, sentiment_score = decide_todays_direction()
     if direction is None:
         logger.warning("No clear sentiment direction today (%s) - skipping NIFTY options for today.",
@@ -435,6 +449,7 @@ def main():
     #job_sector_scan()
     #job_opening_range_scan()
     #job_check_signals()
+    job_nifty_options_scan()
     job_mcx_commodity_scan()
     
     result = bootstrap_and_catchup(state)
@@ -464,6 +479,7 @@ def main():
         state["commodity_signal_engine"] = mcx_result.signal_engine
 
     common_kwargs = dict(coalesce=True, max_instances=1)
+    
     scheduler = BackgroundScheduler(timezone=TZ)
 
     scheduler.add_job(job_sector_scan, _cron_from_hms(config.SECTOR_SCAN_TIME),

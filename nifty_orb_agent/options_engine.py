@@ -223,6 +223,8 @@ def fetch_opening_range_candle(data_service: FyersDataService, symbol: str) -> l
     """
     tz = pytz.timezone(config.TIMEZONE)
     now = datetime.now(tz)
+    # ========= need to revisit================
+    #now = get_last_traded
     start = tz.localize(datetime(now.year, now.month, now.day, 9, 15, 0))
     end = tz.localize(datetime(now.year, now.month, now.day, 9, 20, 0))
     candles = data_service.get_5min_candle(symbol, now.strftime("%Y-%m-%d"),

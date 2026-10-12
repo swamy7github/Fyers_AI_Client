@@ -70,9 +70,9 @@ TRADE_LOG_CSV = os.path.join(LOG_DIR, "trade_book_{date}.csv")
 # ----------------------------------------------------------------------------
 TIMEZONE = "Asia/Kolkata"
 
-SECTOR_SCAN_TIME = "09:30:00"           # pre-open sector snapshot (see caveat in sector_scanner.py)
-SECTOR_SCAN_TIME_POSTOPEN = "09:45:30"  # re-run shortly after the normal session starts, for real numbers
-OPENING_RANGE_SCAN_TIME = "09:46:10"    # 2s buffer after the 09:15-09:20 candle closes
+SECTOR_SCAN_TIME = "09:16:00"           # pre-open sector snapshot (see caveat in sector_scanner.py)
+SECTOR_SCAN_TIME_POSTOPEN = "09:19:40"  # re-run shortly after the normal session starts, for real numbers
+OPENING_RANGE_SCAN_TIME = "09:20:02"    # 2s buffer after the 09:15-09:20 candle closes
 SIGNAL_ENGINE_LAST_RUN = "15:11:00"     # stop looking for NEW signals after this time
 SQUARE_OFF_TIME = "15:11:30"            # force-close any open paper positions
 CANDLE_INTERVAL_MINUTES = 5
@@ -117,6 +117,32 @@ MAX_LOSS_PCT = 2.5
 TOP_N_STOCKS = 5          # how many stocks to shortlist and track intraday
 VOLUME_MA_PERIOD = 20     # number of 5-min candles for the ENTRY volume moving average
 CONSECUTIVE_CANDLES_FOR_BUY = 2  # candles required to confirm a breakout entry
+
+# Opening-range candle "closing strength" filter - a SECOND, independent screen on the 09:15
+# candle itself, applied on top of the prev-close gain/loss band above. It measures how far the
+# candle's CLOSE sits away from the extreme that matters for a breakout in that direction, as a
+# percentage of the candle's own (high - low) range:
+#   LONG:  wick_pct = (high  - close) / (high - low) * 100   (distance from close UP to the high)
+#   SHORT: wick_pct = (close - low)   / (high - low) * 100   (distance from close DOWN to the low)
+# wick_pct is always in [0, 100] by construction (close sits between the candle's high and low):
+#   0%   = closed exactly at the relevant extreme - the strongest possible candle for that side.
+#   100% = closed at the OPPOSITE extreme - a full reversal wick working against the trade (e.g.
+#          for LONG, a candle that spiked up then sold all the way back down to its low by the
+#          close - a weak sign for a breakout that needs the stock to keep going UP).
+# A stock is kept only if wick_pct <= MAX_OR_CANDLE_WICK_PCT. A flat candle (high == low) always
+# passes (wick_pct is defined as 0.0 - there's no wick to measure).
+#
+# 100.0 (the default below) is a NO-OP: every candle passes, since wick_pct can never exceed 100
+# - this preserves old behaviour (no wick-based filtering at all) until you deliberately tune it
+# down. There's no universally "right" value - it depends on your universe and the gain/loss
+# band above - so don't hand-pick one from intuition alone. Use
+# backtest.sweep_or_candle_wick_threshold() (or `python backtest.py --sweep-wick ...` from the
+# CLI) to replay your own historical data across a range of candidate thresholds and see which
+# one actually produces the best total_points/win_rate for YOUR universe and sentiment config -
+# that empirical result is the "optimum", not a number copied from here. As a starting point for
+# the sweep's own candidate range, many opening-range strategies land somewhere around 30-50
+# (close in roughly the half-to-two-thirds of the range closest to the breakout side).
+MAX_OR_CANDLE_WICK_PCT = 100.0
 
 # ---- Directional gating from global sentiment (see trade_direction.py) ----
 # When global_sentiment.score_global_bias() (or get_stock_news_ema_bias's combined_bias)
@@ -243,7 +269,7 @@ NIFTY_INDEX_SYMBOL = "NSE:NIFTY50-INDEX"   # PRICE/VWAP source - spot index, als
 # (the FUTURE rows are typically alongside the OPTION rows in Fyers' combined
 # F&O master) - not done here since you only asked for the option leg to be
 # master-resolved.
-NIFTY_FUTURES_SYMBOL = "NSE:NIFTY25OCTFUT"
+NIFTY_FUTURES_SYMBOL = "NSE:NIFTY26OCTFUT"
 
 # Fyers publishes a downloadable NSE F&O instrument/symbol master file
 # (check their current API docs for the exact URL - it has moved before)
@@ -254,7 +280,7 @@ NIFTY_FUTURES_SYMBOL = "NSE:NIFTY25OCTFUT"
 # hard-coded format string here, specifically because NIFTY's expiry day,
 # lot size, and strike gap have all changed more than once under SEBI/
 # exchange rule changes - hard-coding any of them would silently go stale.
-NIFTY_FO_SYMBOL_MASTER_CSV = os.path.join(DATA_DIR, "nse_fo_symbol_master.csv")
+NIFTY_FO_SYMBOL_MASTER_CSV = os.path.join(DATA_DIR, "nse_fno_symbol_master.csv")
 
 # Best-effort {logical name: actual column name} mapping for the file above -
 # VERIFY against your own downloaded file's real header (print df.columns

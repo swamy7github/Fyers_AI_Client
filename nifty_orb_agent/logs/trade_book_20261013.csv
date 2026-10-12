@@ -1,0 +1,6 @@
+symbol,entry_type,direction,entry_time,entry_price,qty,exit_time,exit_price,points,pnl_pct,pnl_amount,is_backfill,exit_is_backfill
+NSE:SAREGAMA-EQ,INITIAL,SHORT,11:55:02,484.1,82,13:35:02,494.15,-10.05,-2.08,-824.1,False,False
+NSE:SAREGAMA-EQ,ADD,SHORT,12:40:02,494.55,80,13:35:02,494.15,0.4,0.08,32.0,False,False
+NSE:POONAWALLA-EQ,INITIAL,SHORT,13:10:02,435.75,91,14:50:02,440.3,-4.55,-1.04,-414.05,False,False
+NSE:CAPLIPOINT-EQ,INITIAL,SHORT,13:30:02,2341.0,17,15:11:30,2359.9,-18.9,-0.81,-321.3,False,False
+NSE:POONAWALLA-EQ,ADD,SHORT,14:40:02,440.3,90,14:50:02,440.3,0.0,0.0,0.0,False,False

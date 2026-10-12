@@ -1,0 +1,3 @@
+symbol,entry_type,direction,entry_time,entry_price,qty,exit_time,exit_price,points,pnl_pct,pnl_amount,is_backfill,exit_is_backfill
+MCX:CRUDEOILM26OCTFUT,INITIAL,LONG,14:30:00,8869.0,20,23:15:00,8977,108.0,1.22,2160.0,True,False
+MCX:CRUDEOILM26OCTFUT,INITIAL,LONG,18:30:02,8973.0,20,23:15:00,8977,4.0,0.04,80.0,False,False

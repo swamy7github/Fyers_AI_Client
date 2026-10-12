@@ -200,6 +200,34 @@ def _passes_gain_filter(pct_change: float, direction: TradeDirection) -> bool:
     return -config.MAX_LOSS_PCT <= pct_change < -config.MIN_LOSS_PCT
 
 
+def or_candle_wick_pct(o: float, h: float, l: float, c: float, direction: TradeDirection) -> float:
+    """
+    "Closing strength" of an opening-range candle: how far its CLOSE sits away from the extreme
+    that matters for a breakout in `direction`, as a percentage of the candle's own (high - low)
+    range - see config.MAX_OR_CANDLE_WICK_PCT's docs for the full rationale.
+
+    LONG:  (high - close) / range * 100   - distance from close UP to the high.
+    SHORT: (close - low)  / range * 100   - distance from close DOWN to the low.
+
+    Always in [0, 100] for a well-formed candle (close is between its own high and low). A flat
+    candle (high == low, e.g. an illiquid symbol's first print) returns 0.0 - there's no wick to
+    measure, so it's never excluded on this ground alone (the gain/loss band above still applies).
+    """
+    rng = h - l
+    if rng <= 0:
+        return 0.0
+    if direction == TradeDirection.LONG:
+        return (h - c) / rng * 100
+    return (c - l) / rng * 100
+
+
+def _passes_wick_filter(o: float, h: float, l: float, c: float, direction: TradeDirection) -> bool:
+    """True if the opening-range candle's closing strength (see or_candle_wick_pct) is within
+    config.MAX_OR_CANDLE_WICK_PCT - i.e. the close isn't sitting on too big a reversal wick
+    against the breakout direction. The default threshold (100.0) is a no-op; see config.py."""
+    return or_candle_wick_pct(o, h, l, c, direction) <= config.MAX_OR_CANDLE_WICK_PCT
+
+
 def _apply_gain_filter(rows: list[dict], direction: TradeDirection = TradeDirection.LONG) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     if df.empty:
@@ -241,7 +269,7 @@ def scan_opening_range(state,
                 continue
 
             pct_change = (c - prev_close) / prev_close * 100
-            if _passes_gain_filter(pct_change, direction):
+            if _passes_gain_filter(pct_change, direction) and _passes_wick_filter(o, h, l, c, direction):
                 rows.append({
                     "symbol": symbol, "open": o, "high": h, "low": l, "close": c,
                     "volume": v, "prev_close": prev_close, "pct_change": round(pct_change, 2),
@@ -293,7 +321,7 @@ def scan_symbols_accurate(data_service: FyersDataService, symbols: list[str],
                 continue
 
             pct_change = (c - prev_close) / prev_close * 100
-            if _passes_gain_filter(pct_change, direction):
+            if _passes_gain_filter(pct_change, direction) and _passes_wick_filter(o, h, l, c, direction):
                 rows.append({
                     "symbol": symbol, "open": o, "high": h, "low": l, "close": c,
                     "volume": v, "prev_close": prev_close, "pct_change": round(pct_change, 2),

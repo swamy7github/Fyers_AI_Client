@@ -62,6 +62,7 @@ try:
     load_dotenv(f"{Config_DIR}/.envfyers")  # Load environment variables from .env.fyers if present
 except Exception as e:
     logging.warning(f"Failed to load .envfyers file: {e}")
+    raise RuntimeError("Failed to load .envfyers file. Please ensure it exists and is readable.")
   
     
 class Config:
@@ -133,6 +134,7 @@ class FyersAuthManager:
         #self.secret_key = getattr(config, "FYERS_SECRET_KEY", "XXXXXXXXXX")
         #self.redirect_uri = getattr(config, "FYERS_REDIRECT_URI", "https://trade.fyers.in/api-product/front/tools/redirect.png")
         self.token_file_path = token_file_path or getattr(config, "TOKEN_FILE_PATH", f"{config.FYERS_APP_ID}_fyers_token.txt")
+        self.token_file_path = os.path.join(Config_DIR, self.token_file_path)  # Ensure token file is in DATA_DIR
 
     def validate_authcode(self, session, app_id, app_secret, auth_code):
         try:
@@ -693,7 +695,8 @@ class FyersDataService:
                 symb = kwargs['data']
 
                 if "quotes" in target_fn.__name__:
-                    logger.warning("No symbol provided in kwargs['data']; cannot log symbol information.")
+                    logger.warning(f"its get_quotes call() symbol provided in {kwargs['data']['symbols'][:-4]};")
+                    return response
                 logger.info(f"{symb.get('symbol', 'N/A')} -- resolution {symb.get('resolution', 'N/A')} - attempt {attempt}.")
                 return response
 
@@ -765,6 +768,9 @@ class FyersDataService:
             "cont_flag": "1",
         }
         response = self._call_with_retry(self.client.history, data=data)
+        if not response:
+            logger.info(f"no valid candle found for Symbol for {symbol} at this time-date ")
+            return[]
         candles = response.get("candles", [])
         logger.info("Fetched %d x %s-min candle(s) for %s on %s.", len(candles), resolution, symbol, date_str)
         return candles
