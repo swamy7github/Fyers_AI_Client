@@ -70,10 +70,10 @@ TRADE_LOG_CSV = os.path.join(LOG_DIR, "trade_book_{date}.csv")
 # ----------------------------------------------------------------------------
 TIMEZONE = "Asia/Kolkata"
 
-SECTOR_SCAN_TIME = "09:16:00"           # pre-open sector snapshot (see caveat in sector_scanner.py)
+SECTOR_SCAN_TIME = "09:15:40"           # pre-open sector snapshot (see caveat in sector_scanner.py)
 SECTOR_SCAN_TIME_POSTOPEN = "09:19:40"  # re-run shortly after the normal session starts, for real numbers
 OPENING_RANGE_SCAN_TIME = "09:20:02"    # 2s buffer after the 09:15-09:20 candle closes
-SIGNAL_ENGINE_LAST_RUN = "15:11:00"     # stop looking for NEW signals after this time
+SIGNAL_ENGINE_LAST_RUN = "23:11:00"     # stop looking for NEW signals after this time
 SQUARE_OFF_TIME = "15:11:30"            # force-close any open paper positions
 CANDLE_INTERVAL_MINUTES = 5
 
@@ -142,6 +142,27 @@ CONSECUTIVE_CANDLES_FOR_BUY = 2  # candles required to confirm a breakout entry
 # that empirical result is the "optimum", not a number copied from here. As a starting point for
 # the sweep's own candidate range, many opening-range strategies land somewhere around 30-50
 # (close in roughly the half-to-two-thirds of the range closest to the breakout side).
+#
+# Applies to EVERY engine this agent runs, ONE shared threshold (merged from two separate
+# settings - equities/options and MCX used to be tuned independently - on the understanding
+# that you'd rather have one knob than remember to update two):
+#   - the NSE equity shortlist (opening_range_scanner.py/backtest.py's equity path - per-STOCK,
+#     part of the shortlist filter)
+#   - the NIFTY/BANKNIFTY options engines (options_engine.py - a per-DAY go/no-go gate on the
+#     underlying FUTURE's own opening-range candle: too wide a reversal wick there skips
+#     options entirely for the day, same as "no opening-range candle available yet")
+#   - MCX commodities (commodity_engine.py - applied PER CONTRACT in
+#     fetch_mcx_universe_opening_ranges(), and mirrored in backtest.py's MCX path: a contract
+#     whose own opening-range candle closed with too wide a reversal wick against today's
+#     bias_direction is left out of the traded universe for the day, logged the same way a
+#     genuine data gap already is)
+# All three use the exact same formula (or_candle_wick_pct() in opening_range_scanner.py,
+# reused as-is everywhere) against their OWN opening-range candle - only the candle's width
+# differs per market (NSE's fixed 5-min bar vs config.MCX_CANDLE_INTERVAL_MINUTES), not the
+# threshold. If MCX's typical intraday volatility ever turns out to need a genuinely different
+# bar than equities/options do, split this back into two config values rather than hand-waving
+# a shared number across markets with different wick behavior - nothing stops you, this is just
+# this project's current default.
 MAX_OR_CANDLE_WICK_PCT = 100.0
 
 # ---- Directional gating from global sentiment (see trade_direction.py) ----
@@ -153,6 +174,69 @@ MAX_OR_CANDLE_WICK_PCT = 100.0
 # when sentiment is unclear, rather than sitting out entirely.
 ALLOW_LONG_ON_NEUTRAL = False
 ALLOW_SHORT_ON_NEUTRAL = False
+
+# ---- Candle-based direction (alternative to global sentiment above) ----
+# Off by default - bootstrap.decide_todays_direction()/decide_todays_commodity_direction()
+# (used by EVERY catch-up/scan path: equities, NIFTY options, BANKNIFTY options, MCX) use
+# global-sentiment-derived direction as documented above. Flip this to True to switch them
+# ALL to a PRICE-ACTION read instead: today's direction is decided "on the fly" from a
+# reference instrument's OWN first few opening candles, rather than from
+# global_sentiment.py's index-proxy snapshot. Rule (same for every market): take the first
+# CANDLE_DIRECTION_NUM_CANDLES (or MCX_CANDLE_DIRECTION_NUM_CANDLES for MCX) candles from
+# session open; if the LAST candle's CLOSE is above the FIRST candle's own OPEN, direction is
+# LONG; below, SHORT; exactly flat (equal - rare but possible), the SAME
+# ALLOW_LONG_ON_NEUTRAL/ALLOW_SHORT_ON_NEUTRAL fallback above applies (both False by default
+# -> sit out that day), reusing that existing policy rather than adding a separate flag for
+# it. See bootstrap._decide_direction_from_candles()'s docstring for the exact mechanics,
+# including the "called before the deciding candle has even closed" WAITING_FOR_CANDLES case
+# (NOT the same as a flat reading - a late/mid-session start before the window closes gets
+# automatically retried via the scheduled scan job once the candles ARE in, rather than being
+# treated as "no clear direction today").
+#
+# IMPORTANT - this also shifts WHEN each market's opening-range scan job can first run, since
+# the direction literally cannot be known until the deciding candle(s) close: main.py
+# schedules the equity/NIFTY-options/BANKNIFTY-options scan at CANDLE_DIRECTION_SCAN_TIME
+# instead of OPENING_RANGE_SCAN_TIME, and MCX's scan at MCX_CANDLE_DIRECTION_SCAN_TIME instead
+# of MCX_OPENING_RANGE_SCAN_TIME, whenever this flag is True - see main()'s scheduler wiring.
+#
+# NOTE: the opening-range HIGH/LOW used as each stock's/index's breakout trigger line is NOT
+# affected by this flag - it stays the first 5-min candle only (unchanged), same as sentiment
+# mode. Only the DIRECTION decision reads the extra candles; the trigger prices do not widen
+# to span them.
+#
+# NOTE: backtest.py's decide_direction_for_date()/decide_commodity_direction_for_date() do
+# NOT currently support this mode - they always replay the sentiment-based decision regardless
+# of this flag (and log a warning if it's on), since teaching the backtester to slice its own
+# pre-fetched intraday candles the same way is a separate, not-yet-built piece of work. Ask for
+# it if you want backtests to reflect candle-based direction too.
+USE_CANDLE_BASED_DIRECTION = True
+
+# NIFTY/BANKNIFTY options (and, since they share decide_todays_direction(), equities too):
+# how many of config.MARKET_OPEN_TIME's own 5-min candles to wait for/read. 3 candles from
+# 09:15 means the decision is only possible once the 09:25-09:30 candle has closed, i.e. at
+# or after 09:30:00 - see CANDLE_DIRECTION_SCAN_TIME below, which must stay in sync with this
+# if you change it (CANDLE_DIRECTION_SCAN_TIME = MARKET_OPEN_TIME + this many candles' worth
+# of minutes, plus a small buffer).
+CANDLE_DIRECTION_NUM_CANDLES = 3
+CANDLE_DIRECTION_SCAN_TIME = "09:30:02"   # 2s buffer after the 3rd 09:15-session candle closes (09:30:00)
+
+# MCX counterpart - 2 candles from MCX_MARKET_OPEN_TIME (09:00 by default) means ready at
+# 09:10:00. Kept independent of CANDLE_DIRECTION_NUM_CANDLES/CANDLE_DIRECTION_SCAN_TIME above
+# (unlike MAX_OR_CANDLE_WICK_PCT, which IS now shared across every market - see its own docs)
+# because MCX's own session/candle width genuinely differs from NSE's (config.
+# MCX_CANDLE_INTERVAL_MINUTES, not NSE's fixed 5-min bar), so the TIME this becomes decidable
+# can't be a single shared clock value the way a dimensionless wick PERCENTAGE can be a single
+# shared threshold.
+MCX_CANDLE_DIRECTION_NUM_CANDLES = 2
+MCX_CANDLE_DIRECTION_SCAN_TIME = "09:30:02"  # 2s buffer after the 2nd MCX-session candle closes (09:10:00)
+
+# Which ONE MCX_COMMODITY_UNIVERSE contract's own candles decide direction for the WHOLE MCX
+# universe (mirrors how commodity SENTIMENT already decides one shared direction for the
+# whole universe today - this does NOT change that architecture to per-contract independent
+# directions, which nothing asked for). None (the default) means "the first entry in
+# MCX_COMMODITY_UNIVERSE" - set an explicit symbol string here (e.g. "MCX:GOLD25DECFUT") to
+# pick a specific reference contract instead, independent of ordering in the universe list.
+MCX_DIRECTION_REFERENCE_SYMBOL = None
 
 # ---- Stop-loss / square-off & position-sizing (add-on) parameters ----
 # Weakness/breakdown is detected with the SAME 20-period volume MA
@@ -191,7 +275,7 @@ RATE_LIMIT_BACKOFF_BASE_SECONDS = 3  # doubles each attempt: 3s, 6s, 12s, 24s, 4
 # value. Set it a little under your actual documented limit, not exactly at
 # it, to leave headroom for clock jitter and any other process sharing the
 # same API key (e.g. a separate WebSocket connection).
-FYERS_MAX_CALLS_PER_SECOND = 8
+FYERS_MAX_CALLS_PER_SECOND = 4
 
 # How many symbols to pack into a single batched /quotes call. Fyers caps
 # how many comma-separated symbols one quotes request accepts - verify the
@@ -238,17 +322,26 @@ DEFAULT_ORDER_QTY = 1
 # ----------------------------------------------------------------------------
 # NIFTY INDEX options trading (see options_engine.py) - OFF by default
 # ----------------------------------------------------------------------------
-# DUAL-SOURCE signal, single-leg execution (see options_engine.py's module
-# docstring for the full picture):
-#   - PRICE/VWAP condition is read from NIFTY_INDEX_SYMBOL's own 5-min candles
-#     (opening-range high/low from its 09:15 candle, running VWAP).
-#   - VOLUME condition (> 20-period volume MA) is read from NIFTY_FUTURES_SYMBOL's
-#     own 5-min candles instead - the index itself typically reports ZERO
-#     volume in Fyers' feed (it isn't a tradable instrument), so a volume-MA
-#     check against the index's own candles would be meaningless. VERIFY this
-#     against a raw quote/candle for your NIFTY_INDEX_SYMBOL before enabling -
-#     if your feed DOES report real index volume, the VWAP computed from it
-#     is still literally what's used here either way.
+# SINGLE-SOURCE signal (NIFTY_FUTURES_SYMBOL), single-leg execution (see
+# options_engine.py's module docstring for the full picture):
+#   - BOTH the PRICE condition (opening-range high/low from its own 09:15
+#     candle, running VWAP) AND the VOLUME condition (> 20-period volume MA)
+#     are read from NIFTY_FUTURES_SYMBOL's own 5-min candles - the index
+#     itself typically reports ZERO volume in Fyers' feed (it isn't a
+#     tradable instrument), so NEITHER a volume-MA check NOR a VWAP
+#     (cumulative price*volume / cumulative volume) computed against the
+#     index's own candles would be meaningful - VWAP would silently collapse
+#     to 0 if the index's reported volume is genuinely always zero. The
+#     future is a real, continuously-traded proxy that tracks the index
+#     almost 1:1, so it supplies the whole signal by itself. VERIFY the
+#     zero-volume assumption against a raw quote/candle for your own
+#     NIFTY_INDEX_SYMBOL before relying on this - if your feed DOES report
+#     real index volume, you could point the engine back at the index
+#     instead, but this repo defaults to the safer/proven futures-only read.
+#   - NIFTY_INDEX_SYMBOL is used for exactly ONE thing: fetching the spot LTP
+#     at entry time to resolve WHICH OTM strike to buy (see
+#     resolve_otm_option_symbol() in options_engine.py) - it plays no part in
+#     the entry/exit signal itself any more.
 #   - The instrument actually BOUGHT is a single OTM (out-of-the-money) NIFTY
 #     option - CE when today's sentiment-derived bias is LONG, PE when it's
 #     SHORT - BUY-ONLY, same reasoning as before (capped risk, no naked
@@ -256,19 +349,20 @@ DEFAULT_ORDER_QTY = 1
 #     symbol master file (below) that THIS repo cannot keep current for you -
 #     read options_engine.py fully, and verify your own symbol master's
 #     column names/values, before setting this True.
-ENABLE_NIFTY_OPTIONS_TRADING = True
+ENABLE_NIFTY_OPTIONS_TRADING = False
 
-NIFTY_INDEX_SYMBOL = "NSE:NIFTY50-INDEX"   # PRICE/VWAP source - spot index, also used for OTM strike selection
+NIFTY_INDEX_SYMBOL = "NSE:NIFTY50-INDEX"   # OTM-strike spot source ONLY - not part of the
+                                            # entry/exit signal any more (see block comment above)
 
-# VOLUME source - the current front-month NIFTY index future. Unlike the option
-# symbol (resolved fresh each day from the symbol master below), this is a
-# plain string you must update yourself each time the contract rolls
-# (monthly) - e.g. "NSE:NIFTY25DECFUT" is only valid for that one expiry
-# cycle. If you'd rather this stay current automatically, extend
-# options_engine.py to resolve it from the same symbol master file instead
-# (the FUTURE rows are typically alongside the OPTION rows in Fyers' combined
-# F&O master) - not done here since you only asked for the option leg to be
-# master-resolved.
+# PRICE + VWAP + VOLUME source - the current front-month NIFTY index future, the
+# ONLY instrument the entry/exit signal is read from. Unlike the option symbol
+# (resolved fresh each day from the symbol master below), this is a plain
+# string you must update yourself each time the contract rolls (monthly) -
+# e.g. "NSE:NIFTY26OCTFUT" is only valid for that one expiry cycle. If you'd
+# rather this stay current automatically, extend options_engine.py to resolve
+# it from the same symbol master file instead (the FUTURE rows are typically
+# alongside the OPTION rows in Fyers' combined F&O master) - not done here
+# since you only asked for the option leg to be master-resolved.
 NIFTY_FUTURES_SYMBOL = "NSE:NIFTY26OCTFUT"
 
 # Fyers publishes a downloadable NSE F&O instrument/symbol master file
@@ -281,6 +375,7 @@ NIFTY_FUTURES_SYMBOL = "NSE:NIFTY26OCTFUT"
 # lot size, and strike gap have all changed more than once under SEBI/
 # exchange rule changes - hard-coding any of them would silently go stale.
 NIFTY_FO_SYMBOL_MASTER_CSV = os.path.join(DATA_DIR, "nse_fno_symbol_master.csv")
+BANKNIFTY_FO_SYMBOL_MASTER_CSV = os.path.join(DATA_DIR, "nsebank_fno_symbol_master.csv")
 
 # Best-effort {logical name: actual column name} mapping for the file above -
 # VERIFY against your own downloaded file's real header (print df.columns
@@ -302,7 +397,7 @@ NIFTY_FO_MASTER_COLUMNS = {
 # a PE), 2 = the second, etc. Not specified precisely in the original
 # request ("OTM CE"/"OTM PE") - 1 (the nearest OTM strike) is the most
 # common reading and this repo's default; change it if you mean further OTM.
-NIFTY_OTM_STRIKES_AWAY = 2
+NIFTY_OTM_STRIKES_AWAY = 1
 
 # Independent capital bucket for the options strategy - deliberately
 # separate from TRADING_CAPITAL (equities) and MCX_CAPITAL (below) rather
@@ -315,15 +410,18 @@ NIFTY_OPTIONS_CAPITAL = 200000.0
 # ----------------------------------------------------------------------------
 # BANK NIFTY (NIFTYBANK) INDEX options trading - OFF by default
 # ----------------------------------------------------------------------------
-# The EXACT SAME dual-source engine as the NIFTY options block above
+# The EXACT SAME single-source engine as the NIFTY options block above
 # (options_engine.py's NiftyOptionsEngine/run_index_options_engine - see its
 # module docstring for the full rule set), just pointed at NIFTYBANK's own
 # index/futures/strike universe instead of NIFTY's:
-#   - PRICE/VWAP condition from BANKNIFTY_INDEX_SYMBOL's own 5-min candles.
-#   - VOLUME condition (> 20-period volume MA) from BANKNIFTY_FUTURES_SYMBOL's
-#     own 5-min candles, for the same reason as NIFTY's - the index itself
-#     typically reports ZERO volume. VERIFY against your own raw feed before
-#     enabling, same as the NIFTY caveat above.
+#   - PRICE + VWAP + VOLUME condition all from BANKNIFTY_FUTURES_SYMBOL's own
+#     5-min candles, for the same reason as NIFTY's - the index itself
+#     typically reports ZERO volume, which would also break a VWAP computed
+#     from it. VERIFY against your own raw feed before enabling, same as the
+#     NIFTY caveat above.
+#   - BANKNIFTY_INDEX_SYMBOL is used for exactly ONE thing: the spot LTP at
+#     entry time, to resolve which OTM strike to buy - no part of the
+#     entry/exit signal.
 #   - BUYS a single OTM (out-of-the-money) BANKNIFTY option - CE on a LONG
 #     bias, PE on a SHORT bias - using the SAME today's sentiment-derived
 #     direction equities/NIFTY-options use (never recomputed per market).
@@ -335,17 +433,18 @@ NIFTY_OPTIONS_CAPITAL = 200000.0
 # "NIFTY" ones. Off by default for the same reasons as NIFTY options - read
 # options_engine.py fully, and verify your own symbol master's BANKNIFTY
 # rows, before setting this True.
-ENABLE_BANKNIFTY_OPTIONS_TRADING = True
+ENABLE_BANKNIFTY_OPTIONS_TRADING = False
 
-BANKNIFTY_INDEX_SYMBOL = "NSE:NIFTYBANK-INDEX"  # PRICE/VWAP source - VERIFY this exact string
-                                                  # against your own Fyers symbol master/quote
-                                                  # before enabling; exchange symbol strings do
-                                                  # change.
+BANKNIFTY_INDEX_SYMBOL = "NSE:NIFTYBANK-INDEX"  # OTM-strike spot source ONLY - VERIFY this
+                                                  # exact string against your own Fyers symbol
+                                                  # master/quote before enabling; exchange symbol
+                                                  # strings do change.
 
-# VOLUME source - the current front-month BANKNIFTY future. Same manual-roll
+# PRICE + VWAP + VOLUME source - the current front-month BANKNIFTY future, the
+# ONLY instrument the entry/exit signal is read from. Same manual-roll
 # caveat as NIFTY_FUTURES_SYMBOL above: this is a plain string you must
 # update yourself each time the contract rolls (monthly).
-BANKNIFTY_FUTURES_SYMBOL = "NSE:BANKNIFTY25DECFUT"
+BANKNIFTY_FUTURES_SYMBOL = "NSE:BANKNIFTY26OCTFUT"
 
 # Same meaning as NIFTY_OTM_STRIKES_AWAY above, independently configurable
 # since BANKNIFTY's strike gap (100) is wider than NIFTY's (50) - 1 = the
@@ -388,7 +487,7 @@ MCX_SQUARE_OFF_TIME = "23:15:00"           # mirrors SQUARE_OFF_TIME - force-clo
 # Used by commodity_engine.py (opening-range window + per-tracker candle resolution) and by
 # main.py's separate MCX candle-check cron job (job_check_commodity_signals) - see that
 # job's docstring for why MCX needs its own cron trigger rather than sharing equities'.
-MCX_CANDLE_INTERVAL_MINUTES = 15
+MCX_CANDLE_INTERVAL_MINUTES = 5
 
 # Fixed commodity universe - MCX has nothing equivalent to the NSE-500 +
 # sector-filter screen equities use, and doesn't need one: EVERY symbol

@@ -138,7 +138,7 @@ class TestRunBacktestPerDayDirection(unittest.TestCase):
         sector_csv = self.tmpdir / "sector_index_map.csv"
         universe_csv = self.tmpdir / "ind_nifty500list.csv"
         sector_csv.write_text(
-            "symbol,index_name,category,is_sector_index,sector,sector_url\n"
+       		"symbol,index_name,category,is_sector_index,sector,sector_url\n"
             "NSE:NIFTYIT-INDEX,Nifty IT,Information Technology,True,IT,https://example.com/it\n"
         )
         universe_csv.write_text(

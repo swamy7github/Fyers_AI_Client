@@ -1,0 +1,2 @@
+symbol,entry_type,direction,entry_time,entry_price,qty,exit_time,exit_price,points,pnl_pct,pnl_amount,is_backfill,exit_is_backfill
+NSE:NIFTY26O1923050CE,INITIAL,LONG,09:30:00,86.6,2300,15:11:30,66.7,-19.9,-22.98,-45770.0,True,False

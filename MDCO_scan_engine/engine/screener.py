@@ -53,7 +53,7 @@ class NSEScreenerEngine:
         Returns a DataFrame of ranked breakout/breakdown signals.
         """
         df_signals = []
-        for TF in ["180", "D"]:
+        for TF in ["D",]:
             raw_signals = []
             for symbol in symbol_list:
                 try:

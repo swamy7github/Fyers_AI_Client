@@ -368,7 +368,6 @@ class TestBootstrapAndCatchupRouting(unittest.TestCase):
 
         class FrozenDatetime(orig_now):
             @classmethod
-            
             def now(cls, tz=None):
                 return TZ.localize(datetime(2026, 9, 21, 16, 0, 0))
 
@@ -515,7 +514,8 @@ class TestBootstrapAndCatchupFullPipeline(unittest.TestCase):
 
         bootstrap_module.datetime = FrozenDatetime
         ors_module.datetime = FrozenDatetime
-        bootstrap_module.decide_todays_direction = lambda: (direction, sentiment_label, sentiment_score)
+        bootstrap_module.decide_todays_direction = (
+            lambda *a, **kw: (direction, sentiment_label, sentiment_score))
         try:
             state = {"data_service": None, "global_sentiment": {}}
             state["data_service"] = FakeFullPipelineDataService()

@@ -1,46 +1,51 @@
 """
 options_engine.py
 --------------------
-NIFTY INDEX options, DUAL-SOURCE signal / single-leg execution. The exact same
-engine/rules apply verbatim to BANK NIFTY (NIFTYBANK) via
+NIFTY INDEX options, SINGLE-SOURCE signal / single-leg execution. The exact
+same engine/rules apply verbatim to BANK NIFTY (NIFTYBANK) via
 run_banknifty_options_engine() / config.BANKNIFTY_* - see that function's
 docstring; everything below is written for NIFTY but is equally true for
 BANKNIFTY with its own index/futures/strike universe substituted in:
 
-  - The ENTRY/EXIT *signal* is computed from TWO instruments, neither of
-    which is the option contract itself:
-      1. config.NIFTY_INDEX_SYMBOL (the NIFTY 50 index) supplies the
-         PRICE condition - its own 09:15 opening-range candle's high/low,
-         and its own running VWAP.
-      2. config.NIFTY_FUTURES_SYMBOL (the current front-month NIFTY
-         future) supplies the VOLUME condition - two consecutive candles'
-         volume above its own 20-period volume MA. The index itself is
-         typically reported with ZERO volume in Fyers' feed (it isn't a
-         tradable instrument), so a volume-MA check needs a real,
-         continuously-traded proxy instead - the future is the natural
-         one, since it tracks the index almost 1:1. VERIFY this against a
-         raw quote/candle for your own NIFTY_INDEX_SYMBOL before relying
-         on it - if your feed DOES report real index volume, nothing here
-         needs to change, this module just doesn't assume it does.
+  - The ENTRY/EXIT *signal* is computed ENTIRELY from ONE instrument, which
+    is NOT the option contract itself and NOT the index:
+      config.NIFTY_FUTURES_SYMBOL (the current front-month NIFTY future)
+      supplies BOTH the PRICE condition (its own 09:15 opening-range
+      candle's high/low, and its own running VWAP) AND the VOLUME
+      condition (two consecutive candles' volume above its own 20-period
+      volume MA). The index itself is typically reported with ZERO volume
+      in Fyers' feed (it isn't a tradable instrument), so neither a
+      volume-MA check NOR a VWAP (which needs real cumulative
+      price*volume) would be meaningful computed off the index's own
+      candles - the future is a real, continuously-traded proxy instead,
+      tracking the index almost 1:1. VERIFY the zero-volume assumption
+      against a raw quote/candle for your own NIFTY_INDEX_SYMBOL - if your
+      feed DOES report real index volume you could point this back at the
+      index, but this module defaults to the futures-only read.
+  - config.NIFTY_INDEX_SYMBOL is used for exactly ONE thing, entirely
+    separate from the signal above: fetching the index's own spot LTP at
+    entry time, to pick WHICH OTM strike to buy (see
+    resolve_otm_option_symbol()/_fetch_index_spot() below). It plays no
+    part in the entry/exit decision itself.
   - ENTRY (today's bias is decided once, by the SAME sentiment pipeline
     equities/commodities use - bootstrap.decide_todays_direction(), passed
     in as `bias_direction` - not recomputed here):
-      LONG bias:  2 consecutive index candles close ABOVE the index's own
-                  opening-range HIGH *and* above its own VWAP, AND (at
-                  those same two candles) the FUTURE's volume is above its
-                  own 20-period volume MA on both -> BUY an OTM CALL (CE).
-      SHORT bias: the mirror image - 2 consecutive index candles close
+      LONG bias:  2 consecutive FUTURE candles close ABOVE the future's own
+                  opening-range HIGH *and* above its own VWAP, *and* (on
+                  those same two candles) its own volume is above its own
+                  20-period volume MA -> BUY an OTM CALL (CE).
+      SHORT bias: the mirror image - 2 consecutive FUTURE candles close
                   BELOW the opening-range LOW *and* below VWAP, with the
-                  same future-volume confirmation -> BUY an OTM PUT (PE).
-  - EXIT - once a position is open, the mirrored condition on the SAME two
-    instruments: 2 consecutive index candles closing back across VWAP
+                  same volume confirmation -> BUY an OTM PUT (PE).
+  - EXIT - once a position is open, the mirrored condition on the SAME
+    instrument: 2 consecutive FUTURE candles closing back across VWAP
     (below it for a LONG/CE position, above it for a SHORT/PE position),
-    again with the future's volume above its own 20-period MA on both,
-    closes the ENTIRE option position. There is no separate add-on/
-    multi-stage stop-loss here (unlike equities/commodities' weakness-event
-    ADD rule) - the request behind this module described a single entry and
-    a single exit, and doubling into an already-leveraged option contract
-    on "weakness" is a materially different risk than doing so for an
+    again with volume above its own 20-period MA on both, closes the
+    ENTIRE option position. There is no separate add-on/multi-stage
+    stop-loss here (unlike equities/commodities' weakness-event ADD rule)
+    - the request behind this module described a single entry and a
+    single exit, and doubling into an already-leveraged option contract on
+    "weakness" is a materially different risk than doing so for an
     equity, so that wasn't carried over uninvited.
   - The instrument actually BOUGHT/SOLD is a single OTM (out-of-the-money)
     NIFTY option, resolved fresh each day from Fyers' own F&O symbol master
@@ -50,10 +55,15 @@ BANKNIFTY with its own index/futures/strike universe substituted in:
     never writes/sells an option naked.
 
 NiftyOptionsEngine (below) exposes the same duck-typed surface as
-signal_engine.SignalEngine (`.trade_book`, `.check_all()`,
+signal_engine.SignalEngine (`.trade_book`, `.check_all()`, `.feed_candle()`,
 `.square_off_all()`, `.trackers`) so main.py's job_check_signals()/
-job_square_off_and_report() drive it exactly like the equity/commodity
-engines, with zero special-casing there.
+job_square_off_and_report() AND bootstrap.py's generic
+_replay_intraday_history() drive it exactly like the equity/commodity
+engines, with zero special-casing there - a single-symbol signal means this
+engine's candle intake has the exact same one-symbol-at-a-time shape
+SignalEngine does (an earlier dual-source version of this module needed a
+bespoke two-symbol feed_candles()/replay helper, back when the signal was
+split across the index AND the future).
 
 Off by default (config.ENABLE_NIFTY_OPTIONS_TRADING = False) - read this
 whole module and the NIFTY config block in config.py before turning it on.
@@ -73,6 +83,7 @@ import config
 import position_sizing
 import os
 import sys
+from opening_range_scanner import or_candle_wick_pct
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import fyersclient.fyers_client as fyres_client
 from fyersclient.fyers_client import get_fyers_client, FyersDataService
@@ -215,11 +226,13 @@ def fetch_opening_range_candle(data_service: FyersDataService, symbol: str) -> l
     """
     Fetches `symbol`'s own 09:15-09:20 opening-range candle as a raw [epoch, o, h, l, c, v]
     row - the lower-level building block fetch_index_opening_range() below is built from.
-    Also used by run_index_options_engine() to seed BOTH the index and futures trackers'
-    VWAP from their own first candle (see signal_engine.seed_opening_range_candle), not just
-    to read the index's high/low - previously the futures symbol's own opening-range candle
-    was never fetched at all, and the index's was fetched only for (high, low), discarding
-    its open/close/volume. Returns None (never raises) if that candle isn't available yet.
+    Generic over `symbol`: run_index_options_engine() calls this with the FUTURES symbol
+    (config.NIFTY_FUTURES_SYMBOL/BANKNIFTY_FUTURES_SYMBOL) to get the full candle it needs -
+    or_high/or_low for the breakout trigger, AND open/close/volume to seed the futures
+    tracker's own VWAP (see signal_engine.seed_opening_range_candle) and run the opening-range
+    wick filter. The index symbol is never passed here any more - see module docstring for why
+    the index plays no part in the signal. Returns None (never raises) if that candle isn't
+    available yet.
     """
     tz = pytz.timezone(config.TIMEZONE)
     now = datetime.now(tz)
@@ -235,24 +248,25 @@ def fetch_opening_range_candle(data_service: FyersDataService, symbol: str) -> l
 def fetch_index_opening_range(data_service: FyersDataService,
                                index_symbol: str | None = None) -> tuple[float, float] | None:
     """
-    Fetches `index_symbol`'s (config.NIFTY_INDEX_SYMBOL by default - pass
-    config.BANKNIFTY_INDEX_SYMBOL for Bank Nifty) own 09:15-09:20
-    opening-range candle and returns (or_high, or_low) - the PRICE-condition
-    baseline for the whole day (see module docstring). Returns None (never
-    raises) if that candle isn't available yet.
+    Generic (symbol, not just index-specific, despite the name kept for backward
+    compatibility): fetches `index_symbol`'s own 09:15-09:20 opening-range candle and
+    returns (or_high, or_low). NOT called by run_index_options_engine() any more (it needs
+    the FULL futures candle - open/close/volume too - so it calls fetch_opening_range_candle()
+    directly instead); kept as a standalone (or_high, or_low)-only convenience for callers
+    (and tests) that only need the two breakout levels for any given symbol, index or
+    otherwise. Returns None (never raises) if that candle isn't available yet.
     """
     index_symbol = index_symbol or config.NIFTY_INDEX_SYMBOL
     candle = fetch_opening_range_candle(data_service, index_symbol)
     if candle is None:
-        logger.warning("No opening-range candle yet for %s - can't start today's options signal.",
-                        index_symbol)
+        logger.warning("No opening-range candle yet for %s.", index_symbol)
         return None
     _, _, h, l, _, _ = candle
     return h, l
 
 
 # ----------------------------------------------------------------------------
-# The dual-source engine itself
+# The single-source engine itself
 # ----------------------------------------------------------------------------
 @dataclass
 class _OptionPosition:
@@ -270,45 +284,48 @@ class _OptionPosition:
 
 class NiftyOptionsEngine:
     """
-    Drives one OTM NIFTY option position from the PRICE condition on
-    config.NIFTY_INDEX_SYMBOL and the VOLUME condition on
-    config.NIFTY_FUTURES_SYMBOL (see module docstring for the exact rules).
+    Drives one OTM NIFTY option position entirely from config.NIFTY_FUTURES_SYMBOL's own
+    candles - PRICE/VWAP condition AND VOLUME condition both (see module docstring for the
+    exact rules). config.NIFTY_INDEX_SYMBOL plays no part in this engine at all; it's read
+    once, separately, by resolve_otm_option_symbol()/_fetch_index_spot() to pick the OTM
+    strike BEFORE this engine is even constructed (see run_index_options_engine() below).
 
     Exposes `.trade_book`, `.check_all(window_start_epoch, window_end_epoch)`,
+    `.feed_candle(symbol, candle, now_str, is_backfill=False)`,
     `.square_off_all(at_time_str=None)`, and `.trackers` with the same
     signatures signal_engine.SignalEngine uses, so main.py's generic
-    per-engine loop (job_check_signals/job_square_off_and_report) can drive
-    this with no special-casing - see main.py's state dict.
+    per-engine loop (job_check_signals/job_square_off_and_report) AND
+    bootstrap.py's generic _replay_intraday_history() can drive this with no
+    special-casing - see main.py's state dict.
     """
 
     def __init__(self, data_service: FyersDataService, option_symbol: str, option_lot_size: int,
-                 bias_direction: TradeDirection, index_or_high: float, index_or_low: float,
-                 capital_allocated: float, index_symbol: str | None = None,
-                 futures_symbol: str | None = None, underlying: str = "NIFTY"):
+                 bias_direction: TradeDirection, or_high: float, or_low: float,
+                 capital_allocated: float, futures_symbol: str | None = None,
+                 underlying: str = "NIFTY"):
         self.data_service = data_service
         self.bias_direction = bias_direction  # today's sentiment bias - decides the mirrored
                                                # price/VWAP comparison direction below; the
                                                # CE-vs-PE choice is already baked into option_symbol
         self.underlying = underlying  # "NIFTY" or "BANKNIFTY" - purely cosmetic, used in log/reason
-                                       # strings below; the actual signal sources are index_symbol/
-                                       # futures_symbol, resolved independently of this label.
-        index_symbol = index_symbol or config.NIFTY_INDEX_SYMBOL
+                                       # strings below; the actual signal source is futures_symbol,
+                                       # resolved independently of this label.
         futures_symbol = futures_symbol or config.NIFTY_FUTURES_SYMBOL
-        self.index_tracker = StockTracker(symbol=index_symbol, or_high=index_or_high,
-                                           or_low=index_or_low, direction=bias_direction)
-        self.futures_tracker = StockTracker(symbol=futures_symbol, direction=bias_direction)
+        self.futures_tracker = StockTracker(symbol=futures_symbol, or_high=or_high,
+                                             or_low=or_low, direction=bias_direction)
         self.option = _OptionPosition(symbol=option_symbol, lot_size=option_lot_size,
                                        capital_allocated=capital_allocated)
         self.trade_book = TradeBook()
 
     @property
     def trackers(self) -> dict[str, StockTracker]:
-        """Only the FUTURES tracker needs volume-MA warm-up seeding (see
-        bootstrap.fetch_and_seed_volume_windows / signal_engine.seed_volume_windows_from_candles,
-        both of which only ever touch `.volume_window`) - the index tracker's VWAP is never
-        pre-seeded, exactly like equities' own VWAP isn't. Exposed as a property (not a plain
-        dict) so main.py's informational prints and the seeding helper both "just work" without
-        this engine needing to know which one actually wants it."""
+        """The ONE futures tracker - both its VWAP (seeded from its own opening-range candle
+        at construction, see run_index_options_engine()) and its volume-MA window (seeded
+        separately right after, by bootstrap.fetch_and_seed_volume_windows()) live here.
+        Exposed as a property (not a plain dict) purely for parity with
+        signal_engine.SignalEngine's own `.trackers`, so main.py's informational prints,
+        the seeding helper, AND bootstrap.py's generic replay helper all "just work" without
+        any of them needing to know this engine only ever has one tracker."""
         return {self.futures_tracker.symbol: self.futures_tracker}
 
     # ------------------------------------------------------------------
@@ -321,59 +338,58 @@ class NiftyOptionsEngine:
 
     def check_all(self, window_start_epoch: int, window_end_epoch: int):
         """Called every 5 minutes, exactly like SignalEngine.check_all() - always a LIVE call
-        (is_backfill=False); see feed_candles() for the historical-replay equivalent."""
+        (is_backfill=False); see feed_candle() for the historical-replay equivalent."""
         now_str = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%H:%M:%S")
-        index_candle = self._fetch_latest_candle(self.index_tracker.symbol, window_start_epoch, window_end_epoch)
-        futures_candle = self._fetch_latest_candle(self.futures_tracker.symbol, window_start_epoch, window_end_epoch)
-        if index_candle is None or futures_candle is None:
-            logger.warning("Missing a candle this tick (index=%s, futures=%s) - skipping this "
-                            "check rather than acting on a partial signal.",
-                            "ok" if index_candle is not None else "MISSING",
-                            "ok" if futures_candle is not None else "MISSING")
+        candle = self._fetch_latest_candle(self.futures_tracker.symbol, window_start_epoch, window_end_epoch)
+        if candle is None:
+            logger.warning("No %s candle this tick - skipping this check rather than acting "
+                            "on a partial signal.", self.futures_tracker.symbol)
             return
-        self.feed_candles(index_candle, futures_candle, now_str, is_backfill=False)
+        self.feed_candle(self.futures_tracker.symbol, candle, now_str, is_backfill=False)
 
-    def feed_candles(self, index_candle: list, futures_candle: list, now_str: str, is_backfill: bool = False):
+    def feed_candle(self, symbol: str, candle: list, now_str: str, is_backfill: bool = False):
         """
-        Public entry point for feeding ONE already-fetched (index_candle, futures_candle) pair
-        directly - mirrors signal_engine.SignalEngine.feed_candle()'s role for historical replay/
-        backtesting (bootstrap.py's catch-up pipeline would call this with is_backfill=True).
+        Public entry point for feeding ONE already-fetched futures candle directly - mirrors
+        signal_engine.SignalEngine.feed_candle()'s signature/role exactly (same (symbol,
+        candle, now_str, is_backfill) shape), so bootstrap.py's generic
+        _replay_intraday_history() can replay this engine's historical candles the same way
+        it replays any SignalEngine, with no options-specific replay helper needed.
         """
-        # --- PRICE/VWAP source: the index's own candle ---
-        _, _, ih, il, ic, iv = index_candle
-        i_typical = (ih + il + ic) / 3
-        self.index_tracker.candles.append(index_candle)
-        self.index_tracker.cum_pv += i_typical * iv
-        self.index_tracker.cum_vol += iv
-        index_vwap = self.index_tracker.vwap()
+        tr = self.futures_tracker
+        if symbol != tr.symbol:
+            raise KeyError(f"{symbol!r} is not this engine's signal symbol ({tr.symbol!r}).")
 
-        # --- VOLUME source: the future's own candle. MA computed BEFORE this candle joins its
-        # window (trailing average, excludes the current bar), same convention signal_engine
-        # uses for equities/commodities. ---
-        _, _, _, _, _, fv = futures_candle
-        vol_ma_slow = self.futures_tracker.volume_ma()
-        self.futures_tracker.candles.append(futures_candle)
-        self.futures_tracker.volume_window.append(fv)
+        _, _, h, l, c, v = candle
+        typical_price = (h + l + c) / 3
+        tr.candles.append(candle)
+        tr.cum_pv += typical_price * v
+        tr.cum_vol += v
+        vwap = tr.vwap()
+
+        # MA computed BEFORE this candle joins its window (trailing average, excludes the
+        # current bar), same convention signal_engine uses for equities/commodities.
+        vol_ma_slow = tr.volume_ma()
+        tr.volume_window.append(v)
 
         if self.option.is_open:
-            self._check_exit(ic, index_vwap, fv, vol_ma_slow, now_str, is_backfill)
+            self._check_exit(c, vwap, v, vol_ma_slow, now_str, is_backfill)
         else:
-            self._check_entry(ic, index_vwap, fv, vol_ma_slow, now_str, is_backfill)
+            self._check_entry(c, vwap, v, vol_ma_slow, now_str, is_backfill)
 
     # ------------------------------------------------------------------
     # Entry / exit
     # ------------------------------------------------------------------
-    def _check_entry(self, index_close: float, index_vwap: float, futures_vol: float,
+    def _check_entry(self, close: float, vwap: float, volume: float,
                       vol_ma_slow: Optional[float], now_str: str, is_backfill: bool):
-        tr = self.index_tracker
+        tr = self.futures_tracker
         if self.bias_direction == TradeDirection.LONG:
             qualifies = (vol_ma_slow is not None and tr.or_high is not None
-                         and index_close > tr.or_high and index_close > index_vwap
-                         and futures_vol > vol_ma_slow)
+                         and close > tr.or_high and close > vwap
+                         and volume > vol_ma_slow)
         else:
             qualifies = (vol_ma_slow is not None and tr.or_low is not None
-                         and index_close < tr.or_low and index_close < index_vwap
-                         and futures_vol > vol_ma_slow)
+                         and close < tr.or_low and close < vwap
+                         and volume > vol_ma_slow)
         tr.consecutive_qualifying = tr.consecutive_qualifying + 1 if qualifies else 0
 
         if tr.consecutive_qualifying >= config.CONSECUTIVE_CANDLES_FOR_BUY:
@@ -400,26 +416,26 @@ class NiftyOptionsEngine:
         self.option.consecutive_weak = 0
         self.trade_book.record_entry(self.option.symbol, now_str, option_price, entry_type="INITIAL",
                                       is_backfill=is_backfill, direction=TradeDirection.LONG, qty=qty)
-        logger.info("BUY OPTION %s qty=%d @ %.2f (%s index 2-candle breakout confirmed by "
-                    "%s volume > 20-period MA)%s", self.option.symbol, qty, option_price,
-                    self.underlying, self.futures_tracker.symbol, " [BACKFILL]" if is_backfill else "")
+        logger.info("@ %s BUY OPTION %s qty=%d @ %.2f (%s 2-candle breakout confirmed by its own "
+                    "volume > 20-period MA)%s", now_str, self.option.symbol, qty, option_price,
+                    self.futures_tracker.symbol, " [BACKFILL]" if is_backfill else "")
         place_or_log_order(self.data_service, self.option.symbol, "BUY", qty, option_price, is_backfill)
 
-    def _check_exit(self, index_close: float, index_vwap: float, futures_vol: float,
+    def _check_exit(self, close: float, vwap: float, volume: float,
                      vol_ma_slow: Optional[float], now_str: str, is_backfill: bool):
         if self.bias_direction == TradeDirection.LONG:
-            is_weak = (vol_ma_slow is not None) and (index_close < index_vwap) and (futures_vol > vol_ma_slow)
+            is_weak = (vol_ma_slow is not None) and (close < vwap) and (volume > vol_ma_slow)
             vs_vwap = "below"
         else:
-            is_weak = (vol_ma_slow is not None) and (index_close > index_vwap) and (futures_vol > vol_ma_slow)
+            is_weak = (vol_ma_slow is not None) and (close > vwap) and (volume > vol_ma_slow)
             vs_vwap = "above"
 
         self.option.consecutive_weak = self.option.consecutive_weak + 1 if is_weak else 0
         if self.option.consecutive_weak < config.CONSECUTIVE_CANDLES_FOR_STOPLOSS:
             return
         self.option.consecutive_weak = 0
-        reason = (f"2 consecutive {self.underlying} index candles closed {vs_vwap} VWAP {index_vwap:.2f} with "
-                  f"{self.futures_tracker.symbol} volume > its 20-period MA")
+        reason = (f"2 consecutive {self.futures_tracker.symbol} candles closed {vs_vwap} VWAP "
+                  f"{vwap:.2f} with volume > its 20-period MA")
         self._exit_option_position(now_str, is_backfill, reason=reason)
 
     def _exit_option_position(self, now_str: str, is_backfill: bool, reason: str):
@@ -464,10 +480,15 @@ def run_index_options_engine(data_service: FyersDataService, bias_direction: Tra
     """
     Generic version of run_nifty_options_engine()/run_banknifty_options_engine() - both are
     thin wrappers around this, supplying their own underlying's config values. Builds and
-    returns a NiftyOptionsEngine wired to `underlying`'s own index/futures/strike universe;
-    see those two wrappers' docstrings for the bias_direction contract.
+    returns a NiftyOptionsEngine wired to `underlying`'s own futures-only signal; see those two
+    wrappers' docstrings for the bias_direction contract.
 
-    Returns None (never raises) if the contract couldn't be resolved or the index's
+    index_symbol is used for exactly one thing here: resolve_otm_option_symbol() reads its
+    spot LTP to pick which OTM strike to buy. Everything else - the opening-range candle, the
+    wick filter, and the entry/exit signal itself - comes from futures_symbol alone (see
+    options_engine.py's module docstring for why).
+
+    Returns None (never raises) if the contract couldn't be resolved or the futures symbol's
     opening-range candle isn't available yet - callers should treat that like equities'
     "empty shortlist" case: skip this market for today, other markets keep going
     independently.
@@ -480,36 +501,44 @@ def run_index_options_engine(data_service: FyersDataService, bias_direction: Tra
         return None
     option_symbol, lot_size = resolved
 
-    index_or_candle = fetch_opening_range_candle(data_service, index_symbol)
-    if index_or_candle is None:
+    futures_or_candle = fetch_opening_range_candle(data_service, futures_symbol)
+    if futures_or_candle is None:
         logger.warning("No opening-range candle yet for %s - can't start today's options signal.",
-                        index_symbol)
+                        futures_symbol)
         return None
-    _, _, or_high, or_low, _, _ = index_or_candle
+    _, or_open, or_high, or_low, or_close, or_vol = futures_or_candle
+
+    # Opening-range "closing strength" gate (see config.MAX_OR_CANDLE_WICK_PCT's docs) - a
+    # per-DAY go/no-go check on the FUTURE's own opening-range candle, the options counterpart
+    # to equities' per-STOCK wick filter in opening_range_scanner.py. Too wide a reversal wick
+    # against bias_direction here means the signal instrument itself already showed a reversal
+    # in its first 5 minutes - skip options entirely for today rather than trade a signal built
+    # on a weak opening candle. Checked BEFORE building the engine, same as the "no candle yet"
+    # case above, so no engine/OTM-resolution work is wasted on a day we're skipping anyway.
+    wick_pct = or_candle_wick_pct(or_open, or_high, or_low, or_close, bias_direction)
+    if wick_pct > config.MAX_OR_CANDLE_WICK_PCT:
+        logger.warning("%s opening-range candle closing strength failed the filter (wick_pct=%.1f%% > "
+                        "config.MAX_OR_CANDLE_WICK_PCT=%.1f%%, %s bias) - skipping %s options for "
+                        "today.", futures_symbol, wick_pct, config.MAX_OR_CANDLE_WICK_PCT,
+                        bias_direction.value, underlying)
+        return None
 
     engine = NiftyOptionsEngine(data_service, option_symbol, lot_size, bias_direction,
-                                 or_high, or_low, capital_allocated, index_symbol=index_symbol,
+                                 or_high, or_low, capital_allocated,
                                  futures_symbol=futures_symbol, underlying=underlying)
 
-    # Seed BOTH trackers' VWAP from their own opening-range candle (see
+    # Seed the futures tracker's VWAP from its own opening-range candle (see
     # signal_engine.seed_opening_range_candle's docstring for why this is necessary and why
     # it deliberately never touches volume_window - that's still seeded separately, right
-    # after this call returns, by main.py's fetch_and_seed_volume_windows(engine, ...)).
-    # The index's own OR candle was already fetched above; the future's is fetched fresh
-    # here since it was never fetched at all before this fix.
-    seed_opening_range_candle(engine.index_tracker, index_or_candle)
-    futures_or_candle = fetch_opening_range_candle(data_service, futures_symbol)
-    if futures_or_candle is not None:
-        seed_opening_range_candle(engine.futures_tracker, futures_or_candle)
-    else:
-        logger.warning("No opening-range candle yet for futures symbol %s - its VWAP seeding is "
-                        "skipped (the futures tracker only supplies the VOLUME condition, so this "
-                        "doesn't block the engine - see module docstring).", futures_symbol)
+    # after this call returns, by main.py's fetch_and_seed_volume_windows(engine, ...)). Already
+    # fetched above (both to get or_high/or_low and to run the wick filter), so no second fetch
+    # is needed here.
+    seed_opening_range_candle(engine.futures_tracker, futures_or_candle)
 
     logger.info("%s options engine ready: BUY-ONLY %s %s (lot_size=%d, capital_allocated=%.2f), "
-                "signal from index=%s (OR high=%.2f low=%.2f) + futures=%s",
+                "signal from futures=%s (OR high=%.2f low=%.2f), OTM strike resolved from %s spot",
                 underlying, option_type, option_symbol, lot_size, capital_allocated,
-                index_symbol, or_high, or_low, futures_symbol)
+                futures_symbol, or_high, or_low, index_symbol)
     return engine
 
 
@@ -524,9 +553,9 @@ def run_nifty_options_engine(data_service: FyersDataService, bias_direction: Tra
 
     LONG bias -> buy an OTM call (CE). SHORT bias -> buy an OTM put (PE).
     Returns None (never raises) if the contract couldn't be resolved or the
-    index's opening-range candle isn't available yet - callers should treat
-    that like equities' "empty shortlist" case: skip options for today,
-    other markets keep going independently.
+    futures symbol's opening-range candle isn't available yet - callers
+    should treat that like equities' "empty shortlist" case: skip options
+    for today, other markets keep going independently.
     """
     return run_index_options_engine(data_service, bias_direction, underlying="NIFTY",
                                      index_symbol=config.NIFTY_INDEX_SYMBOL,
@@ -539,11 +568,11 @@ def run_nifty_options_engine(data_service: FyersDataService, bias_direction: Tra
 def run_banknifty_options_engine(data_service: FyersDataService, bias_direction: TradeDirection,
                                   symbol_master: pd.DataFrame | None = None) -> NiftyOptionsEngine | None:
     """
-    Identical rule set to run_nifty_options_engine() (dual-source signal: PRICE/VWAP from
-    config.BANKNIFTY_INDEX_SYMBOL, VOLUME from config.BANKNIFTY_FUTURES_SYMBOL - see this
-    module's docstring), pointed at BANKNIFTY instead of NIFTY. bias_direction has the same
-    contract: pass in today's ALREADY-DECIDED sentiment direction, shared across every market
-    this agent trades - never recompute it per market.
+    Identical rule set to run_nifty_options_engine() (single-source signal: PRICE/VWAP/VOLUME
+    all from config.BANKNIFTY_FUTURES_SYMBOL, OTM strike spot from config.BANKNIFTY_INDEX_SYMBOL
+    - see this module's docstring), pointed at BANKNIFTY instead of NIFTY. bias_direction has
+    the same contract: pass in today's ALREADY-DECIDED sentiment direction, shared across every
+    market this agent trades - never recompute it per market.
 
     LONG bias -> buy an OTM BANKNIFTY call (CE). SHORT bias -> buy an OTM BANKNIFTY put (PE).
     Returns None (never raises) under the same conditions as run_nifty_options_engine().

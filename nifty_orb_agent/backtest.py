@@ -93,7 +93,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import fyersclient.fyers_client as fyres_client
 from fyersclient.fyers_client import get_fyers_client
-from opening_range_scanner import load_universe
+from opening_range_scanner import _passes_wick_filter, or_candle_wick_pct, load_universe
 from sector_scanner import load_sector_map
 from signal_engine import SignalEngine, seed_volume_windows_from_candles
 from trade_direction import TradeDirection
@@ -204,6 +204,11 @@ def _build_shortlist_for_date(symbols: list[str], intraday_by_symbol: dict, dail
             passes = config.MIN_GAIN_PCT < pct_change <= config.MAX_GAIN_PCT
         else:
             passes = -config.MAX_LOSS_PCT <= pct_change < -config.MIN_LOSS_PCT
+        # Same opening-range "closing strength" screen live trading applies (see
+        # opening_range_scanner.scan_opening_range/scan_symbols_accurate and config.
+        # MAX_OR_CANDLE_WICK_PCT's docs) - kept in lockstep here so a backtest's shortlist
+        # never silently diverges from what live trading would actually have screened for.
+        passes = passes and _passes_wick_filter(o, h, l, c, direction)
         if passes:
             rows.append({
                 "symbol": symbol, "open": o, "high": h, "low": l, "close": c,
@@ -310,28 +315,18 @@ def _run_backtest_for_date(data_service: FyersDataService, target_date: date, sy
             "sector_leaderboard": sector_leaderboard}
 
 
-def run_backtest(data_service: FyersDataService, start_date: date, end_date: date,
-                  direction: Optional[TradeDirection] = None) -> dict:
+def _prefetch_equity_history(data_service: FyersDataService, start_date: date, end_date: date) -> dict:
     """
-    Runs the strategy over every weekday in [start_date, end_date].
+    Pre-fetches EVERYTHING run_backtest() needs for [start_date, end_date] in one pass - the
+    stock universe's full intraday + daily candle history, and the sector-index daily history -
+    exactly as run_backtest() used to do inline. Factored out so the SAME pre-fetched data can be
+    replayed more than once (see sweep_or_candle_wick_threshold() below, which reruns the local,
+    API-call-free replay step once per candidate opening-range wick-filter threshold against this
+    one pre-fetch) without ever re-hitting Fyers - re-fetching per threshold would multiply the
+    already-described API-call cost by the number of thresholds tried, for data that didn't change.
 
-    direction=None (the default): computed FRESH FOR EACH DAY from
-    historical global sentiment as of that day's pre-market
-    (bootstrap.decide_direction_for_date), exactly matching what live
-    trading would have chosen - a day with no clear sentiment read (and no
-    config.ALLOW_LONG_ON_NEUTRAL / ALLOW_SHORT_ON_NEUTRAL fallback
-    configured) is skipped entirely, same as live.
-
-    direction=<a fixed TradeDirection>: overrides the per-day decision and
-    replays that ONE direction across the whole range regardless of
-    sentiment - an explicit opt-in for comparing "what if this had always
-    traded LONG/SHORT" against the real, sentiment-gated history; not the
-    default, since it tests a different (simpler) strategy than what's
-    actually deployed.
-
-    Returns {"trades": combined trade-book DataFrame, "daily_summary":
-    per-day DataFrame (includes the direction and sentiment actually used
-    each day), "sector_leaderboards": {date_str: DataFrame}, "overall": aggregate dict}.
+    Returns a bundle dict consumed by _run_backtest_days() below; an empty/no-op bundle
+    (empty "trading_days") if the range has no weekdays at all.
     """
     snapshot = get_index_snapshot(data_service)
     if snapshot.empty:
@@ -352,7 +347,8 @@ def run_backtest(data_service: FyersDataService, start_date: date, end_date: dat
     trading_days = trading_days_between(start_date, end_date)
     if not trading_days:
         logger.warning("No weekdays in the requested range (%s to %s).", start_date, end_date)
-        return {"trades": pd.DataFrame(), "daily_summary": pd.DataFrame(), "sector_leaderboards": {}, "overall": {}}
+        return {"symbols": symbols, "trading_days": [], "intraday_by_symbol": {}, "daily_by_symbol": {},
+                "sector_map": pd.DataFrame(), "sector_daily_by_symbol": {}, "tz": tz}
 
     intraday_fetch_start = start_date - timedelta(days=INTRADAY_SEED_LOOKBACK_DAYS)
     intraday_chunks = len(_date_chunks(intraday_fetch_start, end_date, config.INTRADAY_HISTORY_MAX_DAYS_PER_CHUNK))
@@ -386,7 +382,34 @@ def run_backtest(data_service: FyersDataService, start_date: date, end_date: dat
         sector_daily_by_symbol[symbol] = _fetch_full_range_candles(
             data_service, symbol, "D", daily_lookback_start, end_date, config.DAILY_HISTORY_MAX_DAYS_PER_CHUNK)
 
-    tz = pytz.timezone(config.TIMEZONE)
+    return {"symbols": symbols, "trading_days": trading_days, "intraday_by_symbol": intraday_by_symbol,
+            "daily_by_symbol": daily_by_symbol, "sector_map": sector_map,
+            "sector_daily_by_symbol": sector_daily_by_symbol, "tz": tz}
+
+
+def _run_backtest_days(data_service: FyersDataService, prefetched: dict,
+                        direction: Optional[TradeDirection]) -> tuple[list, list, dict]:
+    """
+    Replays every pre-fetched trading day (see _prefetch_equity_history() above) and returns the
+    raw per-day results - PURE LOCAL COMPUTATION (shortlist filtering, signal replay, P&L) with NO
+    further API calls, which is what lets sweep_or_candle_wick_threshold() call this once per
+    candidate config.MAX_OR_CANDLE_WICK_PCT value against the SAME pre-fetched data at zero extra
+    Fyers cost. `data_service` is only threaded through to SignalEngine's constructor (unused
+    during a backtest replay - every candle is fed directly, never fetched live) for parity with
+    the live construction path.
+
+    Returns (all_trades: list[DataFrame], daily_summaries: list[dict],
+    sector_leaderboards: {date_str: DataFrame}) - the same three accumulators run_backtest() used
+    to build inline, now shared with the sweep.
+    """
+    symbols = prefetched["symbols"]
+    trading_days = prefetched["trading_days"]
+    intraday_by_symbol = prefetched["intraday_by_symbol"]
+    daily_by_symbol = prefetched["daily_by_symbol"]
+    sector_map = prefetched["sector_map"]
+    sector_daily_by_symbol = prefetched["sector_daily_by_symbol"]
+    tz = prefetched["tz"]
+
     all_trades = []
     daily_summaries = []
     sector_leaderboards: dict[str, pd.DataFrame] = {}
@@ -417,6 +440,14 @@ def run_backtest(data_service: FyersDataService, start_date: date, end_date: dat
                                  "sentiment_score": sentiment_score, **result["summary"]})
         sector_leaderboards[str(d)] = result["sector_leaderboard"]
 
+    return all_trades, daily_summaries, sector_leaderboards
+
+
+def _aggregate_backtest_results(all_trades: list, daily_summaries: list,
+                                 sector_leaderboards: Optional[dict] = None) -> dict:
+    """Turns _run_backtest_days()'s raw accumulators into the public {"trades", "daily_summary",
+    "sector_leaderboards", "overall"} shape - the exact aggregation run_backtest() always did
+    inline, now shared with sweep_or_candle_wick_threshold()."""
     combined_trades = pd.concat(all_trades, ignore_index=True) if all_trades else pd.DataFrame()
     daily_summary_df = pd.DataFrame(daily_summaries)
 
@@ -430,8 +461,123 @@ def run_backtest(data_service: FyersDataService, start_date: date, end_date: dat
         "win_rate_pct": (round(float((combined_trades["points"] > 0).mean() * 100), 2)
                           if not combined_trades.empty else 0.0),
     }
-    return {"trades": combined_trades, "daily_summary": daily_summary_df,
-            "sector_leaderboards": sector_leaderboards, "overall": overall}
+    result = {"trades": combined_trades, "daily_summary": daily_summary_df, "overall": overall}
+    if sector_leaderboards is not None:
+        result["sector_leaderboards"] = sector_leaderboards
+    return result
+
+
+def run_backtest(data_service: FyersDataService, start_date: date, end_date: date,
+                  direction: Optional[TradeDirection] = None) -> dict:
+    """
+    Runs the strategy over every weekday in [start_date, end_date].
+
+    direction=None (the default): computed FRESH FOR EACH DAY from
+    historical global sentiment as of that day's pre-market
+    (bootstrap.decide_direction_for_date), exactly matching what live
+    trading would have chosen - a day with no clear sentiment read (and no
+    config.ALLOW_LONG_ON_NEUTRAL / ALLOW_SHORT_ON_NEUTRAL fallback
+    configured) is skipped entirely, same as live.
+
+    direction=<a fixed TradeDirection>: overrides the per-day decision and
+    replays that ONE direction across the whole range regardless of
+    sentiment - an explicit opt-in for comparing "what if this had always
+    traded LONG/SHORT" against the real, sentiment-gated history; not the
+    default, since it tests a different (simpler) strategy than what's
+    actually deployed.
+
+    Returns {"trades": combined trade-book DataFrame, "daily_summary":
+    per-day DataFrame (includes the direction and sentiment actually used
+    each day), "sector_leaderboards": {date_str: DataFrame}, "overall": aggregate dict}.
+    """
+    prefetched = _prefetch_equity_history(data_service, start_date, end_date)
+    if not prefetched["trading_days"]:
+        return {"trades": pd.DataFrame(), "daily_summary": pd.DataFrame(), "sector_leaderboards": {}, "overall": {}}
+
+    all_trades, daily_summaries, sector_leaderboards = _run_backtest_days(data_service, prefetched, direction)
+    return _aggregate_backtest_results(all_trades, daily_summaries, sector_leaderboards)
+
+
+def sweep_or_candle_wick_threshold(data_service: FyersDataService, start_date: date, end_date: date,
+                                    thresholds: Optional[list[float]] = None,
+                                    direction: Optional[TradeDirection] = None) -> pd.DataFrame:
+    """
+    Finds the empirically-best config.MAX_OR_CANDLE_WICK_PCT (see that config value's docs for
+    what it means) for YOUR equity universe, date range, and sentiment configuration, by
+    replaying the SAME pre-fetched historical data once per candidate threshold and comparing
+    results - this is the "optimum" referenced there, not a fixed number this codebase could
+    hand you, since it depends on your actual historical performance.
+
+    IMPORTANT: config.MAX_OR_CANDLE_WICK_PCT is ONE shared threshold now - NIFTY/BANKNIFTY
+    options (options_engine.py) and MCX commodities (commodity_engine.py) read this exact same
+    value live, not a separate one. This sweep only ever replays the EQUITY backtest path
+    (_run_backtest_days()), so whatever threshold you pick from these results is what options
+    and MCX will ALSO use the moment you set it - there's no equivalent MCX-only or
+    options-only sweep yet. If your equity, options, and MCX universes have meaningfully
+    different wick/volatility behavior, sanity-check the value you land on against
+    backtest.run_mcx_backtest() results too before committing to it everywhere.
+
+    The expensive part - fetching every universe symbol's full intraday + daily history for the
+    date range - happens EXACTLY ONCE (via _prefetch_equity_history()), no matter how many
+    thresholds are tried; only the cheap, local replay step (shortlist filtering + signal replay)
+    repeats per threshold. This matters because the naive approach (calling run_backtest() once
+    per threshold) would multiply the Fyers API-call cost by len(thresholds) for data that never
+    changes between runs.
+
+    thresholds defaults to [10, 20, 30, 40, 50, 60, 70, 80, 90, 100] - 100 is config.
+    MAX_OR_CANDLE_WICK_PCT's own default (a no-op, i.e. "no wick filtering at all"), included so
+    the sweep's own output shows you the filtered thresholds' effect RELATIVE TO the unfiltered
+    baseline you're already running, not just relative to each other.
+
+    direction has the same meaning as run_backtest()'s own `direction` parameter (None = per-day
+    sentiment-driven, matching live; a fixed TradeDirection = force one side for the whole sweep).
+
+    Returns a DataFrame, one row per threshold, sorted by threshold ascending, with columns
+    ["wick_threshold_pct", "days_tested", "days_skipped_no_direction", "days_with_trades",
+    "total_trades", "total_points", "win_rate_pct", "avg_points_per_trade"] - sort it by
+    "total_points" or "win_rate_pct" yourself to see which threshold actually performed best
+    (and sanity-check "total_trades" alongside it - a threshold so tight it only let 2 trades
+    through for the whole range isn't a reliable "winner" even if both happened to win).
+
+    IMPORTANT: this does NOT permanently change config.MAX_OR_CANDLE_WICK_PCT - it's restored to
+    whatever it was before this function was called (even if it raises) once the sweep finishes.
+    Set config.MAX_OR_CANDLE_WICK_PCT yourself afterwards to the value you pick.
+    """
+    if thresholds is None:
+        thresholds = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+
+    prefetched = _prefetch_equity_history(data_service, start_date, end_date)
+    if not prefetched["trading_days"]:
+        return pd.DataFrame(columns=["wick_threshold_pct", "days_tested", "days_skipped_no_direction",
+                                      "days_with_trades", "total_trades", "total_points", "win_rate_pct",
+                                      "avg_points_per_trade"])
+
+    original_threshold = config.MAX_OR_CANDLE_WICK_PCT
+    rows = []
+    try:
+        for threshold in sorted(thresholds):
+            config.MAX_OR_CANDLE_WICK_PCT = threshold
+            all_trades, daily_summaries, _ = _run_backtest_days(data_service, prefetched, direction)
+            agg = _aggregate_backtest_results(all_trades, daily_summaries)
+            overall = agg["overall"]
+            total_trades = overall.get("total_trades", 0)
+            total_points = overall.get("total_points", 0.0)
+            rows.append({
+                "wick_threshold_pct": threshold,
+                "days_tested": overall.get("days_tested", 0),
+                "days_skipped_no_direction": overall.get("days_skipped_no_direction", 0),
+                "days_with_trades": overall.get("days_with_trades", 0),
+                "total_trades": total_trades,
+                "total_points": total_points,
+                "win_rate_pct": overall.get("win_rate_pct", 0.0),
+                "avg_points_per_trade": round(total_points / total_trades, 2) if total_trades else 0.0,
+            })
+            logger.info("Wick threshold sweep: %.0f%% -> %d trade(s), %.2f total points, %.1f%% win rate.",
+                        threshold, total_trades, total_points, overall.get("win_rate_pct", 0.0))
+    finally:
+        config.MAX_OR_CANDLE_WICK_PCT = original_threshold
+
+    return pd.DataFrame(rows)
 
 
 # ----------------------------------------------------------------------------
@@ -442,17 +588,23 @@ def run_backtest(data_service: FyersDataService, start_date: date, end_date: dat
 # the universe, traded directly and unconditionally every day, at config.
 # MCX_CANDLE_INTERVAL_MINUTES resolution instead of equities' fixed 5-min bars (Task #6).
 def _build_mcx_shortlist_for_date(symbols: list[str], intraday_by_symbol: dict,
-                                   target_date: date, tz) -> pd.DataFrame:
-    """MCX counterpart to _build_shortlist_for_date() above - NO gain/loss-band filtering and
-    NO previous-close lookup: every universe symbol with an opening-range candle available on
-    target_date is included, full stop (see commodity_engine.fetch_mcx_universe_opening_ranges,
-    whose live logic this mirrors, sliced from pre-fetched data instead of fresh API calls)."""
+                                   target_date: date, tz,
+                                   direction: TradeDirection = TradeDirection.LONG) -> pd.DataFrame:
+    """MCX counterpart to _build_shortlist_for_date() above - still NO gain/loss-band filtering
+    and NO previous-close lookup (see commodity_engine.fetch_mcx_universe_opening_ranges, whose
+    live logic this mirrors, sliced from pre-fetched data instead of fresh API calls), but DOES
+    apply the SAME opening-range closing-strength/wick filter that live MCX trading now does -
+    config.MAX_OR_CANDLE_WICK_PCT, the SAME shared threshold equities/options use (a no-op by
+    default) - against `direction`, so a backtest's MCX universe never silently diverges from
+    what live screening would do."""
     rows = []
     for symbol in symbols:
         day_candles = _candles_on_date(intraday_by_symbol.get(symbol, []), target_date, tz)
         if not day_candles:
             continue
         _, o, h, l, c, v = day_candles[0]
+        if or_candle_wick_pct(o, h, l, c, direction) > config.MAX_OR_CANDLE_WICK_PCT:
+            continue
         rows.append({"symbol": symbol, "open": o, "high": h, "low": l, "close": c, "volume": v})
     return pd.DataFrame(rows)
 
@@ -463,7 +615,7 @@ def _run_mcx_backtest_for_date(data_service: FyersDataService, target_date: date
     import position_sizing  # local import: avoids a module-level dependency the equity path
                              # above doesn't need - matches commodity_engine.py's own style.
 
-    shortlist = _build_mcx_shortlist_for_date(symbols, intraday_by_symbol, target_date, tz)
+    shortlist = _build_mcx_shortlist_for_date(symbols, intraday_by_symbol, target_date, tz, direction=direction)
     if shortlist.empty:
         logger.info("%s: no MCX opening-range candle available for any universe symbol - skipping "
                     "(holiday, or a data gap).", target_date)
@@ -622,16 +774,54 @@ if __name__ == "__main__":
                               "default per-day sentiment-based decision. Omit this to replay what "
                               "the live, sentiment-gated strategy would actually have done each day.")
     parser.add_argument("--out", default=None, help="Optional path to save the combined trade log as CSV")
+    parser.add_argument("--sweep-wick", default=None, metavar="T1,T2,...",
+                         help="Instead of a single backtest, sweep config.MAX_OR_CANDLE_WICK_PCT "
+                              "(equity only - see sweep_or_candle_wick_threshold()) across this "
+                              "comma-separated list of candidate thresholds (e.g. "
+                              "'10,20,30,40,50,100') and print a comparison table, so you can pick "
+                              "the empirically-best value for YOUR universe/date range instead of "
+                              "guessing one. Omit to use the function's own default candidate range. "
+                              "Ignored (with a warning) when --market mcx is also given.")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s")
 
     start = datetime.strptime(args.start, "%Y-%m-%d").date()
     end = datetime.strptime(args.end, "%Y-%m-%d").date()
-    direction = TradeDirection[args.direction]
+    direction = TradeDirection[args.direction] if args.direction else None
     data_service = get_fyers_client()
 
     results = run_backtest(data_service, start, end, direction=direction)
+    if args.sweep_wick is not None and args.market == "mcx":
+        print("--sweep-wick is equity-only (MCX has no wick/gain-loss shortlist filtering at "
+              "all - see commodity_engine.py) - ignoring it and running a normal MCX backtest.")
+        args.sweep_wick = None
+
+    if args.sweep_wick is not None:
+        thresholds = [float(t.strip()) for t in args.sweep_wick.split(",") if t.strip()]
+        sweep_df = sweep_or_candle_wick_threshold(data_service, start, end, thresholds=thresholds,
+                                                   direction=direction)
+        print("\n=== Opening-Range Wick Threshold Sweep ===")
+        print(sweep_df.to_string(index=False) if not sweep_df.empty else "No trading days in range.")
+        if not sweep_df.empty:
+            best_points = sweep_df.loc[sweep_df["total_points"].idxmax()]
+            best_winrate = sweep_df.loc[sweep_df["win_rate_pct"].idxmax()]
+            print(f"\nBest by total_points: wick_threshold_pct={best_points['wick_threshold_pct']:.0f} "
+                  f"({best_points['total_points']:.2f} pts over {best_points['total_trades']:.0f} trade(s))")
+            print(f"Best by win_rate_pct: wick_threshold_pct={best_winrate['wick_threshold_pct']:.0f} "
+                  f"({best_winrate['win_rate_pct']:.1f}% over {best_winrate['total_trades']:.0f} trade(s))")
+            print("Sanity-check trade counts before picking a winner - a tight threshold that only "
+                  "let a couple of trades through isn't a reliable signal either way. Set config."
+                  "MAX_OR_CANDLE_WICK_PCT to whichever value you choose.")
+        if args.out:
+            sweep_df.to_csv(args.out, index=False)
+            print(f"\nSaved sweep results to {args.out}")
+        raise SystemExit(0)
+
+    if args.market == "mcx":
+        results = run_mcx_backtest(data_service, start, end, direction=direction)
+    else:
+        results = run_backtest(data_service, start, end, direction=direction)
 
     print("\n=== Daily Summary ===")
     print(results["daily_summary"].to_string(index=False) if not results["daily_summary"].empty

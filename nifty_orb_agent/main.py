@@ -9,6 +9,19 @@ management, so no live tick WebSocket needs to run (live_tick_stream.py
 still exists and is fully testable, but main.py no longer starts it; see
 that module's docstring for why).
 
+Direction (LONG/SHORT) for every market defaults to a global-sentiment read
+(bootstrap.decide_todays_direction()/decide_todays_commodity_direction()).
+config.USE_CANDLE_BASED_DIRECTION flips this to a price-action read instead -
+today's direction comes "on the fly" from a reference instrument's own first
+few opening candles (NIFTY50's for equities/NIFTY options, BANKNIFTY's for
+BANKNIFTY options, one MCX_COMMODITY_UNIVERSE contract's for the whole MCX
+universe) rather than global_sentiment.py's snapshot. This also shifts WHEN
+each market's opening-range scan can first run (config.CANDLE_DIRECTION_SCAN_TIME/
+MCX_CANDLE_DIRECTION_SCAN_TIME instead of OPENING_RANGE_SCAN_TIME/
+MCX_OPENING_RANGE_SCAN_TIME, since direction literally can't be known before
+the deciding candle(s) close) - see config.py's docstring on the flag and
+bootstrap._decide_direction_from_candles() for the exact mechanics.
+
 Run with:  python main.py
 Stop with: Ctrl+C
 
@@ -33,18 +46,36 @@ Startup flow
     WHOLE process's early exit, which silently prevented MCX from ever being
     scheduled on exactly this kind of late start - see bootstrap.py's
     bootstrap_mcx_catchup()/detect_mcx_market_phase() for the fix.
+3c. bootstrap.bootstrap_nifty_options_catchup() / bootstrap_banknifty_options_catchup() -
+    the SAME idea as step 3, but for the two options engines
+    (config.ENABLE_NIFTY_OPTIONS_TRADING / config.ENABLE_BANKNIFTY_OPTIONS_TRADING), run
+    UNCONDITIONALLY alongside steps 3/3b. These two share the NSE EQUITY session (no
+    separate phase concept of their own - see bootstrap._bootstrap_options_catchup()'s
+    docstring), so they don't affect step 4's exit decision at all. Before this existed,
+    job_nifty_options_scan()/job_banknifty_options_scan() were ONLY ever triggered by their
+    fixed 09:20 cron job - a process started any time after that (even seconds after, let
+    alone mid-session) silently never ran them for the rest of the day, since APScheduler
+    resolves an already-passed cron time to "tomorrow". KNOWN LIMITATION (see
+    bootstrap.py's _bootstrap_options_catchup() docstring): unlike steps 3/3b, this does NOT
+    reconcile broker-held positions/orders - NiftyOptionsEngine's shape (single `.option`
+    leg, not the `.trackers` dict bootstrap._reconcile_broker_state() walks) doesn't support
+    it yet.
 4. Exit only if BOTH sessions are done for the day (equity POST_CLOSE AND
    (MCX disabled OR MCX also POST_CLOSE)) - log why and return. An equity
    POST_CLOSE alone is no longer sufficient to exit while MCX might still be
-   open.
+   open. (NIFTY/BANKNIFTY options ride on the equity session and have no
+   separate say in this - see step 3c.)
 5. Schedule the recurring/remaining jobs. Because bootstrap already handled
    catch-up as a one-time synchronous step, there's no next_run_time
    trickery needed here anymore - the one-off jobs just use their normal
    cron times, which correctly resolve to "tomorrow" via APScheduler's own
-   semantics if today's occurrence has already passed. MCX's own candle
-   checks run on a SEPARATE cron job/trigger (job_check_commodity_signals)
-   from equities'/options' (job_check_signals), so MCX can run at its own
-   configurable candle resolution (config.MCX_CANDLE_INTERVAL_MINUTES - see
+   semantics if today's occurrence has already passed. job_nifty_options_scan()/
+   job_banknifty_options_scan() are now ALSO guarded the same way
+   job_opening_range_scan() always was - only cron-scheduled if step 3c didn't already
+   produce an engine today (see the guard right before scheduler.add_job(job_nifty_options_scan...)
+   below). MCX's own candle checks run on a SEPARATE cron job/trigger
+   (job_check_commodity_signals) from equities'/options' (job_check_signals), so MCX can run
+   at its own configurable candle resolution (config.MCX_CANDLE_INTERVAL_MINUTES - see
    config.py) independent of equities' fixed CANDLE_INTERVAL_MINUTES.
 """
 
@@ -63,6 +94,7 @@ import commodity_engine
 import config
 import options_engine
 from bootstrap import (MarketPhase, _time_from_hms, bootstrap_and_catchup, bootstrap_mcx_catchup,
+                        bootstrap_nifty_options_catchup, bootstrap_banknifty_options_catchup,
                         decide_todays_direction, decide_todays_commodity_direction,
                         fetch_and_seed_volume_windows)
                         
@@ -120,10 +152,15 @@ def _cron_from_hms(hms: str) -> CronTrigger:
 
 
 def _should_use_fast_opening_range_path(now: datetime) -> bool:
-    """job_opening_range_scan() only fires via its normal 09:20:02 cron trigger now (see
-    module docstring) - this stays as a safety net for the rare case where coalesce/
-    misfire_grace_time lets it fire a little late, e.g. under transient runtime delay."""
-    t = _time_from_hms(config.OPENING_RANGE_SCAN_TIME)
+    """job_opening_range_scan() only fires via its normal cron trigger now (see module
+    docstring) - this stays as a safety net for the rare case where coalesce/
+    misfire_grace_time lets it fire a little late, e.g. under transient runtime delay.
+    Compares against config.CANDLE_DIRECTION_SCAN_TIME instead of OPENING_RANGE_SCAN_TIME
+    when config.USE_CANDLE_BASED_DIRECTION is on, since THAT's the time it's actually
+    scheduled at in that mode (see main()'s scheduler wiring) - otherwise this would always
+    see itself as "late" (by ~10 minutes, every single day) and never take the fast path."""
+    scan_time = config.CANDLE_DIRECTION_SCAN_TIME if config.USE_CANDLE_BASED_DIRECTION else config.OPENING_RANGE_SCAN_TIME
+    t = _time_from_hms(scan_time)
     scheduled = now.replace(hour=t.hour, minute=t.minute, second=t.second, microsecond=0)
     return abs((now - scheduled).total_seconds()) <= config.OPENING_RANGE_FAST_PATH_TOLERANCE_SECONDS
 
@@ -159,13 +196,17 @@ def job_global_sentiment():
     sentiment_label = label
     sentiment_score = score
     # NEW: what today will actually trade, per global sentiment -> direction (see
-    # bootstrap.decide_todays_direction / trade_direction.py). This is purely informational
-    # here - the SAME function is called again, authoritatively, right before the shortlist
-    # is actually built (job_opening_range_scan / bootstrap_and_catchup), since sentiment
-    # can move between this pre-market check and 09:20:02.
-    #direction, sentiment_label, sentiment_score = decide_todays_direction()
-    direction = evaluate_market_direction(sentiment_data)
-    logger.info(f"\n=== Today's Trade Direction (from global sentiment): "
+    # bootstrap.decide_todays_direction / trade_direction.py) - or, if
+    # config.USE_CANDLE_BASED_DIRECTION is on, a price-action read off NIFTY50's own opening
+    # candles instead (purely informational here either way; called this early it will likely
+    # come back WAITING_FOR_CANDLES in candle mode, since the deciding candles haven't closed
+    # yet at this pre-market point). This is purely informational here - the SAME function is
+    # called again, authoritatively, right before the shortlist is actually built
+    # (job_opening_range_scan / bootstrap_and_catchup), since the reading can change between
+    # this pre-market check and the actual scan time.
+    direction, sentiment_label, sentiment_score = decide_todays_direction(state["data_service"])
+    mode = "opening candles" if config.USE_CANDLE_BASED_DIRECTION else "global sentiment"
+    print(f"\n=== Today's Trade Direction (from {mode}): "
           f"{direction.value if direction else 'NONE - no new positions today'} ===")
     logger.info(f"(sentiment: {sentiment_label}, score {sentiment_score:.2f})")
     state['global_sentiment'] = {'label': sentiment_label, 'direction': direction, 'score': sentiment_score} 
@@ -193,24 +234,34 @@ def job_sector_scan(label: str = ""):
 
 
 def job_opening_range_scan():
-    """Only fires via its normal 09:20:02 cron trigger now - see main()'s docstring for why
-    the mid-session catch-up path no longer needs to call this directly.
+    """Fires via its normal cron trigger (config.OPENING_RANGE_SCAN_TIME, or
+    config.CANDLE_DIRECTION_SCAN_TIME when config.USE_CANDLE_BASED_DIRECTION is on - see
+    main()'s scheduler wiring) - see main()'s docstring for why the mid-session catch-up path
+    no longer needs to call this directly.
 
     Computes today's direction fresh (via bootstrap.decide_todays_direction()) right before
-    building the shortlist, rather than reusing job_global_sentiment()'s earlier read -
-    sentiment can move in the roughly 10 minutes between the pre-market check and 09:20:02,
-    and this is the call that actually decides what gets traded, so it should be as current
-    as possible."""
+    building the shortlist, rather than reusing job_global_sentiment()'s earlier read - the
+    reading can move in the gap between the pre-market check and the actual scan time, and
+    this is the call that actually decides what gets traded, so it should be as current as
+    possible."""
+    job_global_sentiment()
     direction, sentiment_label, sentiment_score = (state['global_sentiment']['direction'], state['global_sentiment']['label'], state['global_sentiment']['score'])  #decide_todays_direction()
-    logger.info("Opening-range scan direction: %s (sentiment %s, score %.2f)",
+    logger.info("Opening-range scan direction: %s (%s, score %.2f)",
                 direction.value if direction else "NONE", sentiment_label, sentiment_score)
+    if sentiment_label == "WAITING_FOR_CANDLES":
+        logger.error("Opening-range scan fired but candle-based direction says it's STILL waiting "
+                      "for its deciding candle(s) - config.CANDLE_DIRECTION_SCAN_TIME is probably "
+                      "set earlier than the candles actually close; check it against "
+                      "config.CANDLE_DIRECTION_NUM_CANDLES/MARKET_OPEN_TIME.")
+        return
     if direction is None:
-        logger.warning("Global sentiment is %s (score %.2f) - not a clear bullish/bearish read, "
-                        "and config.ALLOW_LONG_ON_NEUTRAL / ALLOW_SHORT_ON_NEUTRAL are both False, "
-                        "so no new positions will be opened today.", sentiment_label, sentiment_score)
+        logger.warning("No clear direction today (%s, score %.2f) - and config.ALLOW_LONG_ON_NEUTRAL "
+                        "/ ALLOW_SHORT_ON_NEUTRAL are both False, so no new positions will be opened "
+                        "today.", sentiment_label, sentiment_score)
         return
 
     now = datetime.now(TZ)
+    
     if state["top5_gaining_sectors"] is None:
         job_sector_scan()
     if _should_use_fast_opening_range_path(now):
@@ -236,10 +287,11 @@ def job_opening_range_scan():
 
 
 def job_nifty_options_scan():
-    """Opt-in (config.ENABLE_NIFTY_OPTIONS_TRADING) - builds today's dual-source NIFTY options
-    engine (options_engine.NiftyOptionsEngine): PRICE/VWAP signal from config.NIFTY_INDEX_SYMBOL,
-    VOLUME signal from config.NIFTY_FUTURES_SYMBOL, execution on a single OTM option contract -
-    see options_engine.py's module docstring for the full rule. Reuses today's
+    """Opt-in (config.ENABLE_NIFTY_OPTIONS_TRADING) - builds today's single-source NIFTY options
+    engine (options_engine.NiftyOptionsEngine): PRICE/VWAP/VOLUME signal all from
+    config.NIFTY_FUTURES_SYMBOL, OTM strike spot read from config.NIFTY_INDEX_SYMBOL, execution
+    on a single OTM option contract - see options_engine.py's module docstring for the full
+    rule. Reuses today's
     ALREADY-COMPUTED equity direction (decide_todays_direction() is called once per day, not
     once per market) so equities and options can never silently disagree on today's
     sentiment-derived bias."""
@@ -253,13 +305,18 @@ def job_nifty_options_scan():
         spot_price=nifty_spot, 
         symbol_name="NIFTY", 
         num_strikes=20, 
-        expiry_type="weekly",
+        expiry_type="Weekly",
         csv_filename=config.NIFTY_FO_SYMBOL_MASTER_CSV
     )
     
-    direction, sentiment_label, sentiment_score = decide_todays_direction()
+    direction, sentiment_label, sentiment_score = decide_todays_direction(state["data_service"])
+    if sentiment_label == "WAITING_FOR_CANDLES":
+        logger.error("NIFTY options scan fired but candle-based direction says it's STILL waiting "
+                      "for its deciding candle(s) - check config.CANDLE_DIRECTION_SCAN_TIME against "
+                      "config.CANDLE_DIRECTION_NUM_CANDLES/MARKET_OPEN_TIME.")
+        return
     if direction is None:
-        logger.warning("No clear sentiment direction today (%s) - skipping NIFTY options for today.",
+        logger.warning("No clear direction today (%s) - skipping NIFTY options for today.",
                         sentiment_label)
         return
     engine = options_engine.run_nifty_options_engine(state["data_service"], direction)
@@ -272,13 +329,13 @@ def job_nifty_options_scan():
     print(f"\n=== NIFTY Options Engine Ready ({direction.value} bias) ===")
     print(f"Option leg: {engine.option.symbol} (lot_size={engine.option.lot_size}, "
           f"capital_allocated={engine.option.capital_allocated:.2f})")
-    print(f"Signal sources: index={engine.index_tracker.symbol} "
-          f"(OR high={engine.index_tracker.or_high:.2f}, low={engine.index_tracker.or_low:.2f}), "
-          f"futures={engine.futures_tracker.symbol}")
+    print(f"Signal source: futures={engine.futures_tracker.symbol} "
+          f"(OR high={engine.futures_tracker.or_high:.2f}, low={engine.futures_tracker.or_low:.2f}); "
+          f"OTM strike spot read from index={config.NIFTY_INDEX_SYMBOL}")
 
 
 def job_banknifty_options_scan():
-    """Opt-in (config.ENABLE_BANKNIFTY_OPTIONS_TRADING) - identical dual-source engine to
+    """Opt-in (config.ENABLE_BANKNIFTY_OPTIONS_TRADING) - identical single-source engine to
     job_nifty_options_scan() above (same NiftyOptionsEngine class, same rule set - see
     options_engine.py's module docstring), pointed at BANKNIFTY's own index/futures/strike
     universe (config.BANKNIFTY_*) instead of NIFTY's. Reuses the SAME today's-direction
@@ -287,9 +344,30 @@ def job_banknifty_options_scan():
     both can be enabled at once, each with its own capital bucket and trade book."""
     if not config.ENABLE_BANKNIFTY_OPTIONS_TRADING:
         return
-    direction, sentiment_label, sentiment_score = decide_todays_direction()
+    nifty_spot = state["data_service"].get_quotes(['NSE:NIFTYBANK-INDEX'])
+    # Generate dictionary list for monthly NIFTY options
+    nifty_spot = (nifty_spot.get('d')[0]).get('v').get("lp")
+    nifty_contracts = generate_fyers_nfo_symbols(
+        target_date_str=get_last_traded_day(), 
+        spot_price=nifty_spot, 
+        symbol_name="BANKNIFTY", 
+        num_strikes=20, 
+        expiry_type="Monthly",
+        csv_filename=config.BANKNIFTY_FO_SYMBOL_MASTER_CSV
+    )
+    # index_symbol=BANKNIFTY_INDEX_SYMBOL - only matters in config.USE_CANDLE_BASED_DIRECTION
+    # mode, where BANKNIFTY reads its OWN index's opening candles rather than NIFTY50's (see
+    # bootstrap.decide_todays_direction()'s docstring); ignored in sentiment mode, where this
+    # still returns the SAME equity-cue sentiment value as job_nifty_options_scan().
+    direction, sentiment_label, sentiment_score = decide_todays_direction(
+        state["data_service"], index_symbol=config.BANKNIFTY_INDEX_SYMBOL)
+    if sentiment_label == "WAITING_FOR_CANDLES":
+        logger.error("BANKNIFTY options scan fired but candle-based direction says it's STILL "
+                      "waiting for its deciding candle(s) - check config.CANDLE_DIRECTION_SCAN_TIME "
+                      "against config.CANDLE_DIRECTION_NUM_CANDLES/MARKET_OPEN_TIME.")
+        return
     if direction is None:
-        logger.warning("No clear sentiment direction today (%s) - skipping BANKNIFTY options for today.",
+        logger.warning("No clear direction today (%s) - skipping BANKNIFTY options for today.",
                         sentiment_label)
         return
     engine = options_engine.run_banknifty_options_engine(state["data_service"], direction)
@@ -302,9 +380,9 @@ def job_banknifty_options_scan():
     print(f"\n=== BANKNIFTY Options Engine Ready ({direction.value} bias) ===")
     print(f"Option leg: {engine.option.symbol} (lot_size={engine.option.lot_size}, "
           f"capital_allocated={engine.option.capital_allocated:.2f})")
-    print(f"Signal sources: index={engine.index_tracker.symbol} "
-          f"(OR high={engine.index_tracker.or_high:.2f}, low={engine.index_tracker.or_low:.2f}), "
-          f"futures={engine.futures_tracker.symbol}")
+    print(f"Signal source: futures={engine.futures_tracker.symbol} "
+          f"(OR high={engine.futures_tracker.or_high:.2f}, low={engine.futures_tracker.or_low:.2f}); "
+          f"OTM strike spot read from index={config.BANKNIFTY_INDEX_SYMBOL}")
 
 
 def job_mcx_commodity_scan():
@@ -321,10 +399,15 @@ def job_mcx_commodity_scan():
     day."""
     if not config.ENABLE_MCX_COMMODITY_TRADING:
         return
-    direction, sentiment_label, sentiment_score = decide_todays_commodity_direction()
+    direction, sentiment_label, sentiment_score = decide_todays_commodity_direction(state["data_service"])
+    if sentiment_label == "WAITING_FOR_CANDLES":
+        logger.error("MCX commodity scan fired but candle-based direction says it's STILL waiting "
+                      "for its deciding candle(s) - check config.MCX_CANDLE_DIRECTION_SCAN_TIME "
+                      "against config.MCX_CANDLE_DIRECTION_NUM_CANDLES/MCX_MARKET_OPEN_TIME.")
+        return
     if direction is None:
-        logger.warning("No clear commodity sentiment direction today (%s) - skipping MCX "
-                        "commodities for today.", sentiment_label)
+        logger.warning("No clear direction today (%s) - skipping MCX commodities for today.",
+                        sentiment_label)
         return
     engine = commodity_engine.run_mcx_commodity_engine(state["data_service"], direction)
     if engine is None:
@@ -446,12 +529,7 @@ def main():
     state["data_service"] = get_fyers_client()
 
     job_global_sentiment()
-    #job_sector_scan()
-    #job_opening_range_scan()
-    #job_check_signals()
-    job_nifty_options_scan()
-    job_mcx_commodity_scan()
-    
+
     result = bootstrap_and_catchup(state)
     logger.info("Bootstrap result: phase=%s | %s", result.phase.value, result.message)
 
@@ -460,6 +538,19 @@ def main():
     # config.ENABLE_MCX_COMMODITY_TRADING), never skipped just because equities are closed.
     mcx_result = bootstrap_mcx_catchup(state["data_service"])
     logger.info("MCX bootstrap result: phase=%s | %s", mcx_result.phase.value, mcx_result.message)
+
+    # NIFTY/BANKNIFTY options - same NSE equity session as `result` above (no separate phase
+    # concept, see bootstrap._bootstrap_options_catchup()'s docstring), so these don't affect
+    # the exit decision below at all; they just mean a late start (any time after 09:20:02, not
+    # only before equities' own POST_CLOSE) now reconstructs these two instead of silently
+    # missing them for the rest of the day - see bootstrap.py's bootstrap_nifty_options_catchup()/
+    # bootstrap_banknifty_options_catchup() for what used to happen before this existed.
+    nifty_options_result = bootstrap_nifty_options_catchup(state["data_service"])
+    logger.info("NIFTY options bootstrap result: phase=%s | %s",
+                nifty_options_result.phase.value, nifty_options_result.message)
+    banknifty_options_result = bootstrap_banknifty_options_catchup(state["data_service"])
+    logger.info("BANKNIFTY options bootstrap result: phase=%s | %s",
+                banknifty_options_result.phase.value, banknifty_options_result.message)
 
     # Equities/NIFTY-options/BANKNIFTY-options all run on the NSE session - once it's
     # POST_CLOSE there's nothing left for THEM to do today. MCX runs an entirely separate,
@@ -477,9 +568,12 @@ def main():
         state["signal_engine"] = result.signal_engine
     if mcx_result.signal_engine is not None:
         state["commodity_signal_engine"] = mcx_result.signal_engine
+    if nifty_options_result.signal_engine is not None:
+        state["options_signal_engine"] = nifty_options_result.signal_engine
+    if banknifty_options_result.signal_engine is not None:
+        state["banknifty_options_signal_engine"] = banknifty_options_result.signal_engine
 
     common_kwargs = dict(coalesce=True, max_instances=1)
-    
     scheduler = BackgroundScheduler(timezone=TZ)
 
     scheduler.add_job(job_sector_scan, _cron_from_hms(config.SECTOR_SCAN_TIME),
@@ -490,32 +584,65 @@ def main():
                        id="sector_scan_postopen", misfire_grace_time=60,
                        kwargs={"label": "09:16 post-open - real numbers"}, **common_kwargs)
 
+    # config.USE_CANDLE_BASED_DIRECTION shifts WHEN direction can first be decided (the
+    # deciding candle(s) have to close first - see config.py's docstring on this flag), so the
+    # equity/options scan moves from OPENING_RANGE_SCAN_TIME to CANDLE_DIRECTION_SCAN_TIME, and
+    # MCX's from MCX_OPENING_RANGE_SCAN_TIME to MCX_CANDLE_DIRECTION_SCAN_TIME, whenever it's on.
+    scan_time = config.CANDLE_DIRECTION_SCAN_TIME if config.USE_CANDLE_BASED_DIRECTION else config.OPENING_RANGE_SCAN_TIME
+    mcx_scan_time = (config.MCX_CANDLE_DIRECTION_SCAN_TIME if config.USE_CANDLE_BASED_DIRECTION
+                      else config.MCX_OPENING_RANGE_SCAN_TIME)
+
     # Only schedule the opening-range job if bootstrap DIDN'T already produce a shortlist -
     # if it did (mid-session catch-up succeeded), today's shortlist is already built and
     # tracked; if bootstrap ran and found nothing (phase POST_OPEN, empty shortlist), the
     # underlying 09:15 candle is fixed and re-running this later today can't change that
-    # answer, so it's still correctly skipped. It only needs to actually run via cron for
-    # the normal PRE_OPEN-start case.
-    if result.signal_engine is None and result.phase == MarketPhase.PRE_OPEN:
-        scheduler.add_job(job_opening_range_scan, _cron_from_hms(config.OPENING_RANGE_SCAN_TIME),
+    # answer, so it's still correctly skipped. It needs to actually run via cron for the
+    # normal PRE_OPEN-start case, AND (config.USE_CANDLE_BASED_DIRECTION only) whenever
+    # catch-up ran too early to decide direction yet (result.needs_scheduled_retry - see
+    # BootstrapResult's docstring) - without this OR, a start between market open and the
+    # candle-decision time would fall through both the "catch-up succeeded" case and the
+    # PRE_OPEN-only guard, silently missing today's scan entirely even though its own
+    # scheduled time hasn't passed yet.
+    if result.signal_engine is None and (result.phase == MarketPhase.PRE_OPEN or result.needs_scheduled_retry):
+        scheduler.add_job(job_opening_range_scan, _cron_from_hms(scan_time),
                            id="opening_range_scan", misfire_grace_time=30, **common_kwargs)
 
-    # All opt-in (self-gated on their own config.ENABLE_* flag - see each job's docstring)
-    # so these are always scheduled; they simply no-op immediately if their flag is False.
+    # Opt-in (self-gated on their own config.ENABLE_* flag - see each job's docstring) AND,
+    # same as the equity opening_range_scan guard above, only cron-scheduled if bootstrap
+    # DIDN'T already produce an engine today via bootstrap_nifty_options_catchup()/
+    # bootstrap_banknifty_options_catchup() (a mid-session catch-up start), OR that catch-up
+    # ran too early to decide a candle-based direction yet (needs_scheduled_retry - same
+    # reasoning as the equity guard above, checked against EACH options result's OWN flag,
+    # not the shared equity `result`, since NIFTY/BANKNIFTY each decide their candle-based
+    # direction from their OWN index's candles and could in principle become ready at
+    # slightly different moments even though they share CANDLE_DIRECTION_NUM_CANDLES/
+    # MARKET_OPEN_TIME today). Before this guard existed, these two were scheduled
+    # unconditionally every run, which on a catch-up start would have left them scheduled to
+    # run AGAIN at the fixed cron time - pointless (the opening-range candle can't change) and
+    # would have clobbered the already-reconstructed engine in `state` with a fresh,
+    # history-less one.
     # NIFTY/BANKNIFTY options share the NSE equity session's opening-range time.
-    scheduler.add_job(job_nifty_options_scan, _cron_from_hms(config.OPENING_RANGE_SCAN_TIME),
-                       id="nifty_options_scan", misfire_grace_time=30, **common_kwargs)
-    scheduler.add_job(job_banknifty_options_scan, _cron_from_hms(config.OPENING_RANGE_SCAN_TIME),
-                       id="banknifty_options_scan", misfire_grace_time=30, **common_kwargs)
+    if state["options_signal_engine"] is None and (result.phase == MarketPhase.PRE_OPEN
+                                                     or nifty_options_result.needs_scheduled_retry):
+        scheduler.add_job(job_nifty_options_scan, _cron_from_hms(scan_time),
+                           id="nifty_options_scan", misfire_grace_time=30, **common_kwargs)
+    if state["banknifty_options_signal_engine"] is None and (result.phase == MarketPhase.PRE_OPEN
+                                                               or banknifty_options_result.needs_scheduled_retry):
+        scheduler.add_job(job_banknifty_options_scan, _cron_from_hms(scan_time),
+                           id="banknifty_options_scan", misfire_grace_time=30, **common_kwargs)
 
     # Only schedule MCX's own cron-triggered opening-range scan if bootstrap_mcx_catchup()
     # didn't already produce an engine today (mirrors the equity opening_range_scan guard
     # above) - if MCX catch-up succeeded (a mid-session start), today's universe is already
-    # built and tracked; if MCX is disabled entirely, or genuinely still pre-open for MCX,
-    # the cron job (itself self-gated on config.ENABLE_MCX_COMMODITY_TRADING) still needs to
-    # fire at its normal time.
+    # built and tracked; if MCX is disabled entirely, or genuinely still pre-open for MCX (or,
+    # config.USE_CANDLE_BASED_DIRECTION only, MCX catch-up ran too early to decide direction
+    # yet), the cron job (itself self-gated on config.ENABLE_MCX_COMMODITY_TRADING) still
+    # needs to fire at its normal time - this guard already re-schedules unconditionally
+    # whenever state["commodity_signal_engine"] is None for any reason, so
+    # mcx_result.needs_scheduled_retry doesn't need an explicit OR here the way the
+    # phase-gated equity/options guards above do.
     if state["commodity_signal_engine"] is None:
-        scheduler.add_job(job_mcx_commodity_scan, _cron_from_hms(config.MCX_OPENING_RANGE_SCAN_TIME),
+        scheduler.add_job(job_mcx_commodity_scan, _cron_from_hms(mcx_scan_time),
                            id="mcx_commodity_scan", misfire_grace_time=30, **common_kwargs)
 
     # Equity/options candle-check cron - covers just the NSE session now (equities' own

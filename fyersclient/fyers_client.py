@@ -472,8 +472,8 @@ class FyersRateLimiter:
     ):
         if limits is None:
             limits = [
-                (8, 1.0),      # 8 calls per second
-                (480, 60.0)    # 480 calls per minute
+                (4, 1.0),      # 8 calls per second
+                (46, 60.0)    # 480 calls per minute
             ]
 
         self._rules = [RateLimitRule(max_calls=mc, period=p) for mc, p in limits]
@@ -649,7 +649,7 @@ class FyersDataService:
                 Per Minute	200
                 Per Day	10,000
             """
-        self._rate_limiter = FyersRateLimiter([(getattr(config, "FYERS_MAX_CALLS_PER_SECOND", 7), 1.0), (190, 60.0)])
+        self._rate_limiter = FyersRateLimiter([(getattr(config, "FYERS_MAX_CALLS_PER_SECOND", 4), 1.0), (46, 60.0)])
 
 
     def refresh_session(self) -> None:
@@ -695,7 +695,7 @@ class FyersDataService:
                 symb = kwargs['data']
 
                 if "quotes" in target_fn.__name__:
-                    logger.warning(f"its get_quotes call() symbol provided in {kwargs['data']['symbols'][:-4]};")
+                    logger.warning(f"its get_quotes call() will not display symbol;")
                     return response
                 logger.info(f"{symb.get('symbol', 'N/A')} -- resolution {symb.get('resolution', 'N/A')} - attempt {attempt}.")
                 return response

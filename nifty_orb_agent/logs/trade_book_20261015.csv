@@ -1,0 +1,5 @@
+symbol,entry_type,direction,entry_time,entry_price,qty,exit_time,exit_price,points,pnl_pct,pnl_amount,is_backfill,exit_is_backfill
+NSE:LTM-EQ,INITIAL,LONG,10:00:00,4333.5,9,,,,,,True,
+NSE:INFY-EQ,INITIAL,LONG,09:45:00,1120.2,35,,,,,,True,
+NSE:ICICIBANK-EQ,INITIAL,LONG,11:45:02,1366.3,29,15:11:30,1385.7,19.4,1.42,562.6,False,False
+NSE:ANGELONE-EQ,INITIAL,LONG,13:55:02,313.35,127,15:11:30,313.95,0.6,0.19,76.2,False,False

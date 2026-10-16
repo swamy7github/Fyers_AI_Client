@@ -27,11 +27,13 @@ DEFAULT_NSE_UNIVERSE = [
     "NSE:POLYCAB-EQ", "NSE:HAL-EQ", "NSE:BEL-EQ", "NSE:DIXON-EQ", "NSE:TRENT-EQ"
 ]
 #symbols = pd.read_csv(os.path.join(os.path.dirname(__file__), "data", "ind_nifty500list.csv"))["Symbol"].tolist()
+#NSE_ALL_URL = "https://archives.nseindia.com/content/equities/EQUITY_L.csv"
 url = 'https://www.niftyindices.com/IndexConstituent/ind_niftytotalmarket_list.csv'
 #url = 'https://www.niftyindices.com/IndexConstituent/ind_nifty_Alpha_Index.csv'
 #symbols = pd.read_csv(os.path.join(os.path.dirname(__file__), "data", "ind_niftytotalmarket_list.csv"))["Symbol"].tolist()
 #symbols = pd.read_csv(os.path.join(os.path.dirname(__file__), "data", "ind_niftyconsumerdurableslist.csv"))["Symbol"].tolist()
 symbols = get_nifty_stock_universe(url=url).get("Symbol", [])
+#symbols = get_nifty_stock_universe(csv_file_path='./Nifty_FnO.csv').get("Symbol", [])
 if symbols is None or len(symbols) == 0:
     logger.warning("Failed to load NSE stock universe from the provided URL. Using default universe.")
     exit()
@@ -229,7 +231,7 @@ def main():
             logger.info(f"Timeframe: {key} | Breakout Signals Count: {len(item[key])}")
             if not item[key].empty:
                 logger.info(f"Breakout Signals for {key}:\n{item[key][['symbol','signal','entry_price','target_price','stop_loss']].to_string(index=False)}")
-                item[key].to_csv(os.path.join(os.path.dirname(__file__), "data", f"daily_breakout_signals_{key}.csv"), index=False)
+                item[key].to_csv(os.path.join(os.path.dirname(__file__), "data", f"daily_FnO_MDCO_{key}.csv"), index=False)
                 logger.info(f"Breakout Signals: {item[key][['symbol','signal','entry_price','target_price','stop_loss']]}")#[['symbol', 'strategy', 'entry_price', 'stop_loss', 'target']].to_dict(orient='records')}")
             else:
                 logger.info(f"No breakout signals triggered for today across specified NSE universe for timeframe {key}.")

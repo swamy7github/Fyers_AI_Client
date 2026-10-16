@@ -1,6 +1,10 @@
 import pandas as pd
 import numpy as np
 from typing import List, Dict, Any, Optional
+import os
+import sys
+from datetime import date, datetime
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 class SEPAUniverseRanker:
     """
@@ -29,10 +33,10 @@ class SEPAUniverseRanker:
             df.set_index('Date', inplace=True)
         df.sort_index(inplace=True)
 
-        close = df['Close']
-        high = df['High']
-        low = df['Low']
-        volume = df['Volume']
+        close = df['close']
+        high = df['high']
+        low = df['low']
+        volume = df['volume']
 
         # --- 1. TECHNICAL INDICATORS ---
         sma50 = close.rolling(50).mean().iloc[-1]
@@ -62,11 +66,11 @@ class SEPAUniverseRanker:
 
         # --- 3. VCP CONTRACTION & PIVOT ANALYSIS ---
         recent_20 = df.iloc[-20:]
-        pivot_high = round(float(recent_20['High'].max()), 2)
-        tight_low = round(float(recent_20['Low'].min()), 2)
+        pivot_high = round(float(recent_20['high'].max()), 2)
+        tight_low = round(float(recent_20['low'].min()), 2)
         contraction_depth = round(float(((pivot_high - tight_low) / pivot_high) * 100.0), 2)
         
-        vol_dry_up = recent_20['Volume'].mean() < (vol_sma50 * 0.8)
+        vol_dry_up = recent_20['volume'].mean() < (vol_sma50 * 0.8)
         vol_surge = latest_vol >= (1.4 * vol_sma50)
 
         # VCP Technical Score (0 - 100)
@@ -173,41 +177,45 @@ class SEPAUniverseRanker:
         results_df.reset_index(drop=True, inplace=True)
         results_df.index += 1  # 1-based ranking index
         return results_df
-
+    
+from yfinance_sepa_fetcher import sepa_fetch_ticker_universe
+from utilities import get_nifty_stock_universe
+import os
 # --- Demo Batch Test ---
 if __name__ == "__main__":
     np.random.seed(42)
     n_days = 300
-    dates = pd.date_range("2025-01-01", periods=n_days, freq="B")
-
+    url = 'https://www.niftyindices.com/IndexConstituent/ind_niftytotalmarket_list.csv'
+    #url = 'https://www.niftyindices.com/IndexConstituent/ind_nifty_Alpha_Index.csv'
+    #symbols = pd.read_csv(os.path.join(os.path.dirname(__file__), "data", "ind_niftytotalmarket_list.csv"))["Symbol"].tolist()
+    #symbols = pd.read_csv(os.path.join(os.path.dirname(__file__), "data", "ind_niftyconsumerdurableslist.csv"))["Symbol"].tolist()
+    input_FnO = './Nifty_FnO.csv'
+    #symbols = get_nifty_stock_universe(url=url).get("Symbol", [])
+    symbols = get_nifty_stock_universe(csv_file_path=input_FnO).get("Symbol", [])
+    if symbols is None or len(symbols) == 0:
+        logger.warning("Failed to load NSE stock universe from the provided URL. Using default universe.")
+        exit()
+    DEFAULT_NSE_UNIVERSE = [f"{str(s).strip()}.NS" for s in symbols]
     # Generate 5 mock stocks with varying fundamental/technical profiles
     sample_universe = []
-    tickers = ["TICKER_A.NS", "TICKER_B.NS", "TICKER_C.NS", "TICKER_D.NS", "TICKER_E.NS"]
-    
-    fundamentals_list = [
-        {"eps_growth_qtr_yoy": 45.0, "eps_acceleration": True, "sales_growth_qtr_yoy": 32.0, "roe": 22.0, "debt_to_equity": 0.15, "margin_expanding": True}, # A: Top Tier
-        {"eps_growth_qtr_yoy": 25.0, "eps_acceleration": False, "sales_growth_qtr_yoy": 18.0, "roe": 16.0, "debt_to_equity": 0.35, "margin_expanding": True}, # B: Mid Tier
-        {"eps_growth_qtr_yoy": 5.0, "eps_acceleration": False, "sales_growth_qtr_yoy": 8.0, "roe": 10.0, "debt_to_equity": 0.8, "margin_expanding": False},  # C: Weak
-        {"eps_growth_qtr_yoy": 60.0, "eps_acceleration": True, "sales_growth_qtr_yoy": 42.0, "roe": 25.0, "debt_to_equity": 0.10, "margin_expanding": True}, # D: Exceptional
-        {"eps_growth_qtr_yoy": 30.0, "eps_acceleration": True, "sales_growth_qtr_yoy": 22.0, "roe": 18.0, "debt_to_equity": 0.25, "margin_expanding": True}  # E: Strong
-    ]
-
-    for i, t in enumerate(tickers):
-        trend = np.linspace(100, 200 + (i * 10), 280)
-        consolidation = np.array([200 + (i * 10)] * 20)
-        prices = np.concatenate([trend, consolidation]) + np.random.normal(0, 1.0, n_days)
-        
-        highs = prices + 2.0
-        lows = prices - 2.0
-        df = pd.DataFrame({
-            "Date": dates, "Open": prices, "High": highs, "Low": lows, "Close": prices,
-            "Volume": np.random.randint(500000, 1500000, size=n_days)
-        })
-        sample_universe.append({"ticker": t, "ohlcv": df, "fundamentals": fundamentals_list[i]})
-
-    ranker = SEPAUniverseRanker(account_size=100000.0, risk_pct_per_trade=1.0)
+    """
+    sample_universe = [f"NSE:{str(s).strip()}-EQ" for s in symbols]
+    with open("test.txt", "w", encoding="utf-8") as file:
+        # Join elements with a comma and write to the file
+        file.write(",".join(sample_universe))
+    """
+    tickers = ["BHEL.NS", "BEL.NS", "HAL.NS", "HDFCBANK.NS", "RVNL.NS", "IREDA.NS", "SBIN.NS", "PFC.NS"]
+    sample_universe = sepa_fetch_ticker_universe(ticker_list=DEFAULT_NSE_UNIVERSE)
+    ranker = SEPAUniverseRanker(account_size=100000.0, risk_pct_per_trade=2.0)
     ranked_df = ranker.process_universe(sample_universe)
+    ranked_df['Ticker'] = "NSE:" + ranked_df['Ticker'].str.split('.').str[0] + "-EQ"
     print(ranked_df[["Ticker", "Composite_Score", "Fundamental_Score", "VCP_Setup_Score", "Target_Entry_Price", "Stop_Loss_Price", "Target_3R_Price", "Upside_3R_Pct"]])
+
+    # Convert list of dictionaries to a DataFrame
+    df = pd.DataFrame(ranked_df)
+    # Export to CSV (index=False prevents writing row numbers)
+    df.to_csv(f"SEPA_{datetime.now().strftime("%Y-%m-%d")}.csv", index=False)
+    
 """
 import yfinance as yf
 
