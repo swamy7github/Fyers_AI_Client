@@ -71,7 +71,7 @@ TRADE_LOG_CSV = os.path.join(LOG_DIR, "trade_book_{date}.csv")
 TIMEZONE = "Asia/Kolkata"
 
 SECTOR_SCAN_TIME = "09:15:40"           # pre-open sector snapshot (see caveat in sector_scanner.py)
-SECTOR_SCAN_TIME_POSTOPEN = "09:19:40"  # re-run shortly after the normal session starts, for real numbers
+SECTOR_SCAN_TIME_POSTOPEN = "09:26:40"  # re-run shortly after the normal session starts, for real numbers
 OPENING_RANGE_SCAN_TIME = "09:20:02"    # 2s buffer after the 09:15-09:20 candle closes
 SIGNAL_ENGINE_LAST_RUN = "23:11:00"     # stop looking for NEW signals after this time
 SQUARE_OFF_TIME = "15:11:30"            # force-close any open paper positions
@@ -102,6 +102,26 @@ OPENING_RANGE_FAST_PATH_TOLERANCE_SECONDS = 180
 # backtest - these are Fyers-side limits that could change.
 INTRADAY_HISTORY_MAX_DAYS_PER_CHUNK = 90
 DAILY_HISTORY_MAX_DAYS_PER_CHUNK = 270
+
+# Master switch for the agent's original/core strategy: scanning the NSE equity universe for
+# opening-range gap gainers/losers and trading the shortlisted stocks themselves (as opposed to
+# the NIFTY/BANKNIFTY options or MCX commodity engines below, each gated by their own
+# ENABLE_*_TRADING flag). main.job_opening_range_scan() and the equity catch-up path inside
+# bootstrap.bootstrap_and_catchup() both self-gate on this flag (same "check first, no-op if
+# off" pattern as ENABLE_NIFTY_OPTIONS_TRADING/ENABLE_BANKNIFTY_OPTIONS_TRADING/
+# ENABLE_MCX_COMMODITY_TRADING) - main.py still schedules job_opening_range_scan
+# unconditionally; it just returns immediately once called if this is False. Equity market-phase
+# detection (detect_market_phase()/PRE_OPEN/POST_OPEN/POST_CLOSE) is UNAFFECTED by this flag and
+# keeps reflecting the real NSE session clock either way, since NIFTY/BANKNIFTY options ride on
+# that same session and main()'s whole-process exit decision depends on it being accurate
+# regardless of whether equities themselves are enabled.
+#
+# Default is False, matching the other three strategies' own defaults - set it True to turn
+# equities back on. NOTE: with ENABLE_STOCK_TRADING, ENABLE_NIFTY_OPTIONS_TRADING,
+# ENABLE_BANKNIFTY_OPTIONS_TRADING and ENABLE_MCX_COMMODITY_TRADING all defaulting to False out
+# of the box, the agent will trade NOTHING until you explicitly turn at least one of them on.
+ENABLE_STOCK_TRADING = False
+
 # ----------------------------------------------------------------------------
 # Strategy parameters
 # ----------------------------------------------------------------------------
@@ -227,8 +247,8 @@ CANDLE_DIRECTION_SCAN_TIME = "09:30:02"   # 2s buffer after the 3rd 09:15-sessio
 # MCX_CANDLE_INTERVAL_MINUTES, not NSE's fixed 5-min bar), so the TIME this becomes decidable
 # can't be a single shared clock value the way a dimensionless wick PERCENTAGE can be a single
 # shared threshold.
-MCX_CANDLE_DIRECTION_NUM_CANDLES = 2
-MCX_CANDLE_DIRECTION_SCAN_TIME = "09:30:02"  # 2s buffer after the 2nd MCX-session candle closes (09:10:00)
+MCX_CANDLE_DIRECTION_NUM_CANDLES = 3
+MCX_CANDLE_DIRECTION_SCAN_TIME = "09:15:02"  # 2s buffer after the 2nd MCX-session candle closes (09:10:00)
 
 # Which ONE MCX_COMMODITY_UNIVERSE contract's own candles decide direction for the WHOLE MCX
 # universe (mirrors how commodity SENTIMENT already decides one shared direction for the
@@ -339,20 +359,28 @@ DEFAULT_ORDER_QTY = 1
 #     real index volume, you could point the engine back at the index
 #     instead, but this repo defaults to the safer/proven futures-only read.
 #   - NIFTY_INDEX_SYMBOL is used for exactly ONE thing: fetching the spot LTP
-#     at entry time to resolve WHICH OTM strike to buy (see
-#     resolve_otm_option_symbol() in options_engine.py) - it plays no part in
-#     the entry/exit signal itself any more.
-#   - The instrument actually BOUGHT is a single OTM (out-of-the-money) NIFTY
-#     option - CE when today's sentiment-derived bias is LONG, PE when it's
-#     SHORT - BUY-ONLY, same reasoning as before (capped risk, no naked
+#     to resolve WHICH strike to buy (ITM/ATM/OTM - see OPTION_STRIKE_MODE
+#     below, and resolve_option_symbol() in options_engine.py) - it plays no
+#     part in the entry/exit signal itself. That spot is read FRESH at the
+#     moment an entry signal actually fires, NOT back at today's ~09:20
+#     engine-setup time - spot can move meaningfully in between, and the
+#     strike should reflect where the market actually is when the trade is
+#     taken, not where it was when this engine was first built.
+#   - The instrument actually BOUGHT is a single NIFTY option, CE on an
+#     upside futures breakout or PE on a downside one - decided by the
+#     STRATEGY'S OWN entry criteria at the moment it fires, NOT by today's
+#     sentiment-derived bias direction any more (bias direction still gates
+#     the morning opening-range quality filter below - see
+#     run_index_options_engine() - but no longer pre-selects CE vs PE or a
+#     strike). BUY-ONLY, same reasoning as before (capped risk, no naked
 #     writing). Off by default because it depends on a locally maintained F&O
 #     symbol master file (below) that THIS repo cannot keep current for you -
 #     read options_engine.py fully, and verify your own symbol master's
 #     column names/values, before setting this True.
-ENABLE_NIFTY_OPTIONS_TRADING = False
+ENABLE_NIFTY_OPTIONS_TRADING = True
 
-NIFTY_INDEX_SYMBOL = "NSE:NIFTY50-INDEX"   # OTM-strike spot source ONLY - not part of the
-                                            # entry/exit signal any more (see block comment above)
+NIFTY_INDEX_SYMBOL = "NSE:NIFTY50-INDEX"   # Strike-resolution spot source ONLY - not part of the
+                                            # entry/exit signal (see block comment above)
 
 # PRICE + VWAP + VOLUME source - the current front-month NIFTY index future, the
 # ONLY instrument the entry/exit signal is read from. Unlike the option symbol
@@ -374,8 +402,8 @@ NIFTY_FUTURES_SYMBOL = "NSE:NIFTY26OCTFUT"
 # hard-coded format string here, specifically because NIFTY's expiry day,
 # lot size, and strike gap have all changed more than once under SEBI/
 # exchange rule changes - hard-coding any of them would silently go stale.
-NIFTY_FO_SYMBOL_MASTER_CSV = os.path.join(DATA_DIR, "nse_fno_symbol_master.csv")
-BANKNIFTY_FO_SYMBOL_MASTER_CSV = os.path.join(DATA_DIR, "nsebank_fno_symbol_master.csv")
+NIFTY_FO_SYMBOL_MASTER_CSV = os.path.join(DATA_DIR, "nse_fo_symbol_master.csv")
+BANKNIFTY_FO_SYMBOL_MASTER_CSV = os.path.join(DATA_DIR, "nsebank_fo_symbol_master.csv")
 
 # Best-effort {logical name: actual column name} mapping for the file above -
 # VERIFY against your own downloaded file's real header (print df.columns
@@ -392,11 +420,28 @@ NIFTY_FO_MASTER_COLUMNS = {
     "lot_size": "lot_size",
 }
 
-# How many strikes OUT of the money to buy: 1 = the first OTM strike (the
-# listed strike immediately above spot for a CE, immediately below spot for
-# a PE), 2 = the second, etc. Not specified precisely in the original
-# request ("OTM CE"/"OTM PE") - 1 (the nearest OTM strike) is the most
-# common reading and this repo's default; change it if you mean further OTM.
+# Which strike to BUY for NIFTY/BANKNIFTY options entries: "ITM", "ATM", or "OTM" - ONE
+# shared knob for BOTH options engines (same pattern as MAX_OR_CANDLE_WICK_PCT's merge
+# below), read by resolve_option_symbol() in options_engine.py:
+#   "OTM" (this repo's ORIGINAL/default behaviour): out-of-the-money, NIFTY_OTM_STRIKES_AWAY/
+#         BANKNIFTY_OTM_STRIKES_AWAY strikes away from spot (away = above spot for a CALL,
+#         below spot for a PUT).
+#   "ITM": the mirror image - that many strikes IN the money instead (below spot for a CALL,
+#         above spot for a PUT). Costs meaningfully more premium (more intrinsic value and
+#         delta) than OTM at the same strikes-away count - re-check capital_allocated/lot
+#         sizing before switching to this.
+#   "ATM": always the SINGLE strike nearest to spot, whichever side it falls on -
+#         NIFTY_OTM_STRIKES_AWAY/BANKNIFTY_OTM_STRIKES_AWAY is ignored in this mode.
+# Resolved FRESH every time an entry signal actually fires, from spot AT THAT MOMENT - not
+# once at today's ~09:20 engine setup (see the NIFTY INDEX options block comment above).
+OPTION_STRIKE_MODE = "OTM"
+
+# How many strikes away from the at-the-money strike to go, in whichever direction
+# OPTION_STRIKE_MODE above implies (OTM: away from spot; ITM: toward/through spot). 1 = the
+# nearest listed strike in that direction, 2 = the second, etc. Ignored entirely when
+# OPTION_STRIKE_MODE="ATM" (which always takes the single nearest strike, full stop). Not
+# specified precisely in the original request ("OTM CE"/"OTM PE") - 1 (the nearest strike) is
+# the most common reading and this repo's default; change it if you mean further away.
 NIFTY_OTM_STRIKES_AWAY = 1
 
 # Independent capital bucket for the options strategy - deliberately
@@ -419,12 +464,14 @@ NIFTY_OPTIONS_CAPITAL = 200000.0
 #     typically reports ZERO volume, which would also break a VWAP computed
 #     from it. VERIFY against your own raw feed before enabling, same as the
 #     NIFTY caveat above.
-#   - BANKNIFTY_INDEX_SYMBOL is used for exactly ONE thing: the spot LTP at
-#     entry time, to resolve which OTM strike to buy - no part of the
-#     entry/exit signal.
-#   - BUYS a single OTM (out-of-the-money) BANKNIFTY option - CE on a LONG
-#     bias, PE on a SHORT bias - using the SAME today's sentiment-derived
-#     direction equities/NIFTY-options use (never recomputed per market).
+#   - BANKNIFTY_INDEX_SYMBOL is used for exactly ONE thing: the spot LTP,
+#     read FRESH at signal time, to resolve which strike to buy (per the
+#     SHARED OPTION_STRIKE_MODE above) - no part of the entry/exit signal.
+#   - BUYS a single BANKNIFTY option - CE on an upside futures breakout, PE
+#     on a downside one, decided by the strategy's own entry criteria at
+#     signal time (today's sentiment-derived direction still gates the
+#     opening-range quality filter, same as NIFTY, but no longer picks CE
+#     vs PE - see options_engine.py's module docstring).
 # Shares NIFTY_FO_SYMBOL_MASTER_CSV/NIFTY_FO_MASTER_COLUMNS above - Fyers'
 # F&O symbol master is one combined file covering every NSE underlying
 # (NIFTY, BANKNIFTY, FINNIFTY, single stocks, ...), so there's no separate
@@ -446,9 +493,9 @@ BANKNIFTY_INDEX_SYMBOL = "NSE:NIFTYBANK-INDEX"  # OTM-strike spot source ONLY - 
 # update yourself each time the contract rolls (monthly).
 BANKNIFTY_FUTURES_SYMBOL = "NSE:BANKNIFTY26OCTFUT"
 
-# Same meaning as NIFTY_OTM_STRIKES_AWAY above, independently configurable
-# since BANKNIFTY's strike gap (100) is wider than NIFTY's (50) - 1 = the
-# nearest listed OTM strike.
+# Same meaning as NIFTY_OTM_STRIKES_AWAY above (direction governed by the SHARED
+# OPTION_STRIKE_MODE), independently configurable since BANKNIFTY's strike gap (100) is wider
+# than NIFTY's (50) - 1 = the nearest listed strike in that direction.
 BANKNIFTY_OTM_STRIKES_AWAY = 1
 
 # Independent capital bucket, same reasoning as NIFTY_OPTIONS_CAPITAL above -
@@ -505,7 +552,7 @@ MCX_CANDLE_INTERVAL_MINUTES = 5
 #    {"symbol": "MCX:GOLDTEN26OCTFUT", "lot_size": 10},     # Gold Mini - ~10g/lot (verify)
 #    {"symbol": "MCX:COPPER26OCTFUT", "lot_size": 2500},   # Copper - ~2500 kg/lot (verify)
 MCX_COMMODITY_UNIVERSE = [
-    {"symbol": "MCX:CRUDEOILM26OCTFUT", "lot_size": 10},  # Crude Oil - ~10 barrels/lot (verify) Silver Mini 
+    {"symbol": "MCX:CRUDEOILM26NOVFUT", "lot_size": 10},  # Crude Oil - ~10 barrels/lot (verify) Silver Mini 
     {"symbol": "MCX:GOLDPETAL26OCTFUT", "lot_size": 1},  # Gold Petals - ~1g/lot (verify)
     {"symbol": "MCX:NATGASMINI26OCTFUT", "lot_size": 250},  # Natural Gas - ~250 mmBtu/lot (verify)
     {"symbol": "MCX:SILVERMIC26NOVFUT", "lot_size": 1},    # Silver micro - ~1 kg/lot (verify)

@@ -36,6 +36,11 @@ Startup flow
    position/order reconciliation. See bootstrap.py's module docstring for
    why this all needs to happen as one atomic step rather than the
    scattered per-job catch-up main.py used before this file existed.
+   Opt-in like the other three strategies below (config.ENABLE_STOCK_TRADING,
+   default False): this ALWAYS computes and returns the real market phase
+   (needed for step 4's exit decision and NIFTY/BANKNIFTY options' shared
+   session), but skips all the catch-up work above and returns a None
+   signal_engine when disabled - see bootstrap_and_catchup()'s own gate.
 3b. bootstrap.bootstrap_mcx_catchup() - the SAME idea as step 3, but for MCX
     commodities (config.ENABLE_MCX_COMMODITY_TRADING), run UNCONDITIONALLY
     alongside step 3, not gated by it. MCX's own session (09:00-23:30 IST by
@@ -234,16 +239,18 @@ def job_sector_scan(label: str = ""):
 
 
 def job_opening_range_scan():
-    """Fires via its normal cron trigger (config.OPENING_RANGE_SCAN_TIME, or
-    config.CANDLE_DIRECTION_SCAN_TIME when config.USE_CANDLE_BASED_DIRECTION is on - see
-    main()'s scheduler wiring) - see main()'s docstring for why the mid-session catch-up path
-    no longer needs to call this directly.
+    """Opt-in (config.ENABLE_STOCK_TRADING) - fires via its normal cron trigger
+    (config.OPENING_RANGE_SCAN_TIME, or config.CANDLE_DIRECTION_SCAN_TIME when
+    config.USE_CANDLE_BASED_DIRECTION is on - see main()'s scheduler wiring) - see main()'s
+    docstring for why the mid-session catch-up path no longer needs to call this directly.
 
     Computes today's direction fresh (via bootstrap.decide_todays_direction()) right before
     building the shortlist, rather than reusing job_global_sentiment()'s earlier read - the
     reading can move in the gap between the pre-market check and the actual scan time, and
     this is the call that actually decides what gets traded, so it should be as current as
     possible."""
+    if not config.ENABLE_STOCK_TRADING:
+        return
     job_global_sentiment()
     direction, sentiment_label, sentiment_score = (state['global_sentiment']['direction'], state['global_sentiment']['label'], state['global_sentiment']['score'])  #decide_todays_direction()
     logger.info("Opening-range scan direction: %s (%s, score %.2f)",
@@ -261,7 +268,6 @@ def job_opening_range_scan():
         return
 
     now = datetime.now(TZ)
-    
     if state["top5_gaining_sectors"] is None:
         job_sector_scan()
     if _should_use_fast_opening_range_path(now):
@@ -287,14 +293,15 @@ def job_opening_range_scan():
 
 
 def job_nifty_options_scan():
-    """Opt-in (config.ENABLE_NIFTY_OPTIONS_TRADING) - builds today's single-source NIFTY options
-    engine (options_engine.NiftyOptionsEngine): PRICE/VWAP/VOLUME signal all from
-    config.NIFTY_FUTURES_SYMBOL, OTM strike spot read from config.NIFTY_INDEX_SYMBOL, execution
-    on a single OTM option contract - see options_engine.py's module docstring for the full
-    rule. Reuses today's
-    ALREADY-COMPUTED equity direction (decide_todays_direction() is called once per day, not
-    once per market) so equities and options can never silently disagree on today's
-    sentiment-derived bias."""
+    """Opt-in (config.ENABLE_NIFTY_OPTIONS_TRADING) - builds today's single-source, BOTH-SIDES
+    NIFTY options engine (options_engine.NiftyOptionsEngine): PRICE/VWAP/VOLUME signal all from
+    config.NIFTY_FUTURES_SYMBOL, strike spot read from config.NIFTY_INDEX_SYMBOL AT SIGNAL TIME
+    (not now), CE bought on an upside breakout / PE on a downside one - whichever the strategy's
+    own entry criteria confirms first, not a pre-computed direction - see options_engine.py's
+    module docstring for the full rule. Reuses today's ALREADY-COMPUTED equity direction
+    (decide_todays_direction() is called once per day, not once per market) only to gate the
+    opening-range quality filter, so equities and options can never silently disagree on
+    what counts as a clean opening candle today."""
     if not config.ENABLE_NIFTY_OPTIONS_TRADING:
         return
     nifty_spot = state["data_service"].get_quotes(['NSE:NIFTY50-INDEX'])
@@ -305,7 +312,7 @@ def job_nifty_options_scan():
         spot_price=nifty_spot, 
         symbol_name="NIFTY", 
         num_strikes=20, 
-        expiry_type="Weekly",
+        expiry_type="Monthly",
         csv_filename=config.NIFTY_FO_SYMBOL_MASTER_CSV
     )
     
@@ -326,22 +333,27 @@ def job_nifty_options_scan():
         return
     fetch_and_seed_volume_windows(engine, state["data_service"])
     state["options_signal_engine"] = engine
-    print(f"\n=== NIFTY Options Engine Ready ({direction.value} bias) ===")
-    print(f"Option leg: {engine.option.symbol} (lot_size={engine.option.lot_size}, "
-          f"capital_allocated={engine.option.capital_allocated:.2f})")
+    print(f"\n=== NIFTY Options Engine Ready ===")
     print(f"Signal source: futures={engine.futures_tracker.symbol} "
-          f"(OR high={engine.futures_tracker.or_high:.2f}, low={engine.futures_tracker.or_low:.2f}); "
-          f"OTM strike spot read from index={config.NIFTY_INDEX_SYMBOL}")
+          f"(OR high={engine.futures_tracker.or_high:.2f}, low={engine.futures_tracker.or_low:.2f}) - "
+          f"watching BOTH directions; buys a CE on an upside breakout, a PE on a downside breakout, "
+          f"whichever fires first (today's {direction.value} bias only gated this morning's "
+          f"opening-range quality filter, it doesn't pick CE/PE any more).")
+    print(f"Strike: mode={engine.strike_mode or config.OPTION_STRIKE_MODE}, "
+          f"strikes_away={engine.strikes_away}, resolved fresh from index={config.NIFTY_INDEX_SYMBOL} "
+          f"spot AT SIGNAL TIME (capital_allocated={engine.capital_allocated:.2f}) - no option leg "
+          f"is known yet; one will appear here once an entry actually fires.")
 
 
 def job_banknifty_options_scan():
-    """Opt-in (config.ENABLE_BANKNIFTY_OPTIONS_TRADING) - identical single-source engine to
-    job_nifty_options_scan() above (same NiftyOptionsEngine class, same rule set - see
+    """Opt-in (config.ENABLE_BANKNIFTY_OPTIONS_TRADING) - identical single-source, BOTH-SIDES
+    engine to job_nifty_options_scan() above (same NiftyOptionsEngine class, same rule set - see
     options_engine.py's module docstring), pointed at BANKNIFTY's own index/futures/strike
     universe (config.BANKNIFTY_*) instead of NIFTY's. Reuses the SAME today's-direction
     value as equities/NIFTY-options (one sentiment decision for the whole day, never
-    recomputed per market) and runs completely independently of the NIFTY options engine -
-    both can be enabled at once, each with its own capital bucket and trade book."""
+    recomputed per market) only to gate the opening-range quality filter - it no longer picks
+    CE vs PE - and runs completely independently of the NIFTY options engine - both can be
+    enabled at once, each with its own capital bucket and trade book."""
     if not config.ENABLE_BANKNIFTY_OPTIONS_TRADING:
         return
     nifty_spot = state["data_service"].get_quotes(['NSE:NIFTYBANK-INDEX'])
@@ -377,12 +389,16 @@ def job_banknifty_options_scan():
         return
     fetch_and_seed_volume_windows(engine, state["data_service"])
     state["banknifty_options_signal_engine"] = engine
-    print(f"\n=== BANKNIFTY Options Engine Ready ({direction.value} bias) ===")
-    print(f"Option leg: {engine.option.symbol} (lot_size={engine.option.lot_size}, "
-          f"capital_allocated={engine.option.capital_allocated:.2f})")
+    print(f"\n=== BANKNIFTY Options Engine Ready ===")
     print(f"Signal source: futures={engine.futures_tracker.symbol} "
-          f"(OR high={engine.futures_tracker.or_high:.2f}, low={engine.futures_tracker.or_low:.2f}); "
-          f"OTM strike spot read from index={config.BANKNIFTY_INDEX_SYMBOL}")
+          f"(OR high={engine.futures_tracker.or_high:.2f}, low={engine.futures_tracker.or_low:.2f}) - "
+          f"watching BOTH directions; buys a CE on an upside breakout, a PE on a downside breakout, "
+          f"whichever fires first (today's {direction.value} bias only gated this morning's "
+          f"opening-range quality filter, it doesn't pick CE/PE any more).")
+    print(f"Strike: mode={engine.strike_mode or config.OPTION_STRIKE_MODE}, "
+          f"strikes_away={engine.strikes_away}, resolved fresh from index={config.BANKNIFTY_INDEX_SYMBOL} "
+          f"spot AT SIGNAL TIME (capital_allocated={engine.capital_allocated:.2f}) - no option leg "
+          f"is known yet; one will appear here once an entry actually fires.")
 
 
 def job_mcx_commodity_scan():
@@ -527,6 +543,29 @@ def main():
     logger.info("Starting ORB scanning agent (DRY_RUN=%s)...", config.DRY_RUN)
 
     state["data_service"] = get_fyers_client()
+
+    nifty_spot = state["data_service"].get_quotes(['NSE:NIFTY50-INDEX'])
+    # Generate dictionary list for monthly NIFTY options
+    nifty_spot = (nifty_spot.get('d')[0]).get('v').get("lp")
+    nifty_contracts = generate_fyers_nfo_symbols(
+        target_date_str=get_last_traded_day(), 
+        spot_price=nifty_spot, 
+        symbol_name="NIFTY", 
+        num_strikes=20, 
+        expiry_type="Monthly",
+        csv_filename=config.NIFTY_FO_SYMBOL_MASTER_CSV
+    )
+    niftybank_spot = state["data_service"].get_quotes(['NSE:NIFTYBANK-INDEX'])
+    # Generate dictionary list for monthly NIFTY options
+    niftybank_spot = (niftybank_spot.get('d')[0]).get('v').get("lp")
+    nifty_contracts = generate_fyers_nfo_symbols(
+        target_date_str=get_last_traded_day(), 
+        spot_price=niftybank_spot, 
+        symbol_name="BANKNIFTY", 
+        num_strikes=20, 
+        expiry_type="Monthly",
+        csv_filename=config.BANKNIFTY_FO_SYMBOL_MASTER_CSV
+    )
 
     job_global_sentiment()
 

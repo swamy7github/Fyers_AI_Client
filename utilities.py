@@ -8,6 +8,9 @@ import os
 import csv
 import json
 import io
+import pytz
+from datetime import datetime, timedelta
+import pandas_market_calendars as mcal
 from pathlib import Path
 
 NSE_ALL_URL = "https://archives.nseindia.com/content/equities/EQUITY_L.csv"
@@ -309,10 +312,6 @@ def get_nifty_stock_universe(session=None, url=None, csv_file_path=None):
     return nse_stock_symbols
 
 def get_last_traded_day():
-    from datetime import datetime
-    import pytz
-    import pandas_market_calendars as mcal
-
     # 1. Get today's date
     tz = pytz.timezone("Asia/Kolkata")
     today_str = datetime.now(tz).strftime("%Y-%m-%d")
@@ -334,5 +333,53 @@ def get_last_traded_day():
     last_traded_str = valid_days[-1]
     return last_traded_str
 
+def get_last_traded_day_before(passed_date_str, calendar_name='NSE'):
+    """
+    Returns the last valid trading day strictly before the provided date.
+    
+    Args:
+        passed_date_str (str): The reference date in 'YYYY-MM-DD' format.
+        calendar_name (str): The exchange calendar code (e.g., 'NSE', 'BSE', 'NYSE').
+    
+    Returns:
+        str: The last traded date in 'YYYY-MM-DD' format.
+    """
+    
+    # 1. Parse the passed date string into a datetime object
+    passed_date = datetime.strptime(passed_date_str, "%Y-%m-%d")
+
+    # 2. Fetch the market calendar 
+    # Note: Ensure you have the 'NSE' calendar available in your environment, 
+    # otherwise you can fall back to 'BSE' which is often built-in for India.
+    cal = mcal.get_calendar(calendar_name)
+
+    # 3. Create an efficient lookback window (e.g., 30 days prior) 
+    # This avoids querying the calendar all the way back to 2020 which is slow.
+    start_date_str = (passed_date - timedelta(days=30)).strftime("%Y-%m-%d")
+    
+    # 4. Set the end date to strictly one day BEFORE the passed date
+    end_date_str = (passed_date - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # 5. Fetch the schedule for our optimized window
+    schedule = cal.schedule(start_date=start_date_str, end_date=end_date_str)
+
+    # 6. Extract valid trading days
+    valid_days = schedule.index.strftime('%Y-%m-%d').tolist()
+
+    # 7. Return the last valid day found in the schedule
+    if valid_days:
+        last_traded_str = valid_days[-1]
+        return last_traded_str
+    
+    return None
+
 if __name__ == "__main__":
+    # Example usage: Find the last traded day before October 25, 2023
+    test_date = "2026-10-12"
+    
+    # Using 'NYSE' here as a safe default for testing since 'NSE' might require specific mcal forks
+    last_trading_day = get_last_traded_day_before(test_date, calendar_name='NYSE')
+    
+    print(f"The target date was: {test_date}")
+    print(f"The last traded date before that was: {last_trading_day}")
     print(f"{get_last_traded_day()}")

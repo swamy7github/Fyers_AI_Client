@@ -159,7 +159,7 @@ def get_index_snapshot(data_service: FyersDataService) -> pd.DataFrame:
         pct_change = (ltp - prev_close) / prev_close * 100
         rows.append({
             "symbol": row["symbol"], "index_name": row["index_name"],
-            "is_sector_index": row["is_sector_index"],
+            "category": row["category"], "is_sector_index": row["is_sector_index"],
             "sector": row["sector"],
             "prev_close": prev_close, "ltp": ltp, "pct_change": round(pct_change, 2),
             "sector_url": row['sector_url'],

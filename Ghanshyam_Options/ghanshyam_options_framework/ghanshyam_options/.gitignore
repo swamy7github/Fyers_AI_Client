@@ -1,0 +1,6 @@
+# runtime outputs of the framework (never commit trade logs / caches)
+logs/
+reports/
+cache/
+__pycache__/
+.pytest_cache/

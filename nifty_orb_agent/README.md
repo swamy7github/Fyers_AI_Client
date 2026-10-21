@@ -1,6 +1,8 @@
 # Nifty Opening-Range Breakout (ORB) Scanning Agent
 
-A modular Python agent that, on a Fyers-connected NSE trading day:
+A modular Python agent that, on a Fyers-connected NSE trading day, runs its
+original/core equity strategy whenever `config.ENABLE_STOCK_TRADING = True`
+(off by default — see "⚠️ Read this first" below):
 
 1. **09:10** — snapshots sector strength/weakness across your mapped universe.
 2. **09:20:02** — reads the 09:15 five-minute candle for your stock universe,
@@ -10,6 +12,11 @@ A modular Python agent that, on a Fyers-connected NSE trading day:
    and logs paper trades with entry, exit, points captured and P&L%.
 4. **15:10:30** — force-closes any still-open paper position and prints/saves
    a trade book.
+
+Alongside (or instead of) equities, the same agent can run NIFTY/BANK NIFTY
+index options and/or MCX commodities — each its own opt-in strategy, all
+**off by default** (see "What's in the box" and the strategy-specific
+sections below).
 
 It also includes a standalone **global market sentiment** module for the
 "is the broader tape bullish or bearish" question, combining price-based
@@ -34,14 +41,14 @@ scoring with an optional Claude-powered read on qualitative news.
 
 | File | Purpose |
 |---|---|
-| `config.py` | All settings: credentials (via `.env`), file paths, timing, strategy thresholds |
+| `config.py` | All settings: credentials (via `.env`), file paths, timing, strategy thresholds. Four independent master switches, **all `False` by default**: `ENABLE_STOCK_TRADING` (the original/core equity strategy), `ENABLE_NIFTY_OPTIONS_TRADING`, `ENABLE_BANKNIFTY_OPTIONS_TRADING`, `ENABLE_MCX_COMMODITY_TRADING` — the agent trades nothing until at least one is turned on |
 | `fyers_service.py` | Fyers login (auto TOTP + manual fallback) and a retrying, logged data wrapper |
 | `global_sentiment.py` | Global bullish/bearish scoring + optional Claude-based news sentiment — TWO separate ticker/weight sets: `GLOBAL_TICKERS`/`SENTIMENT_WEIGHTS` (equity cues, drives equities/NIFTY/BANKNIFTY options) and `COMMODITY_GLOBAL_TICKERS`/`COMMODITY_SENTIMENT_WEIGHTS` (gold/silver/crude/copper/natural-gas/dollar-index, drives MCX commodities only) |
 | `sector_scanner.py` | 09:10 / 09:16 sector strength/weakness snapshot, queried directly from NSE index symbols |
 | `opening_range_scanner.py` | Filters the NSE equity universe by sector, then builds the top-5 opening-range gainer shortlist. `scan_symbols_accurate()` is the market-agnostic, explicit-symbol-list-in/shortlist-out core equities use (`commodity_engine.py` no longer shares this — MCX trades its full configured universe unfiltered, see "MCX commodities trading" below) |
 | `signal_engine.py` | Direction-aware (LONG or SHORT) VWAP + volume-MA(20) candle logic — entry, weakness-event add/stop-loss, and broker position adoption (`adopt_broker_position`) are ALL candle-driven, no tick-level exit; `feed_candle()` is the shared replay/live entry point `backtest.py`, `bootstrap.py`, and `commodity_engine.py` all use (`options_engine.py` reuses this module's `StockTracker`/`TradeBook` building blocks directly instead, since its dual-instrument signal doesn't fit the one-symbol-drives-itself shape `feed_candle()` assumes). Also owns capital-based order sizing (`_size_order`, via `position_sizing.py`) and the single shared real-order gate (`place_or_log_order()` → `fyers_service.FyersDataService.place_order`, used by both this module's `_maybe_place_live_order` and `options_engine.NiftyOptionsEngine`) |
 | `position_sizing.py` | Capital-based quantity sizing (`calculate_quantity`, `capital_per_slot`) shared by equities, options, and commodities — see "Capital-based position sizing" below |
-| `options_engine.py` | Single-source index options engine: PRICE/VWAP/VOLUME signal all from the index future, the index itself read only for its spot price to pick the OTM strike, BUY-ONLY execution on a single OTM option (CE on a LONG bias, PE on a SHORT bias) — same `NiftyOptionsEngine` class drives both NIFTY (`run_nifty_options_engine()`) and BANK NIFTY (`run_banknifty_options_engine()`) independently, see "NIFTY INDEX options trading" / "BANK NIFTY options" below. Off by default |
+| `options_engine.py` | Single-source, BOTH-SIDES index options engine: PRICE/VWAP/VOLUME signal all from the index future, watched for a breakout in EITHER direction every candle; the index itself is read only — fresh, at the moment an entry signal actually fires, never upfront — for its spot price to pick a strike (ITM/ATM/OTM, `config.OPTION_STRIKE_MODE`). BUY-ONLY execution on a single option: CE on an upside breakout, PE on a downside one, decided by the strategy's own entry criteria, not a pre-computed daily bias — same `NiftyOptionsEngine` class drives both NIFTY (`run_nifty_options_engine()`) and BANK NIFTY (`run_banknifty_options_engine()`) independently, see "NIFTY INDEX options trading" / "BANK NIFTY options" below. Off by default |
 | `commodity_engine.py` | Applies the SAME signal_engine strategy, long or short, to the FULL `config.MCX_COMMODITY_UNIVERSE` directly — no scan, no gain/loss-band shortlist, direction from a commodity-specific global sentiment read — see "MCX commodities trading" below. Off by default |
 | `trade_direction.py` | Tiny shared `TradeDirection` enum (LONG/SHORT) + `decide_trade_direction_from_sentiment()` — kept dependency-free so `signal_engine`, `opening_range_scanner`, and `bootstrap` can all import it without an import cycle |
 | `bootstrap.py` | Market-phase detection + the late-startup catch-up pipeline: `bootstrap_and_catchup()`, historical replay, broker reconciliation — see "Late-startup catch-up" below |
@@ -52,7 +59,7 @@ scoring with an optional Claude-powered read on qualitative news.
 | `test_backtest_strategy_picks.py` | Tests for the above, including hand-verified tear-sheet math |
 | `test_signal_engine.py` | Tests for broker position adoption, the `is_backfill` gate, and capital-based sizing/qty/pnl_amount (`TestCapitalBasedPositionSizing`) (the candle-level entry/weakness logic they sit on top of is covered by `TestFeedCandle*` elsewhere in the same file) |
 | `test_position_sizing.py` | Tests for `calculate_quantity`'s whole-lot rounding and `capital_per_slot`'s equal-split allocator |
-| `test_options_engine.py` | Tests for the F&O symbol-master loader/column validation, OTM strike/expiry resolution (including the fewer-strikes-than-requested fallback), `NiftyOptionsEngine`'s single-source entry/exit arithmetic (hand-verified futures candle sequences, both directions), and the BANK NIFTY wiring (underlying-filtered symbol resolution from a mixed master, `run_banknifty_options_engine()`, and both engines running independently off one shared master) |
+| `test_options_engine.py` | Tests for the F&O symbol-master loader/column validation, ITM/ATM/OTM strike/expiry resolution (including the fewer-strikes-than-requested fallback), `NiftyOptionsEngine`'s single-source entry/exit arithmetic (hand-verified futures candle sequences, both directions), proof that the strike is resolved at signal time rather than engine construction, a same-day CE-then-PE "second leg" scenario, and the BANK NIFTY wiring (underlying-filtered symbol resolution from a mixed master, `run_banknifty_options_engine()`, and both engines running independently off one shared master) |
 | `test_commodity_engine.py` | Tests for `fetch_mcx_universe_opening_ranges()` (every universe symbol tracked regardless of its price move; only a genuine data gap excludes one) and `run_mcx_commodity_engine()`'s per-tracker lot-size/capital wiring |
 | `test_bootstrap.py` | Tests for historical replay, broker reconciliation, and a full end-to-end `bootstrap_and_catchup()` run |
 | `test_live_tick_stream.py` | Tests for `live_tick_stream.py`'s message validation (now a no-op placeholder), without a real WebSocket |
@@ -152,6 +159,13 @@ before the scheduler starts — handles it as a single, ordered pipeline
 rather than the previous per-job `next_run_time` patching this project used
 in an earlier iteration:
 
+0. **`config.ENABLE_STOCK_TRADING` gate** (checked first, right after market
+   phase is computed): if `False` (the default), all of the catch-up work
+   below is skipped entirely and this returns immediately with no engine —
+   but it still reports the REAL market phase computed in step 1, not a
+   faked one, since NIFTY/BANKNIFTY options share this same NSE session and
+   `main()`'s whole-process exit decision depends on an accurate phase
+   regardless of whether equities themselves are enabled.
 1. **Market phase detection** (`detect_market_phase`): `PRE_OPEN` (before
    09:15), `POST_OPEN` (09:15–15:30), or `POST_CLOSE` (after 15:30 or a
    weekend) — weekday + time-of-day only, no NSE holiday calendar.
@@ -377,9 +391,10 @@ pool — running more than one strategy at once would otherwise silently
 double- (or triple-) spend the same real money. If you only have ONE real
 capital pool, divide it across `TRADING_CAPITAL` / `NIFTY_OPTIONS_CAPITAL` /
 `BANKNIFTY_OPTIONS_CAPITAL` / `MCX_CAPITAL` yourself, and/or leave the
-strategies you're not funding disabled (`ENABLE_NIFTY_OPTIONS_TRADING` /
-`ENABLE_BANKNIFTY_OPTIONS_TRADING` / `ENABLE_MCX_COMMODITY_TRADING` are all
-`False` by default).
+strategies you're not funding disabled (`ENABLE_STOCK_TRADING` /
+`ENABLE_NIFTY_OPTIONS_TRADING` / `ENABLE_BANKNIFTY_OPTIONS_TRADING` /
+`ENABLE_MCX_COMMODITY_TRADING` are **all four `False` by default** — the
+agent trades nothing out of the box until you turn at least one on).
 
 If a calculated quantity comes back 0 (the allocated capital can't afford
 even one share/lot at the current price), the engine logs a loud warning and
@@ -394,10 +409,11 @@ existing `points`/`pnl_pct`), and `TradeBook.summary()` reports a
 
 ## NIFTY INDEX options trading (`options_engine.py`) — off by default
 
-**Single-source signal, single-leg execution** — the entry/exit *signal*
-comes from ONE instrument (the index future) that is never itself traded; a
-separate OTM option contract is what's actually bought/sold, and the index
-itself is read only to pick which strike that is. Enable with
+**Single-source signal, BOTH-SIDES, single-leg execution** — the entry/exit
+*signal* comes from ONE instrument (the index future) that is never itself
+traded; a separate option contract is what's actually bought/sold, and the
+index itself is read only to pick which strike that is — fresh, at the
+moment an entry signal actually fires, never upfront. Enable with
 `config.ENABLE_NIFTY_OPTIONS_TRADING = True` — **read `options_engine.py`'s
 module docstring in full first**, it covers these load-bearing design
 decisions in detail:
@@ -405,33 +421,43 @@ decisions in detail:
 1. **PRICE/VWAP condition AND VOLUME condition are BOTH read from
    `config.NIFTY_FUTURES_SYMBOL`'s** (the current front-month NIFTY future)
    own 09:15 opening-range candle, its own running VWAP, and its own
-   20-period volume MA: 2 consecutive candles closing above the
-   opening-range HIGH *and* above VWAP *and* with volume above its MA
-   (LONG bias) or below the opening-range LOW *and* below VWAP *and* with
-   volume above its MA (SHORT bias). **The index itself typically reports
-   ZERO volume in Fyers' feed** (it isn't a tradable instrument, so there's
-   nothing to sum up a real VWAP or volume MA from — a VWAP computed off
-   zero volume silently collapses to 0) — the future is used for the whole
-   signal specifically because of this. Verify what your own
-   `NIFTY_INDEX_SYMBOL` quote/candle actually reports before pointing the
-   signal back at the index.
+   20-period volume MA — watched for a breakout in EITHER direction, every
+   candle: 2 consecutive candles closing above the opening-range HIGH *and*
+   above VWAP *and* with volume above its MA (upside), or below the
+   opening-range LOW *and* below VWAP *and* with volume above its MA
+   (downside). **The index itself typically reports ZERO volume in Fyers'
+   feed** (it isn't a tradable instrument, so there's nothing to sum up a
+   real VWAP or volume MA from — a VWAP computed off zero volume silently
+   collapses to 0) — the future is used for the whole signal specifically
+   because of this. Verify what your own `NIFTY_INDEX_SYMBOL` quote/candle
+   actually reports before pointing the signal back at the index.
 2. **`config.NIFTY_INDEX_SYMBOL` is read for exactly one thing**: its spot
-   LTP at entry time, to resolve which OTM strike to buy — it plays no part
-   in the entry/exit decision above.
-3. **Entry fires when the condition holds** on 2 consecutive candles → BUY
-   an OTM call (CE) on a LONG bias, an OTM put (PE) on a SHORT bias.
-   **Exit** is the mirrored condition on the same instrument (future
-   closing back across VWAP with volume above its MA) — the whole position
-   closes at once; there's no separate add-on step here (unlike
-   equities/commodities), since doubling into an already-leveraged option
-   contract on a single weakness event wasn't asked for and is a different
-   risk than doing so for an equity.
+   LTP — fetched FRESH at the moment an entry signal actually fires, not
+   back at today's ~09:20 engine setup — to resolve which strike to buy
+   (ITM/ATM/OTM, see point 6). It plays no part in the entry/exit decision
+   above.
+3. **Entry fires when EITHER side's condition holds** on 2 consecutive
+   candles → an upside breakout buys a CALL (CE), a downside one buys a PUT
+   (PE) — **decided by the strategy's own entry criteria at the moment it
+   fires, not by a pre-computed daily bias any more.** Because both sides
+   are watched all day, this engine can legitimately take a second,
+   differently-resolved leg later the same day if it exits one side and the
+   other side's criteria later confirms (e.g. a CE in the morning, a PE
+   later if the futures genuinely reverse). **Exit** is the mirrored
+   condition on the same instrument (future closing back across VWAP with
+   volume above its MA), keyed off whichever side THAT open leg actually
+   entered from — the whole position closes at once; there's no separate
+   add-on step here (unlike equities/commodities), since doubling into an
+   already-leveraged option contract on a single weakness event wasn't
+   asked for and is a different risk than doing so for an equity.
 4. **BUY-ONLY**, same reasoning as the previous revision of this feature:
    risk capped to premium paid, never writes/sells an option naked.
 5. **Direction for the day** reuses the SAME sentiment pipeline as equities
    (`bootstrap.decide_todays_direction()`, called once and passed to both
    `job_opening_range_scan()` and `job_nifty_options_scan()` in `main.py`),
-   so equities and options can never silently disagree about today's bias.
+   but now only to gate the opening-range "closing strength" quality filter
+   below (a per-day go/no-go check, same mechanism equities/MCX use) — it no
+   longer pre-selects CE vs PE or a strike (see point 3).
 6. **Strike, expiry, lot size, and the exact Fyers trading-symbol string of
    the OPTION leg are resolved from Fyers' own published F&O symbol master
    file**, never hard-coded — NIFTY's expiry day, lot size, and strike gap
@@ -443,8 +469,12 @@ decisions in detail:
    that file's column names — print the real file's `df.columns` once and
    correct this dict before trusting it; a wrong mapping fails loudly
    rather than silently resolving the wrong contract.
-   `config.NIFTY_OTM_STRIKES_AWAY` (default 1) controls how far out of the
-   money — a CALL is OTM *above* spot, a PUT *below* it.
+   `config.OPTION_STRIKE_MODE` (default `"OTM"`, shared with BANKNIFTY
+   options below) picks **ITM**, **ATM**, or **OTM** — `config.
+   NIFTY_OTM_STRIKES_AWAY` (default 1) then controls how many strikes away
+   from the at-the-money strike, in whichever direction that mode implies
+   (ignored entirely for `"ATM"`, which always takes the single nearest
+   strike).
 7. **`config.NIFTY_FUTURES_SYMBOL` is a plain string you must roll
    yourself** each month (unlike the option, it is NOT resolved from the
    symbol master here) — e.g. `"NSE:NIFTY25DECFUT"` is only valid for that
@@ -463,14 +493,15 @@ is available at the same time); squares off alongside equities at
 it previously read `config.NIFTY_FUTURES_SYMBOL` directly now takes it as a
 constructor/function parameter instead, with NIFTY's config value as the
 default (`config.NIFTY_INDEX_SYMBOL`/`BANKNIFTY_INDEX_SYMBOL` are passed
-separately, straight into `resolve_otm_option_symbol()`, since they're only
+separately, straight into `resolve_option_symbol()`, since they're only
 ever used for the strike-selection spot, not the engine itself).
 `run_banknifty_options_engine()` is a thin wrapper that calls the exact same
 underlying logic (`run_index_options_engine()`) with Bank Nifty's own values
 substituted in, so **every rule in the section above applies verbatim** —
-same single-source signal shape, same OTM-strike/BUY-ONLY/no-add-on-step
-decisions, same shared sentiment pipeline for direction — just pointed at a
-different index/future/strike universe:
+same single-source signal shape, same ITM/ATM/OTM-strike/BUY-ONLY/
+no-add-on-step decisions, same shared sentiment pipeline for the
+opening-range quality gate — just pointed at a different index/future/strike
+universe:
 
 - Enable independently with `config.ENABLE_BANKNIFTY_OPTIONS_TRADING = True`
   — it runs as a completely separate engine instance from NIFTY options
@@ -482,14 +513,15 @@ different index/future/strike universe:
   master/quote before enabling; exchange symbol strings do change.
 - `config.BANKNIFTY_FUTURES_SYMBOL` — same manual-monthly-roll caveat as
   `NIFTY_FUTURES_SYMBOL` above (plain string, not master-resolved).
-- `config.BANKNIFTY_OTM_STRIKES_AWAY` (default 1) — independently
-  configurable from NIFTY's since BANKNIFTY's strike gap (100) is wider
-  than NIFTY's (50).
+- `config.OPTION_STRIKE_MODE` is **shared** with NIFTY options (one knob,
+  both engines) — `config.BANKNIFTY_OTM_STRIKES_AWAY` (default 1) is its own,
+  independently configurable strikes-away count, since BANKNIFTY's strike
+  gap (100) is wider than NIFTY's (50).
 - `config.BANKNIFTY_OPTIONS_CAPITAL` — its own, independent capital
   bucket, same reasoning as `NIFTY_OPTIONS_CAPITAL`.
 - **Shares** `config.NIFTY_FO_SYMBOL_MASTER_CSV`/`NIFTY_FO_MASTER_COLUMNS`
   with NIFTY options — Fyers' F&O symbol master is one combined file
-  covering every NSE underlying, so `resolve_otm_option_symbol()` just
+  covering every NSE underlying, so `resolve_option_symbol()` just
   filters that same file's underlying column for `"BANKNIFTY"` rows
   instead of `"NIFTY"` ones (`underlying="BANKNIFTY"` is passed through
   internally — you don't need to do anything extra here beyond making sure
@@ -916,9 +948,12 @@ two for a full universe), but it's the only way to get correct numbers once
    `config.DRY_RUN = False`.
 4. **`fyers_service.FyersDataService.place_order()` is a real, live order
    call** once `config.DRY_RUN = False` — there is no separate "wire it up"
-   step left to do. Start with a tiny `TRADING_CAPITAL` (and leave
-   `ENABLE_NIFTY_OPTIONS_TRADING`/`ENABLE_MCX_COMMODITY_TRADING` off) the
-   first time you flip `DRY_RUN`, and watch the logs closely.
+   step left to do. Start with a tiny `TRADING_CAPITAL` and only ONE
+   strategy enabled (`ENABLE_STOCK_TRADING`, `ENABLE_NIFTY_OPTIONS_TRADING`,
+   `ENABLE_BANKNIFTY_OPTIONS_TRADING`, and `ENABLE_MCX_COMMODITY_TRADING` are
+   **all four `False` by default** — remember to turn at least ONE on, or
+   the agent will run but trade nothing) the first time you flip `DRY_RUN`,
+   and watch the logs closely.
 5. If you do enable options or MCX, re-read those two sections above in
    full first — both depend on data (a current F&O symbol master, current
    MCX lot sizes/contract symbols) this repo cannot keep current for you.

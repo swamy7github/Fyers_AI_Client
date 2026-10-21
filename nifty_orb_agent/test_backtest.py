@@ -316,7 +316,7 @@ class TestRunBacktestVolumeSeedingEnablesQuickEntry(unittest.TestCase):
         ]
 
         provider = FakeBacktestDataService(series)
-        results = backtest.run_backtest(provider, target_day, target_day, direction=TradeDirection.LONG)
+        results = backtest.run_backtest(provider, target_day, target_day)
 
         trades = results["trades"]
         self.assertFalse(trades.empty, "expected a BUY to fire from just 2 in-day candles")

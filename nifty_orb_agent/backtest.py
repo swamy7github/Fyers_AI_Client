@@ -335,16 +335,12 @@ def _prefetch_equity_history(data_service: FyersDataService, start_date: date, e
     
     leaderboard = get_sector_leaderboard(snapshot)
     symbols = []
-    if direction == TradeDirection.LONG:
-        logger.info("Backtesting %s strategy from %s to %s.", direction.value, start_date, end_date)
-        logger.info(f" leader board {leaderboard.head(5)}")
-        symbols = load_universe(leaderboard.head(5))
-    elif direction == TradeDirection.SHORT:
-        logger.info("Backtesting %s strategy from %s to %s.", direction.value, start_date, end_date)
-        logger.info(f" leader board {leaderboard.tail(5)}")
-        symbols = load_universe(leaderboard.tail(5))
     
+    logger.info("Backtesting strategy from %s to %s.", start_date, end_date)
+    logger.info(f" leader board {leaderboard.head(5)}")
+    symbols = load_universe(leaderboard.head(5))  
     trading_days = trading_days_between(start_date, end_date)
+    tz = pytz.timezone(config.TIMEZONE)
     if not trading_days:
         logger.warning("No weekdays in the requested range (%s to %s).", start_date, end_date)
         return {"symbols": symbols, "trading_days": [], "intraday_by_symbol": {}, "daily_by_symbol": {},
@@ -791,7 +787,7 @@ if __name__ == "__main__":
     direction = TradeDirection[args.direction] if args.direction else None
     data_service = get_fyers_client()
 
-    results = run_backtest(data_service, start, end, direction=direction)
+    #results = run_backtest(data_service, start, end, direction=direction)
     if args.sweep_wick is not None and args.market == "mcx":
         print("--sweep-wick is equity-only (MCX has no wick/gain-loss shortlist filtering at "
               "all - see commodity_engine.py) - ignoring it and running a normal MCX backtest.")

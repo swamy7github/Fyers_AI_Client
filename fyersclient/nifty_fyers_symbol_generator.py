@@ -122,7 +122,7 @@ def generate_fyers_nfo_symbols(
     csv_filename: str ,
     symbol_name: str = "NIFTY", 
     num_strikes: int = 20, 
-    expiry_type: str = "weekly",
+    expiry_type: str = "Monthly",
     
 ) -> list:
     """
@@ -134,12 +134,12 @@ def generate_fyers_nfo_symbols(
     # Set strike step and lot sizes per index
     if symbol_clean == "BANKNIFTY":
         strike_step = 100
-        lot_size = 15
+        lot_size = 30
         if expiry_type.lower() == "weekly":
             expiry_type = "monthly"  # Bank Nifty weekly options are discontinued
     else:
         strike_step = 50
-        lot_size = 25
+        lot_size = 65
             
     if expiry_type.lower() == "weekly":
         expiry_date = get_weekly_expiry(target_date_str)
@@ -217,7 +217,7 @@ if __name__ == "__main__":
         spot_price=nifty_spot, 
         symbol_name="NIFTY", 
         num_strikes=20, 
-        expiry_type="weekly",
+        expiry_type="Monthly",
         csv_filename = "net.csv"
     )
     

@@ -645,9 +645,25 @@ def _reconcile_broker_state(engine: SignalEngine, data_service: FyersDataService
 # ----------------------------------------------------------------------------
 def bootstrap_and_catchup(state) -> BootstrapResult:
     now = datetime.now(TZ)
-   
     phase = detect_market_phase(now)
-    logger.info("Bootstrap: detected market phase %s at %s IST.", phase.value, now.strftime("%H:%M:%S"))
+
+    # Equity scanning/trading can be switched off entirely (config.ENABLE_STOCK_TRADING) just
+    # like the NIFTY/BANKNIFTY options and MCX engines each have their own ENABLE_*_TRADING
+    # flag. Unlike _bootstrap_options_catchup()'s `enabled` gate (which safely FAKES
+    # MarketPhase.POST_CLOSE when disabled, because NIFTY/BANKNIFTY options' own phase is never
+    # consulted by main()'s whole-process exit decision - see that function's docstring), this
+    # gate deliberately returns the REAL `phase` computed above: main()'s step-4 exit decision
+    # and the job_opening_range_scan scheduling guard both depend on detect_market_phase()
+    # reflecting the actual NSE session clock, regardless of whether equities themselves are
+    # enabled, since NIFTY/BANKNIFTY options ride on that same session. The expensive sector/
+    # breadth/direction/shortlist/engine-build work below is skipped entirely when disabled.
+    if not config.ENABLE_STOCK_TRADING:
+        msg = (f"Equity trading is disabled (config.ENABLE_STOCK_TRADING=False) - nothing to "
+               f"bootstrap for equities; phase is still reported accurately ({phase.value}) for "
+               f"the other engines' exit/scheduling logic.")
+        logger.info(msg)
+        return BootstrapResult(phase, None, message=msg)
+
     if phase == MarketPhase.PRE_OPEN:
         msg = (f"Started pre-open at {now:%H:%M:%S} IST - nothing to catch up on; "
                f"the scheduled jobs in main.py will run at their normal times.")
@@ -717,9 +733,7 @@ def bootstrap_and_catchup(state) -> BootstrapResult:
     # 3. Gap screen -> shortlist (gap-UP for LONG, gap-DOWN for SHORT), via the
     #    always-correct historical path (we don't know how late "late" is, so the
     #    quotes-proxy shortcut is never safe here)
-   
-    shortlist = pd.DataFrame()
-    shortlist = scan_opening_range_accurate(state, direction=direction)
+    shortlist = scan_opening_range_accurate(data_service, direction=direction)
     if shortlist.empty:
         msg = f"Catch-up: no stocks matched the {direction.value} opening-range filter today - nothing to track."
         logger.warning(msg)
@@ -1009,10 +1023,16 @@ def _bootstrap_options_catchup(data_service: FyersDataService, *, enabled: bool,
     # No _reconcile_broker_state() call here - see this function's own docstring, "KNOWN
     # LIMITATION", for why.
 
-    open_str = ("with an open position reconstructed from today so far" if engine.option.is_open
-                else "flat")
-    msg = (f"{label} options catch-up complete: tracking {direction.value} bias via "
-           f"{engine.option.symbol}, {open_str}.")
+    if engine.option.is_open:
+        msg = (f"{label} options catch-up complete: reconstructed an OPEN "
+               f"{engine.option.entry_direction.value} position in {engine.option.symbol} from "
+               f"today so far.")
+    else:
+        msg = (f"{label} options catch-up complete: flat, watching {engine.futures_tracker.symbol} "
+               f"for a breakout in EITHER direction (CE on an upside breakout, PE on a downside "
+               f"one - today's {direction.value} bias only gated this morning's opening-range "
+               f"quality filter) - the strike will be resolved fresh from spot whenever an entry "
+               f"actually fires.")
     logger.info(msg)
     return BootstrapResult(phase, engine, message=msg, direction=direction,
                             sentiment_label=sentiment_label, sentiment_score=sentiment_score)

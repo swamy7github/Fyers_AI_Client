@@ -76,6 +76,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import fyersclient
+#import fyersclient.FyersDataService as FyersDataService
 from trade_direction import TradeDirection
 
 logger = logging.getLogger("orb_agent.signals_engine")
@@ -463,12 +464,12 @@ class SignalEngine:
             self.trade_book.record_entry(tracker.symbol, now_str, c, entry_type="INITIAL",
                                           is_backfill=is_backfill, direction=tracker.direction, qty=qty)
             if tracker.direction == TradeDirection.LONG:
-                logger.info("BUY   %s qty=%d @ %.2f (2 consecutive candles above OR high %.2f, VWAP & volume MA)%s",
-                             tracker.symbol, qty, c, tracker.or_high, " [BACKFILL]" if is_backfill else "")
+                logger.info(" @ %s BUY   %s qty=%d @ %.2f (2 consecutive candles above OR high %.2f, VWAP & volume MA)%s",
+                             now_str, tracker.symbol, qty, c, tracker.or_high, " [BACKFILL]" if is_backfill else "")
                 self._maybe_place_live_order(tracker, "BUY", c, is_backfill, now_str, qty)
             else:
-                logger.info("SHORT %s qty=%d @ %.2f (2 consecutive candles below OR low %.2f, VWAP & volume MA)%s",
-                             tracker.symbol, qty, c, tracker.or_low, " [BACKFILL]" if is_backfill else "")
+                logger.info("%s SHORT %s qty=%d @ %.2f (2 consecutive candles below OR low %.2f, VWAP & volume MA)%s",
+                             now_str, tracker.symbol, qty, c, tracker.or_low, " [BACKFILL]" if is_backfill else "")
                 self._maybe_place_live_order(tracker, "SELL (SHORT)", c, is_backfill, now_str, qty)
             tracker.consecutive_qualifying = 0  # reset so it doesn't immediately re-fire
 
@@ -515,9 +516,9 @@ class SignalEngine:
             self.trade_book.record_entry(tracker.symbol, now_str, c, entry_type="ADD",
                                           is_backfill=is_backfill, direction=tracker.direction, qty=add_qty)
             logger.info(
-                "ADD   %s qty=%d @ %.2f (weakness event #%d: 2 consecutive candles %s VWAP %.2f "
+                "@ %s ADD   %s qty=%d @ %.2f (weakness event #%d: 2 consecutive candles %s VWAP %.2f "
                 "with volume > 20-period volume MA(%d) - adding to position, not exiting)%s",
-                tracker.symbol, add_qty, c, tracker.weakness_events_on_position, vs_vwap, vwap,
+                now_str, tracker.symbol, add_qty, c, tracker.weakness_events_on_position, vs_vwap, vwap,
                 config.VOLUME_MA_PERIOD, " [BACKFILL]" if is_backfill else "",
             )
             self._maybe_place_live_order(tracker, add_side, c, is_backfill, now_str, add_qty)
@@ -526,10 +527,10 @@ class SignalEngine:
             exit_qty = tracker.total_qty_open
             closed_count = self.trade_book.close_all_open(tracker.symbol, now_str, c, exit_is_backfill=is_backfill)
             logger.info(
-                "STOP-LOSS / SQUARE OFF %s qty=%d @ %.2f (weakness event #%d: closing all %d open "
+                " @ %s STOP-LOSS / SQUARE OFF %s qty=%d @ %.2f (weakness event #%d: closing all %d open "
                 "row(s) for this position - close %s VWAP %.2f, vol > 20-period volume MA(%d) "
                 "on both confirming candles)%s",
-                tracker.symbol, exit_qty, c, tracker.weakness_events_on_position, closed_count, vs_vwap, vwap,
+                now_str, tracker.symbol, exit_qty, c, tracker.weakness_events_on_position, closed_count, vs_vwap, vwap,
                 config.VOLUME_MA_PERIOD, " [BACKFILL]" if is_backfill else "",
             )
             self._maybe_place_live_order(tracker, exit_side, c, is_backfill, now_str, exit_qty)

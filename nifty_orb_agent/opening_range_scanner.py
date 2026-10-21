@@ -352,4 +352,5 @@ def scan_opening_range_accurate(state,
     elif direction == TradeDirection.SHORT:     
         logger.info("Running %s opening-range scan (accurate, historical-candle path)...", direction.value)
         top_sectors = state['top5_losing_sectors']
-    return scan_symbols_accurate(data_service, load_universe(top_sectors=top_sectors), direction)
+    return pd.DataFrame() 
+   # return scan_symbols_accurate(data_service, load_universe(top_sectors=top_sectors), direction)

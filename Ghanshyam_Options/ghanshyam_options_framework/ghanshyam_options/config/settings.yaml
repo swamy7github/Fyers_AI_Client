@@ -1,0 +1,276 @@
+# ---------------------------------------------------------------------------
+# ghanshyam_options — master configuration
+#
+# Every rule in docs/GHANSHYAM_RULES.md maps to a key here. Nothing below is a
+# secret. Paths are relative to the repository root unless absolute.
+# ---------------------------------------------------------------------------
+
+paths:
+  log_dir: ghanshyam_options/logs          # trade / daily CSVs + app log
+  cache_dir: ghanshyam_options/cache       # candle cache (CSV / parquet)
+  report_dir: ghanshyam_options/reports    # markdown reports + equity PNGs
+  sample_data_dir: ghanshyam_options/sample_data
+
+logging:
+  level: INFO
+  file: app.log                            # inside paths.log_dir
+  json: false
+
+capital:
+  total: 500000                            # INR, total account equity
+  active_tranche_pct: 0.25                 # R1: max 20-25 % deployable per session (p7)
+  risk_per_trade_pct: 0.01                 # R2: % of total capital risked per trade (assumption)
+  max_lots: 10                             # hard cap regardless of capital
+
+risk:
+  max_trades_per_day: 3                    # R3 (p7, p8)
+  max_consecutive_losses: 2                # R4 lockout after 2 stop-outs (p7, p8)
+  max_daily_loss_pct: 0.02                 # R5 2-3 % of equity (p7, p8)
+  profit_retention_pct: 0.80               # R6 protect 70-80 % of banked profit (p8)
+  secondary_risk_pct_of_banked: 0.25       # R6 later trades risk <= 20-30 % of banked gains (p8)
+  one_position_per_instrument: true
+  counter_trend_size_factor: 0.5           # half size when trading against PDC bias
+  trail_to_breakeven_after_r: 1.0          # R7 trailing: SL -> breakeven after +1R
+  trail_atr_fraction: 0.75                 # then trail SL by this fraction of spot ATR(14)
+  min_confidence: 0.60                     # signal engine threshold (0-1)
+
+sessions:
+  NSE:
+    open: "09:15"
+    close: "15:30"
+    no_new_entries_after: "15:05"
+    square_off: "15:15"                    # p12: close all long options before 15:15
+    no_entry_windows:                      # p11: midday decay avoidance
+      - ["11:30", "13:30"]
+  MCX:
+    open: "09:00"
+    close: "23:30"
+    no_new_entries_after: "23:00"
+    square_off: "23:15"
+    no_entry_windows: []
+
+bias:
+  acceptance_bars: 2                       # "sustained" above/below PDC = N closed bars
+  trap_band_points:                        # S8 equilibrium trap: |PDC-PDH| or |PDC-PDL| narrower than this => no trade
+    NIFTY50: 40
+    BANKNIFTY: 90
+    CRUDEOIL: 20
+    NATURALGAS: 4
+    GOLD: 150
+    SILVER: 400
+    COPPER: 3
+  level_tolerance_points:                  # "at a structural level" tolerance for hammer/star
+    NIFTY50: 25
+    BANKNIFTY: 60
+    CRUDEOIL: 15
+    NATURALGAS: 3
+    GOLD: 100
+    SILVER: 300
+    COPPER: 2
+
+strike:
+  mode: ATM_ITM                            # F4: ATM_ITM (ATM unless delta<min_delta then ITM1) | ATM | ITM1
+  min_delta: 0.50                          # F4 (p2)
+  iv_assumption:                           # annualised IV used for synthetic premium + delta
+    NIFTY50: 0.13
+    BANKNIFTY: 0.16
+    CRUDEOIL: 0.35
+    NATURALGAS: 0.55
+    GOLD: 0.14
+    SILVER: 0.25
+    COPPER: 0.20
+  risk_free_rate: 0.065
+
+premium:
+  synthetic_min_premium: 1.0
+  synthetic_theta_per_minute: true         # decay the synthetic premium intraday
+
+execution:
+  slippage_pct: 0.0025                     # 0.25 % of premium per side (paper)
+  slippage_ticks: 1                        # plus one tick per side
+  fill_on: next_bar_open                   # next_bar_open | signal_close
+  charges:                                 # Indian F&O cost model (parameterised, verify with your broker)
+    brokerage_per_order: 20.0              # flat INR per executed order
+    stt_sell_pct: 0.001                    # STT 0.1 % on sell-side premium (options, from Oct-2024)
+    exchange_txn_pct_nse: 0.0003503        # NSE options transaction charge on premium
+    exchange_txn_pct_mcx: 0.0005           # MCX options transaction charge on premium (approx)
+    sebi_fee_pct: 0.000001                 # INR 10 per crore
+    stamp_duty_buy_pct: 0.00003            # 0.003 % buy side
+    gst_pct: 0.18                          # on brokerage + exchange + sebi
+    ctt_sell_pct_mcx: 0.0005               # CTT on MCX option sell premium (0.05 %)
+
+live:
+  enabled: false                           # LIVE orders are OFF. Also needs --i-understand-live-risk.
+  product_type: INTRADAY
+  order_tag: ghanshyam
+
+data:
+  default_resolution: 5
+  history_lookback_days: 10
+  previous_sessions_for_levels: 1
+  cache_format: csv                        # csv | parquet (parquet needs pyarrow)
+
+strategies:
+  inside_candle:
+    enabled: true
+    timeframe: 5                           # 5 = scalp, 15 = continuation (p4)
+    trigger: inside                        # inside | mother  (p4: conservative traders wait for mother high)
+    target_range_multiple: 2.0             # p4: 1.5x-2.5x pattern range
+    require_bias_alignment: true           # p3 PDC filter
+    near_level_bonus: 0.15                 # confidence bonus when inside bar sits at a key level
+    max_hold_minutes: 30
+    min_range_points:                      # ignore degenerate inside bars
+      NIFTY50: 8
+      BANKNIFTY: 20
+      CRUDEOIL: 4
+      NATURALGAS: 1.0
+      GOLD: 40
+      SILVER: 120
+      COPPER: 0.8
+    windows:
+      NSE: [["09:25", "11:30"], ["13:30", "15:00"]]
+      MCX: [["09:10", "23:00"]]
+  hammer:
+    enabled: true
+    timeframe: 5
+    min_consecutive_candles: 7             # p4: 7-8 consecutive red candles ...
+    min_run_points:                        # ... OR uncorrected slide (p4: BN 150-200, Nifty 70-100)
+      NIFTY50: 70
+      BANKNIFTY: 150
+      CRUDEOIL: 40
+      NATURALGAS: 8
+      GOLD: 300
+      SILVER: 900
+      COPPER: 6
+    run_lookback_bars: 12
+    wick_body_ratio: 2.0                   # p4: lower shadow >= 2x body
+    max_opposite_wick_ratio: 0.30          # upper wick <= 30 % of range
+    sl_buffer_points: 2.0                  # p4: 1-2 pts below hammer low
+    target_r: 2.0                          # p4/p6: minimum 1:2
+    require_structural_level: true         # p4: must form at PDL / support / channel low
+    max_hold_minutes: 45
+    windows:
+      NSE: [["09:25", "11:30"], ["13:30", "15:00"]]
+      MCX: [["09:10", "23:00"]]
+  shooting_star:
+    enabled: true
+    timeframe: 5
+    min_consecutive_candles: 7
+    min_run_points:
+      NIFTY50: 70
+      BANKNIFTY: 150
+      CRUDEOIL: 40
+      NATURALGAS: 8
+      GOLD: 300
+      SILVER: 900
+      COPPER: 6
+    run_lookback_bars: 12
+    wick_body_ratio: 2.0                   # p4-5: upper shadow >= 2x body
+    max_opposite_wick_ratio: 0.30          # minimal/no lower shadow
+    sl_buffer_points: 2.0
+    target_r: 2.0
+    require_structural_level: true
+    max_hold_minutes: 45
+    windows:
+      NSE: [["09:25", "11:30"], ["13:30", "15:00"]]
+      MCX: [["09:10", "23:00"]]
+  morning_0920:
+    enabled: true
+    timeframe: 5
+    max_range_points:                      # p5/p10: BN opening candle > 200-250 pts => invalid
+      NIFTY50: 110
+      BANKNIFTY: 250
+      CRUDEOIL: 40
+      NATURALGAS: 8
+      GOLD: 300
+      SILVER: 900
+      COPPER: 6
+    wide_range_points:                     # p5: SL at 50 % midpoint for wider structures
+      NIFTY50: 60
+      BANKNIFTY: 130
+      CRUDEOIL: 20
+      NATURALGAS: 4
+      GOLD: 150
+      SILVER: 450
+      COPPER: 3
+    target_points:                         # p5/p6: 40-80 spot pts (BN); scaled for others
+      NIFTY50: 35
+      BANKNIFTY: 70
+      CRUDEOIL: 25
+      NATURALGAS: 5
+      GOLD: 200
+      SILVER: 600
+      COPPER: 4
+    breakout_bars_window: 3                # trigger must occur within N bars after the opening bar
+    require_bias_alignment: false          # 09:20 is traded in the breakout direction (p5); bias only scores
+    max_hold_minutes: 30
+  afternoon_1420:
+    enabled: true
+    timeframe: 5
+    base_start: "13:30"                    # p5: midday consolidation base 13:30-14:15
+    base_end: "14:15"
+    trigger_bar: "14:15"                   # the 14:15-14:20 candle close is evaluated (p5)
+    target_r: 2.0
+    require_bias_alignment: true
+    max_hold_minutes: 40
+    markets: [NSE]
+  squeeze_1500:
+    enabled: true
+    timeframe: 5                           # 1m or 5m (p5); 5m here because the feed is 5m
+    expiry_days_only: true                 # p5: primarily expiry sessions
+    base_start: "14:30"
+    base_end: "14:55"                      # last 5m bar that closes by 14:58 (p5: 14:30-14:58)
+    trigger_bar: "14:55"                   # breakout evaluated on the 14:55-15:00 bar close -> entry at 15:00 open
+    target_premium_pct: 0.20               # p6: 15-30 % of premium
+    max_hold_minutes: 10                   # p5: 3-10 minutes
+    markets: [NSE]
+  trendline:
+    enabled: true
+    timeframe: 5
+    pivot_strength: 2                      # bars either side for swing detection
+    min_touches: 3                         # p5: >= 3 touch points
+    touch_tolerance_atr: 0.35              # distance (in ATR) to count as a touch
+    retest_max_bars: 6                     # p5: break followed by low-volume retest
+    low_volume_factor: 0.9                 # retest bar volume <= factor x 20-bar average
+    target_r: 2.0
+    require_bias_alignment: true
+    max_hold_minutes: 45
+    windows:
+      NSE: [["09:30", "11:30"], ["13:30", "15:00"]]
+      MCX: [["09:30", "23:00"]]
+  ldchl_levels:
+    enabled: true
+    timeframe: 5
+    acceptance_bars: 2                     # S2: multi-minute acceptance above PDH / below PDL
+    wick_rejection_ratio: 2.0              # S2/S3: wick >= 2x body for rejection trades
+    target_r: 2.0
+    counter_trend_allowed: true            # rejection trades are counter to the break; sized at 50 %
+    max_hold_minutes: 45
+    windows:
+      NSE: [["09:25", "11:30"], ["13:30", "15:00"]]
+      MCX: [["09:10", "23:00"]]
+  congestion_base:
+    enabled: true
+    timeframe: 5
+    min_base_minutes: 30                   # S6: 20-45 minute horizontal base
+    max_base_minutes: 60
+    max_base_range_atr: 1.5                # base height <= N x ATR(14)
+    volume_factor: 1.2                     # S6: breakout volume >= factor x base average volume
+    target_r: 2.0
+    require_bias_alignment: true
+    use_opening_range: true                # S5: the 09:15-09:30 opening range is also a valid base
+    max_hold_minutes: 45
+    windows:
+      NSE: [["09:35", "11:30"], ["13:30", "15:00"]]
+      MCX: [["09:35", "23:00"]]
+
+confluence:
+  weights:                                 # confidence score components (sum <= 1.0)
+    pattern: 0.40
+    bias_alignment: 0.25
+    structural_level: 0.15
+    time_window: 0.10
+    volume: 0.10
+  constituent_confirmation:                # S9 (BANKNIFTY only) - soft filter
+    enabled: false                         # needs HDFCBANK/ICICIBANK bars in the feed
+    penalty: 0.25
