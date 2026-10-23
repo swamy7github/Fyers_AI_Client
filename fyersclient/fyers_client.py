@@ -1,6 +1,6 @@
 """
 fyers_client.py - Integrated Fyers API v3 Service & Unit Test Suite
-
+ 
 This single-file solution contains:
 1. get_fyers_client(): Exposes zero-argument authentication & token persistence returning an authenticated Fyers client handle.
 2. get_history(): Exposes rate-limited and retried historical candle retrieval calling client.history.

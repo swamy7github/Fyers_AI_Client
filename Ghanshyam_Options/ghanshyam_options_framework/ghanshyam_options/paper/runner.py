@@ -120,7 +120,25 @@ class PaperRunner:
             iterations += 1
             if max_iterations is not None and iterations >= max_iterations:
                 break
-            self._sleep()
+            # --- CALCULATE SLEEP TIME UNTIL THE NEXT 5-MINUTE MARK ---
+            minute_of_day = now.hour * 60 + now.minute
+            next_multiple = ((minute_of_day // 5) + 1) * 5
+            
+            target_hour = next_multiple // 60
+            target_min = next_multiple % 60
+            
+            # Construct target datetime with a 3-second buffer for the API to close the bar
+            target_time = now.replace(hour=target_hour, minute=target_min, second=3, microsecond=0)
+            
+            sleep_seconds = (target_time - now).total_seconds()
+            
+            # Safety fallback if calculation results in negative time
+            if sleep_seconds < 0:
+                sleep_seconds = 300
+            self.poll_seconds = sleep_seconds
+            logger.info(f"==========>{bar} wait untill  {target_time}<==================")    
+            pytime.sleep(sleep_seconds)            
+            #self._sleep()
         self.summary = self.engine.end_day(last_bar)
         logger.info("PAPER day done: %s", self.summary)
         return self.summary

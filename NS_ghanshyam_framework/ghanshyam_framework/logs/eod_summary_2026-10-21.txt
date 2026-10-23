@@ -1,0 +1,17 @@
+==============================================
+        EOD SUMMARY 2026-10-21 (paper)        
+==============================================
+Total trades                                 0
+Wins / Losses                            0 / 0
+Win rate                                  0.0%
+Gross PnL                                 0.00
+Charges                                   0.00
+Net PnL                                   0.00
+Profit factor                             0.00
+Max drawdown                              0.00
+Avg win / loss                     0.00 / 0.00
+Best / worst                       0.00 / 0.00
+==============================================
+Win/Loss ratio : 0
+Peak drawdown  : 0.00
+No completed trades for this date.

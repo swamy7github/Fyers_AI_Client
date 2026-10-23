@@ -131,8 +131,7 @@ Journal report, instrument specs, config overrides:
 ```bash
 python -m ghanshyam_options report --from 2026-09-01 --to 2026-10-17
 python -m ghanshyam_options instruments
-python -m ghanshyam_options backtest --instrument NIFTY50 --from 2026-09-01 --to 2026-10-17 \
-    --set risk.min_confidence=0.75 --set strategies.inside_candle.target_range_multiple=1.5 --strategies inside_candle hammer
+python -m ghanshyam_options backtest --instrument NIFTY50 --from 2026-09-01 --to 2026-10-17 --set risk.min_confidence=0.75 --set strategies.inside_candle.target_range_multiple=1.5 --strategies inside_candle hammer
 ```
 
 ### Live trading (off by default)

@@ -1,0 +1,19 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Ghanshyam Options (Paper)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "ghanshyam_options",
+            "args": [
+                "paper",
+                "--instrument", "NATGAS",
+                "--feed", "fyers",
+                "--set", "risk.min_confidence=0.8"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ]
+}

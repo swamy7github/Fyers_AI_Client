@@ -89,6 +89,8 @@ class PaperBroker(Broker):
         fill = Fill(symbol=req.symbol, side=side, qty=req.qty, price=price, ts=req.ts,
                     order_id=f"PAPER-{next(self._ids):06d}", slippage=slip, charges=charges)
         self.fills.append(fill)
+    
+        logger.info(f"=======@ {req.symbol} = {price} {req.ts}===========")
         logger.info("PAPER %s %s x%d @ %.2f (slip %.2f, charges %.2f) %s", side, req.symbol, req.qty, price, slip, charges, req.tag)
         return OrderResult(True, fill, "filled")
 

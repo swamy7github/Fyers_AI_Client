@@ -679,7 +679,7 @@ class TestDecideTodaysDirection(unittest.TestCase):
         finally:
             bootstrap_module.global_sentiment.fetch_global_snapshot = orig_fetch
             bootstrap_module.global_sentiment.score_global_bias = orig_score
-        #self.assertEqual(direction, TradeDirection.LONG)
+        self.assertEqual(direction, TradeDirection.LONG)
         self.assertEqual(label, "BULLISH")
         self.assertEqual(score, 1.5)
 

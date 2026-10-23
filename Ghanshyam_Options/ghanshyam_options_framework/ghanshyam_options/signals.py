@@ -208,6 +208,7 @@ def split_sessions(df: pd.DataFrame) -> Dict[date, List[Candle]]:
     from .indicators import frame_to_candles
 
     out: Dict[date, List[Candle]] = {}
+    df.to_csv("./dataatsplit_sessions.csv")
     if df is None or df.empty:
         return out
     for day, chunk in df.groupby(df["ts"].dt.date, sort=True):

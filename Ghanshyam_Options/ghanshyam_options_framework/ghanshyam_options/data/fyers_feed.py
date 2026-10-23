@@ -55,6 +55,7 @@ def _load_existing_client() -> Any:
     try:
         from fyersclient.fyers_client import get_fyers_client  # type: ignore
     except Exception as exc:  # pragma: no cover - depends on environment
+        print(f" {exc}")
         raise ImportError(
             "fyersclient.fyers_client could not be imported. Run from the repo root with the "
             "fyers_apiv3/pyotp/python-dotenv packages installed and fyersclient/.envfyers present."

@@ -98,6 +98,7 @@ def cmd_paper(args: argparse.Namespace) -> int:
     broker = make_broker(s, args.mode, armed=bool(args.i_understand_live_risk))
     if broker.is_live:
         print("*** LIVE MODE ARMED: real orders will be sent to Fyers ***", file=sys.stderr)
+    print(f"===========args.poll_seconds = {args.poll_seconds} ======")
     journal = TradeLog(Path(args.log_dir) if args.log_dir else s.path("log_dir"), mode=args.mode)
     runner = PaperRunner(s, feed, args.instrument, int(args.resolution), broker=broker, journal=journal,
                          poll_seconds=int(args.poll_seconds), strategies=args.strategies)
