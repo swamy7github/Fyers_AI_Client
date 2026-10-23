@@ -14,9 +14,9 @@ original/core equity strategy whenever `config.ENABLE_STOCK_TRADING = True`
    a trade book.
 
 Alongside (or instead of) equities, the same agent can run NIFTY/BANK NIFTY
-index options and/or MCX commodities — each its own opt-in strategy, all
-**off by default** (see "What's in the box" and the strategy-specific
-sections below).
+index options, MCX commodity **futures**, and/or MCX commodity **options** —
+each its own opt-in strategy, all **off by default** (see "What's in the
+box" and the strategy-specific sections below).
 
 It also includes a standalone **global market sentiment** module for the
 "is the broader tape bullish or bearish" question, combining price-based
@@ -41,7 +41,7 @@ scoring with an optional Claude-powered read on qualitative news.
 
 | File | Purpose |
 |---|---|
-| `config.py` | All settings: credentials (via `.env`), file paths, timing, strategy thresholds. Four independent master switches, **all `False` by default**: `ENABLE_STOCK_TRADING` (the original/core equity strategy), `ENABLE_NIFTY_OPTIONS_TRADING`, `ENABLE_BANKNIFTY_OPTIONS_TRADING`, `ENABLE_MCX_COMMODITY_TRADING` — the agent trades nothing until at least one is turned on |
+| `config.py` | All settings: credentials (via `.env`), file paths, timing, strategy thresholds. Five independent master switches, **all `False` by default**: `ENABLE_STOCK_TRADING` (the original/core equity strategy), `ENABLE_NIFTY_OPTIONS_TRADING`, `ENABLE_BANKNIFTY_OPTIONS_TRADING`, `ENABLE_MCX_COMMODITY_TRADING` (MCX futures), `ENABLE_MCX_OPTIONS_TRADING` (MCX options) — the agent trades nothing until at least one is turned on |
 | `fyers_service.py` | Fyers login (auto TOTP + manual fallback) and a retrying, logged data wrapper |
 | `global_sentiment.py` | Global bullish/bearish scoring + optional Claude-based news sentiment — TWO separate ticker/weight sets: `GLOBAL_TICKERS`/`SENTIMENT_WEIGHTS` (equity cues, drives equities/NIFTY/BANKNIFTY options) and `COMMODITY_GLOBAL_TICKERS`/`COMMODITY_SENTIMENT_WEIGHTS` (gold/silver/crude/copper/natural-gas/dollar-index, drives MCX commodities only) |
 | `sector_scanner.py` | 09:10 / 09:16 sector strength/weakness snapshot, queried directly from NSE index symbols |
@@ -50,6 +50,7 @@ scoring with an optional Claude-powered read on qualitative news.
 | `position_sizing.py` | Capital-based quantity sizing (`calculate_quantity`, `capital_per_slot`) shared by equities, options, and commodities — see "Capital-based position sizing" below |
 | `options_engine.py` | Single-source, BOTH-SIDES index options engine: PRICE/VWAP/VOLUME signal all from the index future, watched for a breakout in EITHER direction every candle; the index itself is read only — fresh, at the moment an entry signal actually fires, never upfront — for its spot price to pick a strike (ITM/ATM/OTM, `config.OPTION_STRIKE_MODE`). BUY-ONLY execution on a single option: CE on an upside breakout, PE on a downside one, decided by the strategy's own entry criteria, not a pre-computed daily bias — same `NiftyOptionsEngine` class drives both NIFTY (`run_nifty_options_engine()`) and BANK NIFTY (`run_banknifty_options_engine()`) independently, see "NIFTY INDEX options trading" / "BANK NIFTY options" below. Off by default |
 | `commodity_engine.py` | Applies the SAME signal_engine strategy, long or short, to the FULL `config.MCX_COMMODITY_UNIVERSE` directly — no scan, no gain/loss-band shortlist, direction from a commodity-specific global sentiment read — see "MCX commodities trading" below. Off by default |
+| `mcx_options_engine.py` | MCX commodity **OPTIONS** counterpart to `commodity_engine.py` — reuses `options_engine.NiftyOptionsEngine` wholesale, ONE instance per commodity in `config.MCX_COMMODITY_UNIVERSE`, each watching its OWN futures candles for a breakout in EITHER direction (not a shared daily bias) and buying that SAME commodity's own BUY-ONLY CE/PE — see "MCX commodity OPTIONS trading" below. Off by default |
 | `trade_direction.py` | Tiny shared `TradeDirection` enum (LONG/SHORT) + `decide_trade_direction_from_sentiment()` — kept dependency-free so `signal_engine`, `opening_range_scanner`, and `bootstrap` can all import it without an import cycle |
 | `bootstrap.py` | Market-phase detection + the late-startup catch-up pipeline: `bootstrap_and_catchup()`, historical replay, broker reconciliation — see "Late-startup catch-up" below |
 | `live_tick_stream.py` | WebSocket tick feed wrapper — NOT currently used by `main.py` (no tick-level exit exists to feed); kept for a possible future use, see the module docstring |
@@ -222,6 +223,23 @@ process is already running (a slow API call briefly blocking the loop) —
 not the mechanism for the initial late start, which bootstrap.py now
 handles explicitly and in the correct order.
 
+Every opt-in strategy gets the exact same late-startup treatment via its own
+sibling function, all called unconditionally alongside
+`bootstrap_and_catchup()` from `main.main()`: `bootstrap_mcx_catchup()` (MCX
+futures, its own independent session clock — see "MCX commodities trading"),
+`bootstrap_mcx_options_catchup()` (MCX options — see "MCX commodity OPTIONS
+trading"), and `bootstrap_nifty_options_catchup()`/
+`bootstrap_banknifty_options_catchup()` (ride the equity session above, no
+separate phase of their own). `main()` only exits for the day once ALL
+THREE independent session-phase checks — equity, MCX futures, MCX options —
+report `POST_CLOSE` (MCX futures/options each fake `POST_CLOSE` immediately
+when their own `ENABLE_*` flag is off, since they're two independent
+engines on the same session clock and main()'s exit check already ANDs all
+three together — see `bootstrap_mcx_options_catchup()`'s own docstring for
+exactly why that's still correct for every combination of the two MCX
+flags). The three options catch-ups share one documented limitation: none
+reconcile broker-held positions/orders yet (see each one's own docstring).
+
 ## Broker position sync
 
 `_reconcile_broker_state()` (in `bootstrap.py`, using
@@ -381,19 +399,24 @@ normal path any more).
 - **BANK NIFTY options**: `config.BANKNIFTY_OPTIONS_CAPITAL` — likewise its
   own, independent bucket, separate from NIFTY options' (see "BANK NIFTY
   options" below).
-- **Commodities**: `config.MCX_CAPITAL`, split equally across however many
-  commodities actually make the shortlist that day (not a fixed split
-  across the whole configured universe, so an under-filled shortlist
-  doesn't leave capital sitting idle) — see "MCX commodities trading" below.
+- **MCX commodity futures**: `config.MCX_CAPITAL`, split equally across
+  however many commodities actually make the shortlist that day (not a
+  fixed split across the whole configured universe, so an under-filled
+  shortlist doesn't leave capital sitting idle) — see "MCX commodities
+  trading" below.
+- **MCX commodity options**: `config.MCX_OPTIONS_CAPITAL` — its own,
+  independent bucket, separate from `MCX_CAPITAL` (futures) — see "MCX
+  commodity OPTIONS trading" below.
 
-These four buckets are deliberately SEPARATE, not drawn from one shared
+These five buckets are deliberately SEPARATE, not drawn from one shared
 pool — running more than one strategy at once would otherwise silently
 double- (or triple-) spend the same real money. If you only have ONE real
 capital pool, divide it across `TRADING_CAPITAL` / `NIFTY_OPTIONS_CAPITAL` /
-`BANKNIFTY_OPTIONS_CAPITAL` / `MCX_CAPITAL` yourself, and/or leave the
-strategies you're not funding disabled (`ENABLE_STOCK_TRADING` /
-`ENABLE_NIFTY_OPTIONS_TRADING` / `ENABLE_BANKNIFTY_OPTIONS_TRADING` /
-`ENABLE_MCX_COMMODITY_TRADING` are **all four `False` by default** — the
+`BANKNIFTY_OPTIONS_CAPITAL` / `MCX_CAPITAL` / `MCX_OPTIONS_CAPITAL`
+yourself, and/or leave the strategies you're not funding disabled
+(`ENABLE_STOCK_TRADING` / `ENABLE_NIFTY_OPTIONS_TRADING` /
+`ENABLE_BANKNIFTY_OPTIONS_TRADING` / `ENABLE_MCX_COMMODITY_TRADING` /
+`ENABLE_MCX_OPTIONS_TRADING` are **all five `False` by default** — the
 agent trades nothing out of the box until you turn at least one on).
 
 If a calculated quantity comes back 0 (the allocated capital can't afford
@@ -534,8 +557,9 @@ universe:
 
 If you only have ONE real pool of money, divide it across
 `TRADING_CAPITAL` / `NIFTY_OPTIONS_CAPITAL` / `BANKNIFTY_OPTIONS_CAPITAL` /
-`MCX_CAPITAL` yourself and only enable the strategies you're actually
-funding — same caveat as every other capital bucket in this repo.
+`MCX_CAPITAL` / `MCX_OPTIONS_CAPITAL` yourself and only enable the
+strategies you're actually funding — same caveat as every other capital
+bucket in this repo.
 
 ## MCX commodities trading (`commodity_engine.py`) — off by default
 
@@ -589,14 +613,86 @@ each tracker's `lot_size` taken from `config.MCX_COMMODITY_UNIVERSE`.
 Scheduling: `job_mcx_commodity_scan()` runs at
 `config.MCX_OPENING_RANGE_SCAN_TIME` (mirrors the equity opening-range job,
 just later in the day); squares off separately, much later, at
-`config.MCX_SQUARE_OFF_TIME` via its own `job_mcx_square_off_and_report()`
-job — `job_check_signals()`'s own cron range widens automatically to cover
-MCX's later close whenever `ENABLE_MCX_COMMODITY_TRADING` is `True` (see
+`config.MCX_SQUARE_OFF_TIME` via `job_mcx_square_off_and_report()` —
+`job_check_commodity_signals()`'s own cron is scheduled whenever EITHER
+`ENABLE_MCX_COMMODITY_TRADING` OR `ENABLE_MCX_OPTIONS_TRADING` is `True`
+(see "MCX commodity OPTIONS trading" below — the two share this exact same
+candle-check job/cron/cutoff, since they share MCX's session clock) (see
 `main()` in `main.py`).
 
-Trade books for options and MCX are saved to their own CSVs
-(`trade_book_YYYYMMDD_options.csv` / `..._mcx.csv`), separate from the
-equity trade book, so P&L across the three markets is never conflated.
+## MCX commodity OPTIONS trading (`mcx_options_engine.py`) — off by default
+
+The **OPTIONS** counterpart to the futures engine above — unlike that one
+(long/short futures, one shared daily direction), this trades **BUY-ONLY
+CE/PE** (ITM/ATM/OTM, `config.OPTION_STRIKE_MODE` — the SAME shared knob
+NIFTY/BANKNIFTY options use) and, critically, **each commodity decides its
+OWN entry direction from its OWN futures candles**, bidirectionally —
+exactly the single-source, BOTH-SIDES signal `options_engine.py`'s
+`NiftyOptionsEngine` already uses for NIFTY/BANKNIFTY (see "NIFTY INDEX
+options trading" above for the full PRICE/VWAP/VOLUME rule set — it isn't
+repeated here because this module doesn't reimplement it: `MCXOptionsEngine`
+is a thin multiplexer that builds one full `NiftyOptionsEngine` instance per
+commodity in `config.MCX_COMMODITY_UNIVERSE`, all sharing ONE trade book).
+Enable with `config.ENABLE_MCX_OPTIONS_TRADING = True` after reading
+`mcx_options_engine.py`'s module docstring and verifying every value below —
+runs completely independently of the futures engine (own engine instance,
+own capital bucket, own trade book); enable either, both, or neither.
+
+- **No separate MCX spot index for strike resolution.** NIFTY/BANKNIFTY
+  options resolve their strike from a separate INDEX's spot LTP; MCX
+  commodities have no such instrument, so each commodity's OWN futures
+  contract is used as BOTH the signal source AND the strike-resolution
+  "spot" reference (`index_symbol=futures_symbol` under the hood).
+- **No per-commodity `MCX_DIRECTION_REFERENCE_SYMBOL`-style config needed.**
+  That value exists only for the FUTURES engine's single shared daily
+  direction (see its own doc-comment in `config.py` for the full contrast);
+  this engine needs no reference symbol at all, since every commodity
+  already decides its own direction from its own candles independently.
+  Today's commodity sentiment (`decide_todays_commodity_direction()` — the
+  SAME read the futures engine uses) still gates each commodity's own
+  opening-range "closing strength" quality filter
+  (`config.MAX_OR_CANDLE_WICK_PCT`), it just doesn't pick CE vs PE.
+- **MCX publishes its own, separate options instrument master file** —
+  `config.MCX_FO_SYMBOL_MASTER_CSV`/`MCX_FO_MASTER_COLUMNS`, a different
+  exchange segment entirely from NSE's `NIFTY_FO_SYMBOL_MASTER_CSV` (the two
+  NIFTY/BANKNIFTY options share) — download/refresh it yourself and verify
+  the column mapping, same caveat as the NSE one.
+  `options_engine.load_fo_symbol_master()`/`resolve_option_symbol()`
+  themselves were generalized (a `master_columns` parameter) specifically so
+  this module could reuse them rather than duplicating that logic.
+- **Each `config.MCX_COMMODITY_UNIVERSE` entry needs its own
+  `option_underlying`** — the `underlying_symbol` code that commodity's own
+  rows use in `MCX_FO_SYMBOL_MASTER_CSV` (often, not always, the futures
+  symbol's own root minus the expiry/`FUT` suffix) — **verify each one**
+  against your own downloaded file; a wrong/missing value just skips that
+  ONE commodity's options for the day (logged loudly), not a crash, and
+  never affects that commodity's FUTURES engine (a fully independent
+  engine).
+- `config.MCX_OTM_STRIKES_AWAY` (default 1) — ONE shared strikes-away count
+  across the whole universe, mirrors `NIFTY_OTM_STRIKES_AWAY`/
+  `BANKNIFTY_OTM_STRIKES_AWAY`.
+- `config.MCX_OPTIONS_CAPITAL` — its own, independent capital bucket (not
+  `MCX_CAPITAL`, the futures bucket), split evenly across whichever
+  commodities actually had an opening-range candle available today.
+
+Scheduling: `job_mcx_options_scan()` runs at the SAME `mcx_scan_time` the
+futures job uses (both read the identical opening-range candle(s) via the
+identical `commodity_engine.fetch_mcx_universe_opening_ranges()` call), is
+checked every candle alongside the futures engine in
+`job_check_commodity_signals()` (same MCX session clock/cutoff/candle
+resolution — see above), and squares off at `config.MCX_SQUARE_OFF_TIME`
+via `job_mcx_square_off_and_report()` (now handles both MCX engines
+independently — one being inactive never skips reporting the other).
+**Known limitation** (shared with NIFTY/BANKNIFTY options): the late-startup
+catch-up path does NOT reconcile broker-held positions/orders for this
+engine — `MCXOptionsEngine`'s shape (N sub-engines, each with a single
+`.option` leg) isn't the flat `.trackers`-keyed dict the generic broker
+reconciliation walk expects.
+
+Trade books for every opt-in strategy are saved to their own CSVs
+(`trade_book_YYYYMMDD_options.csv` / `..._banknifty_options.csv` /
+`..._mcx.csv` / `..._mcx_options.csv`), separate from the equity trade book
+and from each other, so P&L across markets is never conflated.
 
 ## Backtesting
 
@@ -950,13 +1046,16 @@ two for a full universe), but it's the only way to get correct numbers once
    call** once `config.DRY_RUN = False` — there is no separate "wire it up"
    step left to do. Start with a tiny `TRADING_CAPITAL` and only ONE
    strategy enabled (`ENABLE_STOCK_TRADING`, `ENABLE_NIFTY_OPTIONS_TRADING`,
-   `ENABLE_BANKNIFTY_OPTIONS_TRADING`, and `ENABLE_MCX_COMMODITY_TRADING` are
-   **all four `False` by default** — remember to turn at least ONE on, or
-   the agent will run but trade nothing) the first time you flip `DRY_RUN`,
+   `ENABLE_BANKNIFTY_OPTIONS_TRADING`, `ENABLE_MCX_COMMODITY_TRADING`, and
+   `ENABLE_MCX_OPTIONS_TRADING` are **all five `False` by default** —
+   remember to turn at least ONE on, or the agent will run but trade
+   nothing) the first time you flip `DRY_RUN`,
    and watch the logs closely.
-5. If you do enable options or MCX, re-read those two sections above in
-   full first — both depend on data (a current F&O symbol master, current
-   MCX lot sizes/contract symbols) this repo cannot keep current for you.
+5. If you do enable options or MCX (futures or options), re-read those
+   sections above in full first — all depend on data (a current F&O symbol
+   master — NSE's for NIFTY/BANKNIFTY, a separate MCX one for MCX options —
+   current MCX lot sizes/contract symbols, and each MCX commodity's own
+   `option_underlying` code) this repo cannot keep current for you.
 
 ## "Which AI should I use to build/customize this agent?"
 

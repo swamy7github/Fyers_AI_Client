@@ -1,0 +1,3 @@
+trade_id,mode,date,event,timestamp,instrument,option_symbol,side,strike,expiry,quantity,price,spot,reason,charges,gross_pnl,net_pnl
+backtest-20261023-001,backtest,2026-10-23,ENTRY,2026-10-23T09:25:00,NIFTY,NSE:NIFTY26OCT22700PE,BUY_PE,22700.0,2026-10-27,65,123.7,22711.2,signal,0.0,,
+backtest-20261023-001,backtest,2026-10-23,EXIT,2026-10-23T09:45:00,NIFTY,NSE:NIFTY26OCT22700PE,BUY_PE,22700.0,2026-10-27,65,122.3,22711.2,breakeven_stop,24.45,-91.0,-115.45

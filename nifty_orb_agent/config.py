@@ -73,8 +73,8 @@ TIMEZONE = "Asia/Kolkata"
 SECTOR_SCAN_TIME = "09:15:40"           # pre-open sector snapshot (see caveat in sector_scanner.py)
 SECTOR_SCAN_TIME_POSTOPEN = "09:26:40"  # re-run shortly after the normal session starts, for real numbers
 OPENING_RANGE_SCAN_TIME = "09:20:02"    # 2s buffer after the 09:15-09:20 candle closes
-SIGNAL_ENGINE_LAST_RUN = "23:11:00"     # stop looking for NEW signals after this time
-SQUARE_OFF_TIME = "15:11:30"            # force-close any open paper positions
+SIGNAL_ENGINE_LAST_RUN = "15:10:00"     # stop looking for NEW signals after this time
+SQUARE_OFF_TIME = "15:10:30"            # force-close any open paper positions
 CANDLE_INTERVAL_MINUTES = 5
 
 # NSE's actual normal-session hours. Used only to decide whether a late
@@ -247,15 +247,28 @@ CANDLE_DIRECTION_SCAN_TIME = "09:30:02"   # 2s buffer after the 3rd 09:15-sessio
 # MCX_CANDLE_INTERVAL_MINUTES, not NSE's fixed 5-min bar), so the TIME this becomes decidable
 # can't be a single shared clock value the way a dimensionless wick PERCENTAGE can be a single
 # shared threshold.
-MCX_CANDLE_DIRECTION_NUM_CANDLES = 3
-MCX_CANDLE_DIRECTION_SCAN_TIME = "09:15:02"  # 2s buffer after the 2nd MCX-session candle closes (09:10:00)
+MCX_CANDLE_DIRECTION_NUM_CANDLES = 2
+MCX_CANDLE_DIRECTION_SCAN_TIME = "09:10:02"  # 2s buffer after the 2nd MCX-session candle closes (09:10:00)
 
 # Which ONE MCX_COMMODITY_UNIVERSE contract's own candles decide direction for the WHOLE MCX
-# universe (mirrors how commodity SENTIMENT already decides one shared direction for the
-# whole universe today - this does NOT change that architecture to per-contract independent
-# directions, which nothing asked for). None (the default) means "the first entry in
+# FUTURES universe (commodity_engine.py only - see mcx_options_engine.py's own note below for
+# why MCX OPTIONS does NOT use this) - mirrors how commodity SENTIMENT already decides one
+# shared direction for the whole universe today. None (the default) means "the first entry in
 # MCX_COMMODITY_UNIVERSE" - set an explicit symbol string here (e.g. "MCX:GOLD25DECFUT") to
 # pick a specific reference contract instead, independent of ordering in the universe list.
+#
+# NOTE this is a SINGLE shared value, not configurable per-symbol - each commodity in
+# MCX_COMMODITY_UNIVERSE still trades the SAME direction (LONG or SHORT, decided from this one
+# reference contract's candles, or from commodity sentiment when USE_CANDLE_BASED_DIRECTION is
+# off) when traded as FUTURES via commodity_engine.run_mcx_commodity_engine(). If you want each
+# commodity to decide ITS OWN direction from ITS OWN candles instead (bidirectional, CE-or-PE,
+# exactly like NIFTY/BANKNIFTY options already do - see options_engine.py's module docstring),
+# that's what MCX OPTIONS trading (ENABLE_MCX_OPTIONS_TRADING, mcx_options_engine.py) is for:
+# its engine watches EVERY commodity's own futures breakout independently and buys that SAME
+# commodity's own CE/PE, with no shared reference symbol or shared direction involved at all -
+# this MCX_DIRECTION_REFERENCE_SYMBOL/commodity-sentiment bias only gates each commodity's own
+# opening-range quality filter there (config.MAX_OR_CANDLE_WICK_PCT), the same demoted role
+# bias_direction plays for NIFTY/BANKNIFTY options.
 MCX_DIRECTION_REFERENCE_SYMBOL = None
 
 # ---- Stop-loss / square-off & position-sizing (add-on) parameters ----
@@ -513,7 +526,7 @@ BANKNIFTY_OPTIONS_CAPITAL = 200000.0
 # just like a stock). Off by default - see commodity_engine.py and verify
 # every value below against Fyers' current MCX contract specs before
 # enabling.
-ENABLE_MCX_COMMODITY_TRADING = True
+ENABLE_MCX_COMMODITY_TRADING = False
 
 # MCX's session runs well past NSE's 09:15-15:30 (into the evening,
 # currently commonly 09:00-23:30 IST with a seasonal 23:00 close during
@@ -549,17 +562,90 @@ MCX_CANDLE_INTERVAL_MINUTES = 5
 # knowledge) - VERIFY every one against MCX's current contract
 # specifications before trusting them for real position sizing; MCX
 # revises lot sizes too.
+#
+# `option_underlying` is used ONLY by MCX OPTIONS trading (ENABLE_MCX_OPTIONS_TRADING,
+# mcx_options_engine.py, below) - it's the underlying_symbol code MCX_FO_MASTER_COLUMNS'
+# "underlying" column uses for THIS commodity's own option contracts in MCX_FO_SYMBOL_MASTER_CSV
+# (commonly, but not always, the same root as the futures trading symbol minus the expiry/"FUT"
+# suffix - e.g. "GOLDM" for "MCX:GOLDM25DECFUT") - VERIFY each one against your own downloaded
+# MCX options master file's real underlying_symbol values before enabling
+# ENABLE_MCX_OPTIONS_TRADING; a wrong value here just means that ONE commodity resolves no
+# option rows (logged loudly) and is skipped, not a crash. Ignored entirely by the FUTURES
+# engine (commodity_engine.py) above - MCX_COMMODITY_UNIVERSE's `symbol` is all that needs.
+# revises lot sizes too.
 #    {"symbol": "MCX:GOLDTEN26OCTFUT", "lot_size": 10},     # Gold Mini - ~10g/lot (verify)
 #    {"symbol": "MCX:COPPER26OCTFUT", "lot_size": 2500},   # Copper - ~2500 kg/lot (verify)
+#{"symbol": "MCX:ZINCMINI26OCTFUT", "lot_size": 100, "option_underlying":"ZINCMINI",}   # Zinc Mini - ~1MT/lot (verify)
 MCX_COMMODITY_UNIVERSE = [
-    {"symbol": "MCX:CRUDEOILM26NOVFUT", "lot_size": 10},  # Crude Oil - ~10 barrels/lot (verify) Silver Mini 
-    {"symbol": "MCX:GOLDPETAL26OCTFUT", "lot_size": 1},  # Gold Petals - ~1g/lot (verify)
-    {"symbol": "MCX:NATGASMINI26OCTFUT", "lot_size": 250},  # Natural Gas - ~250 mmBtu/lot (verify)
-    {"symbol": "MCX:SILVERMIC26NOVFUT", "lot_size": 1},    # Silver micro - ~1 kg/lot (verify)
-    {"symbol": "MCX:ZINCMINI26OCTFUT", "lot_size": 100}   # Zinc Mini - ~1MT/lot (verify)
+    {"symbol": "MCX:CRUDEOILM26NOVFUT", "lot_size": 10, "option_underlying":"CRUDEOILM",},  # Crude Oil - ~10 barrels/lot (verify) Silver Mini 
+    {"symbol": "MCX:GOLDM26OCTFUT", "lot_size": 1, "option_underlying":"GOLDM",},  # Gold Petals - ~1g/lot (verify)
+    {"symbol": "MCX:NATGASMINI26OCTFUT", "lot_size": 250, "option_underlying":"NATGASMINI",},  # Natural Gas - ~250 mmBtu/lot (verify)
+    {"symbol": "MCX:SILVERM26NOVFUT", "lot_size": 1, "option_underlying":"SILVERM",},    # Silver micro - ~1 kg/lot (verify)
+    {"symbol": "MCX:ZINC26OCTFUT", "lot_size": 100, "option_underlying":"ZINC",}   # Zinc Mini - ~1MT/lot (verify)
 ]
 
 MCX_CAPITAL = 1000000.0  # see NIFTY_OPTIONS_CAPITAL's comment on why this is its own bucket
+
+# ----------------------------------------------------------------------------
+# MCX commodity OPTIONS trading (see mcx_options_engine.py) - OFF by default
+# ----------------------------------------------------------------------------
+# Unlike the FUTURES engine above (commodity_engine.py - trades config.MCX_COMMODITY_UNIVERSE
+# directly, long or short, on ONE shared daily direction), this applies the exact same
+# single-source, BOTH-SIDES, BUY-ONLY signal/resolution rules options_engine.py already uses
+# for NIFTY/BANKNIFTY options - see that module's docstring - to EVERY commodity in
+# MCX_COMMODITY_UNIVERSE INDEPENDENTLY: each commodity's OWN futures contract supplies its OWN
+# PRICE/VWAP/VOLUME breakout signal, in EITHER direction, and whichever side confirms first
+# BUYS that SAME commodity's own CE (upside) or PE (downside) - never a naked short, never
+# gated by MCX_DIRECTION_REFERENCE_SYMBOL/a shared daily bias (see that value's own note above
+# for the full contrast). Today's commodity-sentiment bias (decide_todays_commodity_direction()
+# - the SAME read the futures engine uses) still gates each commodity's own opening-range
+# "closing strength" quality filter (config.MAX_OR_CANDLE_WICK_PCT, shared across every market),
+# exactly as NIFTY/BANKNIFTY options' own bias_direction does - it just doesn't pick CE/PE.
+#
+# Can run at the SAME time as the futures engine (ENABLE_MCX_COMMODITY_TRADING) - two
+# completely independent engines/trade books/capital buckets, same as every other pair of
+# strategies in this agent - or on its own. Off by default - read mcx_options_engine.py and
+# this whole block (especially MCX_FO_SYMBOL_MASTER_CSV/MCX_FO_MASTER_COLUMNS and each
+# MCX_COMMODITY_UNIVERSE entry's option_underlying above) before turning it on.
+ENABLE_MCX_OPTIONS_TRADING = True
+
+# MCX publishes its OWN F&O instrument master file - a SEPARATE download from NSE's
+# (NIFTY_FO_SYMBOL_MASTER_CSV above covers NSE equity/index derivatives only; MCX is a
+# different exchange segment entirely) - download/refresh it periodically and point this at
+# your local copy. mcx_options_engine.load_mcx_fo_symbol_master() reads strike/expiry/lot
+# size/trading-symbol straight from THIS file, exactly like options_engine.load_fo_symbol_master()
+# does for NSE (same generic loader, see that function's docstring - it's parameterised over
+# both the CSV path and the column mapping specifically so this module could reuse it).
+MCX_FO_SYMBOL_MASTER_CSV = os.path.join(DATA_DIR, "mcx_fo_symbol_master.csv")
+
+# Best-effort {logical name: actual column name} mapping for the file above - VERIFY against
+# your own downloaded file's real header (same caveat as NIFTY_FO_MASTER_COLUMNS) and correct
+# these before enabling ENABLE_MCX_OPTIONS_TRADING. "underlying" is matched against each
+# MCX_COMMODITY_UNIVERSE entry's own option_underlying above, not the futures trading symbol.
+MCX_FO_MASTER_COLUMNS = {
+    'underlying': 'underlying_symbol',
+    'option_type': 'option_type',
+    'expiry': 'expiry_date',
+    'strike': 'strike_price',
+    'trading_symbol': 'symbol_ticker',
+    'lot_size': 'lot_size'
+}
+
+# Same meaning as NIFTY_OTM_STRIKES_AWAY/BANKNIFTY_OTM_STRIKES_AWAY (direction governed by the
+# SHARED OPTION_STRIKE_MODE above - ONE knob for every options market in this agent, NIFTY/
+# BANKNIFTY/MCX alike) - ONE shared strikes-away count across the WHOLE MCX_COMMODITY_UNIVERSE
+# (gold, crude, natural gas, ... don't each get their own independent count - their strike
+# gaps already differ enough that "N strikes away" scales naturally per contract without a
+# separate knob per commodity). 1 = the nearest listed strike in that direction.
+MCX_OTM_STRIKES_AWAY = 1
+
+# Independent capital bucket, same reasoning as NIFTY_OPTIONS_CAPITAL/MCX_CAPITAL above -
+# deliberately separate so running MCX options alongside MCX futures (or any other strategy)
+# never silently double-spends one real capital pool. Split EVENLY across however many
+# commodities actually had an opening-range candle available today (position_sizing.
+# capital_per_slot - mirrors MCX_CAPITAL's own per-contract split for futures), not per
+# commodity ahead of time, so a data gap on one contract doesn't leave money idle.
+MCX_OPTIONS_CAPITAL = 200000.0
 
 # Tick-level stop-loss/target/trailing-stop (STOP_LOSS_PCT/TARGET_PCT/TRAILING_SL_PCT)
 # has been removed. Stop-loss is now purely candle/VWAP-driven: see

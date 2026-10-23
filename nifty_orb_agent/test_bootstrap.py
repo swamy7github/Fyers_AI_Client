@@ -691,7 +691,7 @@ class TestDecideTodaysDirection(unittest.TestCase):
         finally:
             bootstrap_module.global_sentiment.fetch_global_snapshot = orig_fetch
             bootstrap_module.global_sentiment.score_global_bias = orig_score
-        #self.assertEqual(direction, TradeDirection.SHORT)
+        self.assertEqual(direction, TradeDirection.SHORT)
 
     def test_neutral_with_both_flags_false_returns_none(self):
         bootstrap_module, orig_fetch, orig_score = self._with_mocked_sentiment("NEUTRAL", 0.1)
@@ -711,7 +711,7 @@ class TestDecideTodaysDirection(unittest.TestCase):
         finally:
             bootstrap_module.global_sentiment.fetch_global_snapshot = orig_fetch
             bootstrap_module.global_sentiment.score_global_bias = orig_score
-        #self.assertEqual(direction, TradeDirection.LONG)
+        self.assertEqual(direction, TradeDirection.LONG)
 
     def test_neutral_with_allow_short_on_neutral_falls_back_to_short(self):
         from trade_direction import TradeDirection
@@ -722,7 +722,7 @@ class TestDecideTodaysDirection(unittest.TestCase):
         finally:
             bootstrap_module.global_sentiment.fetch_global_snapshot = orig_fetch
             bootstrap_module.global_sentiment.score_global_bias = orig_score
-        #self.assertEqual(direction, TradeDirection.SHORT)
+        self.assertEqual(direction, TradeDirection.SHORT)
 
     def test_allow_long_takes_precedence_if_both_flags_are_true(self):
         from trade_direction import TradeDirection
@@ -734,7 +734,7 @@ class TestDecideTodaysDirection(unittest.TestCase):
         finally:
             bootstrap_module.global_sentiment.fetch_global_snapshot = orig_fetch
             bootstrap_module.global_sentiment.score_global_bias = orig_score
-        #self.assertEqual(direction, TradeDirection.LONG)
+        self.assertEqual(direction, TradeDirection.LONG)
 
 
 class TestDecideTodaysCommodityDirection(unittest.TestCase):
@@ -836,6 +836,191 @@ class TestDecideTodaysCommodityDirection(unittest.TestCase):
             bootstrap_module.global_sentiment.score_commodity_global_bias = orig_score
         self.assertEqual(direction, TradeDirection.SHORT)
 
-state = {}
+
+class TestBootstrapMcxOptionsCatchup(unittest.TestCase):
+    """
+    bootstrap.bootstrap_mcx_options_catchup() - the OPTIONS counterpart to
+    bootstrap_mcx_catchup() (which has no dedicated test class of its own in this file
+    either - both share the same "disabled -> fake POST_CLOSE" gate pattern, in contrast
+    to TestBootstrapAndCatchupEquityDisabled's "always report the real phase" gate - see
+    this function's own docstring for exactly why that's still correct here).
+
+    Covers the gate itself (disabled short-circuits before touching data_service at all),
+    the PRE_OPEN/POST_CLOSE/past-signal-window early returns (enabled, but nothing to do
+    yet/today), the WAITING_FOR_CANDLES and no-clear-direction short-circuits (both return
+    before ever calling mcx_options_engine.run_mcx_options_engine), and one full end-to-end
+    success path building a real MCXOptionsEngine via mocked commodity sentiment (mirrors
+    TestBootstrapAndCatchupFullPipeline's own _run_catchup_at_10am_with_sentiment pattern).
+    """
+
+    def setUp(self):
+        self._orig_enabled = config.ENABLE_MCX_OPTIONS_TRADING
+        config.ENABLE_MCX_OPTIONS_TRADING = True
+
+    def tearDown(self):
+        config.ENABLE_MCX_OPTIONS_TRADING = self._orig_enabled
+
+    class _Sentinel:
+        def __getattr__(self, name):
+            raise AssertionError(f"this path should never call {name}() on data_service")
+
+    def _frozen_at(self, hour, minute):
+        import bootstrap as bootstrap_module
+        orig = bootstrap_module.datetime
+        frozen = TZ.localize(datetime(2026, 9, 21, hour, minute, 0))
+
+        class FrozenDatetime(orig):
+            @classmethod
+            def now(cls, tz=None):
+                return frozen
+
+        bootstrap_module.datetime = FrozenDatetime
+        return bootstrap_module, orig
+
+    def test_disabled_short_circuits_without_touching_data_service(self):
+        import bootstrap as bootstrap_module
+        config.ENABLE_MCX_OPTIONS_TRADING = False
+        result = bootstrap_module.bootstrap_mcx_options_catchup(self._Sentinel())
+        self.assertEqual(result.phase, bootstrap_module.MarketPhase.POST_CLOSE)
+        self.assertIsNone(result.signal_engine)
+
+    def test_pre_open_returns_immediately_without_touching_data_service(self):
+        bootstrap_module, orig = self._frozen_at(7, 0)  # before MCX_MARKET_OPEN_TIME (09:00)
+        try:
+            result = bootstrap_module.bootstrap_mcx_options_catchup(self._Sentinel())
+        finally:
+            bootstrap_module.datetime = orig
+        self.assertEqual(result.phase, bootstrap_module.MarketPhase.PRE_OPEN)
+        self.assertIsNone(result.signal_engine)
+
+    def test_post_close_returns_immediately_without_touching_data_service(self):
+        bootstrap_module, orig = self._frozen_at(23, 45)  # after MCX_MARKET_CLOSE_TIME (23:30)
+        try:
+            result = bootstrap_module.bootstrap_mcx_options_catchup(self._Sentinel())
+        finally:
+            bootstrap_module.datetime = orig
+        self.assertEqual(result.phase, bootstrap_module.MarketPhase.POST_CLOSE)
+        self.assertIsNone(result.signal_engine)
+
+    def test_past_signal_window_returns_without_catchup(self):
+        # MCX_SIGNAL_ENGINE_LAST_RUN defaults to 23:14:30 - 23:20 is POST_OPEN (before 23:30
+        # close) but past that cutoff.
+        bootstrap_module, orig = self._frozen_at(23, 20)
+        try:
+            result = bootstrap_module.bootstrap_mcx_options_catchup(self._Sentinel())
+        finally:
+            bootstrap_module.datetime = orig
+        self.assertEqual(result.phase, bootstrap_module.MarketPhase.POST_OPEN)
+        self.assertIsNone(result.signal_engine)
+
+    def test_waiting_for_candles_sets_needs_scheduled_retry(self):
+        import bootstrap as bootstrap_module
+        bootstrap_module, orig = self._frozen_at(10, 0)
+        orig_decide = bootstrap_module.decide_todays_commodity_direction
+        bootstrap_module.decide_todays_commodity_direction = (
+            lambda *a, **kw: (None, "WAITING_FOR_CANDLES", 0.0))
+        try:
+            result = bootstrap_module.bootstrap_mcx_options_catchup(self._Sentinel())
+        finally:
+            bootstrap_module.datetime = orig
+            bootstrap_module.decide_todays_commodity_direction = orig_decide
+        self.assertIsNone(result.signal_engine)
+        self.assertTrue(result.needs_scheduled_retry)
+
+    def test_no_clear_direction_returns_none_engine(self):
+        bootstrap_module, orig = self._frozen_at(10, 0)
+        orig_decide = bootstrap_module.decide_todays_commodity_direction
+        bootstrap_module.decide_todays_commodity_direction = (
+            lambda *a, **kw: (None, "NEUTRAL", 0.1))
+        try:
+            result = bootstrap_module.bootstrap_mcx_options_catchup(self._Sentinel())
+        finally:
+            bootstrap_module.datetime = orig
+            bootstrap_module.decide_todays_commodity_direction = orig_decide
+        self.assertIsNone(result.signal_engine)
+        self.assertIsNone(result.direction)
+
+    def _run_full_pipeline(self, direction):
+        import bootstrap as bootstrap_module
+        import commodity_engine as ce_module
+        from trade_direction import TradeDirection
+
+        FROZEN_NOW = TZ.localize(datetime(2026, 9, 21, 10, 0, 0))
+
+        class FrozenDatetime(bootstrap_module.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return FROZEN_NOW
+
+        orig_bootstrap_dt = bootstrap_module.datetime
+        orig_ce_dt = ce_module.datetime
+        orig_decide = bootstrap_module.decide_todays_commodity_direction
+        bootstrap_module.datetime = FrozenDatetime
+        ce_module.datetime = FrozenDatetime
+        bootstrap_module.decide_todays_commodity_direction = (
+            lambda *a, **kw: (direction, "BULLISH" if direction == TradeDirection.LONG else "BEARISH", 2.0))
+
+        cols = config.MCX_FO_MASTER_COLUMNS
+        from_epoch, _ = ce_module._mcx_915_window_epochs()
+        or_candle = [from_epoch, 100.0, 102.0, 99.0, 101.5, 1000]
+
+        class FakeDataService:
+            def get_candles_bulk(self, symbols, resolution, range_from_date, range_to_date):
+                return {s: [or_candle] for s in symbols}
+
+            def get_quotes(self, symbols):
+                sym = symbols[0]
+                if sym == "MCX:TESTGOLDFUT":
+                    return {"d": [{"n": sym, "v": {"lp": 4_910.0}}]}
+                return {"d": [{"n": sym, "v": {"lp": 50.0}}]}
+
+        master = pd.DataFrame([{
+            cols["underlying"]: "TESTGOLD", cols["option_type"]: "CE",
+            cols["expiry"]: "2026-10-14", cols["strike"]: 4950,
+            cols["trading_symbol"]: "MCX:TESTGOLD25O144950CE", cols["lot_size"]: 10,
+        }, {
+            cols["underlying"]: "TESTGOLD", cols["option_type"]: "PE",
+            cols["expiry"]: "2026-10-14", cols["strike"]: 4850,
+            cols["trading_symbol"]: "MCX:TESTGOLD25O144850PE", cols["lot_size"]: 10,
+        }])
+
+        self._orig_universe = config.MCX_COMMODITY_UNIVERSE
+        self._orig_csv = config.MCX_FO_SYMBOL_MASTER_CSV
+        config.MCX_COMMODITY_UNIVERSE = [
+            {"symbol": "MCX:TESTGOLDFUT", "lot_size": 10, "option_underlying": "TESTGOLD"},
+        ]
+        tmpdir = Path(tempfile.mkdtemp())
+        master_csv = tmpdir / "mcx_fo_symbol_master.csv"
+        master.to_csv(master_csv, index=False)
+        config.MCX_FO_SYMBOL_MASTER_CSV = str(master_csv)
+        try:
+            return bootstrap_module.bootstrap_mcx_options_catchup(FakeDataService())
+        finally:
+            bootstrap_module.datetime = orig_bootstrap_dt
+            ce_module.datetime = orig_ce_dt
+            bootstrap_module.decide_todays_commodity_direction = orig_decide
+            config.MCX_COMMODITY_UNIVERSE = self._orig_universe
+            config.MCX_FO_SYMBOL_MASTER_CSV = self._orig_csv
+            shutil.rmtree(tmpdir)
+
+    def test_full_pipeline_builds_a_tracked_engine(self):
+        from trade_direction import TradeDirection
+        result = self._run_full_pipeline(TradeDirection.LONG)
+        self.assertEqual(result.phase.name, "POST_OPEN")
+        self.assertIsNotNone(result.signal_engine)
+        self.assertEqual(set(result.signal_engine.trackers), {"MCX:TESTGOLDFUT"})
+        self.assertEqual(result.direction, TradeDirection.LONG)
+
+    def test_full_pipeline_reports_open_position_count_in_message(self):
+        """Not a deep assertion on the entry itself (that's thoroughly covered in
+        test_mcx_options_engine.py) - just confirms this function's own summary message/
+        open-position counting (engine.open_positions_count()) doesn't raise and reports a
+        sane, non-negative count."""
+        from trade_direction import TradeDirection
+        result = self._run_full_pipeline(TradeDirection.LONG)
+        self.assertIn("MCX options catch-up complete", result.message)
+        self.assertGreaterEqual(result.signal_engine.open_positions_count(), 0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

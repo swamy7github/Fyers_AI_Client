@@ -67,6 +67,7 @@ import pytz
 
 import commodity_engine
 import config
+import mcx_options_engine
 import options_engine
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import  fyersclient
@@ -877,6 +878,125 @@ def bootstrap_mcx_catchup(data_service: FyersDataService) -> BootstrapResult:
     open_count = sum(1 for t in engine.trackers.values() if t.position_open)
     msg = (f"MCX catch-up complete: tracking {len(engine.trackers)} {direction.value} commodity "
            f"contract(s), {open_count} with an open position reconstructed from today so far.")
+    logger.info(msg)
+    return BootstrapResult(phase, engine, message=msg, direction=direction,
+                            sentiment_label=sentiment_label, sentiment_score=sentiment_score)
+
+
+def bootstrap_mcx_options_catchup(data_service: FyersDataService) -> BootstrapResult:
+    """
+    MCX OPTIONS counterpart to bootstrap_mcx_catchup() above - same MCX session clock
+    (detect_mcx_market_phase()/_within_mcx_signal_window(), completely independent of NSE
+    equities - see that function's own docstring), same commodity-sentiment direction read
+    (decide_todays_commodity_direction(), the SAME call bootstrap_mcx_catchup() makes - MCX
+    options and MCX futures never disagree on today's commodity bias), but builds via
+    mcx_options_engine.run_mcx_options_engine() instead of commodity_engine.run_mcx_commodity_engine()
+    - see mcx_options_engine.py's module docstring for the full rule set (BUY-ONLY CE/PE,
+    EACH commodity deciding its own direction from its own candles - bias_direction here only
+    gates each contract's own opening-range quality filter, it does NOT pick which direction
+    any commodity trades, unlike the futures engine).
+
+    Self-gated on config.ENABLE_MCX_OPTIONS_TRADING - mirrors bootstrap_mcx_catchup()'s own
+    "disabled -> fake POST_CLOSE, skip everything" gate (NOT the "always report the real phase"
+    pattern bootstrap_and_catchup() uses for config.ENABLE_STOCK_TRADING): this is deliberate
+    and safe here specifically BECAUSE MCX options and MCX futures are two INDEPENDENT bootstrap
+    calls, each with their own ENABLE_* flag, and main.py's step-4 exit decision already ANDs
+    together all THREE phases (equity, MCX futures, MCX options) - so as long as whichever of
+    the three is actually enabled reports its OWN real phase (which it does, since the fake only
+    fires when THAT call's own flag is off), the overall exit decision stays correct no matter
+    which combination of the three is enabled. (Contrast config.ENABLE_STOCK_TRADING: equities'
+    phase is the ONE AND ONLY phase NIFTY/BANKNIFTY options' shared session depends on, so IT
+    specifically can't be allowed to fake POST_CLOSE when merely equities itself is off - see
+    bootstrap_and_catchup()'s own docstring. No such single-point-of-truth dependency exists
+    between MCX futures and MCX options - they're siblings, not a dependency.)
+
+    KNOWN LIMITATION (shared with bootstrap_nifty_options_catchup()/bootstrap_banknifty_options_catchup() -
+    see _bootstrap_options_catchup()'s own docstring for why): no _reconcile_broker_state() call
+    here. mcx_options_engine.MCXOptionsEngine's shape (N sub-engines, each with its own single
+    `.option` leg, not a flat `.trackers`-keyed-by-tradeable-instrument dict the way
+    SignalEngine's reconciliation walk expects) doesn't support it yet, exactly like NIFTY/
+    BANKNIFTY options don't.
+    """
+    if not config.ENABLE_MCX_OPTIONS_TRADING:
+        return BootstrapResult(MarketPhase.POST_CLOSE, None,
+                                message="MCX options trading is disabled (config.ENABLE_MCX_OPTIONS_TRADING "
+                                        "= False) - nothing to bootstrap.")
+
+    now = datetime.now(TZ)
+    phase = detect_mcx_market_phase(now)
+
+    if phase == MarketPhase.PRE_OPEN:
+        msg = (f"MCX options: started pre-open at {now:%H:%M:%S} IST - nothing to catch up on; "
+               f"the scheduled MCX options job in main.py will run at its normal time.")
+        logger.info(msg)
+        return BootstrapResult(phase, None, message=msg)
+
+    if phase == MarketPhase.POST_CLOSE:
+        day_kind = "a weekend" if now.weekday() >= 5 else "after today's MCX market close"
+        msg = f"MCX options: market is closed ({day_kind}, {now:%Y-%m-%d %H:%M:%S} IST) - exiting, nothing to bootstrap."
+        logger.info(msg)
+        return BootstrapResult(phase, None, message=msg)
+
+    # phase == POST_OPEN
+    if not _within_mcx_signal_window(now):
+        msg = (f"MCX options: started at {now:%H:%M:%S} IST - market is open but past the "
+               f"{config.MCX_SIGNAL_ENGINE_LAST_RUN} signal-checking cutoff, so no fresh catch-up "
+               f"will run today (see _within_mcx_signal_window's docstring for why).")
+        logger.info(msg)
+        return BootstrapResult(phase, None, message=msg)
+
+    logger.info("=== ENTERING MCX OPTIONS CATCH-UP MODE at %s IST ===", now.strftime("%H:%M:%S"))
+
+    direction, sentiment_label, sentiment_score = decide_todays_commodity_direction(data_service, now=now)
+    logger.info("MCX options: direction decision %s (score %.2f) -> trade direction: %s",
+                sentiment_label, sentiment_score, direction.value if direction else "NONE")
+    if sentiment_label == "WAITING_FOR_CANDLES":
+        msg = (f"MCX options catch-up: started at {now:%H:%M:%S} IST, but config."
+               f"USE_CANDLE_BASED_DIRECTION is True and today's deciding candle(s) haven't closed "
+               f"yet - the scheduled job_mcx_options_scan job (config.MCX_CANDLE_DIRECTION_SCAN_TIME) "
+               f"will decide direction once they do.")
+        logger.info(msg)
+        return BootstrapResult(phase, None, message=msg, needs_scheduled_retry=True,
+                                sentiment_label=sentiment_label, sentiment_score=sentiment_score)
+    if direction is None:
+        msg = (f"MCX options catch-up: commodity sentiment is {sentiment_label} (score "
+               f"{sentiment_score:.2f}) - not a clear bullish/bearish read, so no new MCX options "
+               f"position will be opened today.")
+        logger.warning(msg)
+        return BootstrapResult(phase, None, message=msg, direction=None,
+                                sentiment_label=sentiment_label, sentiment_score=sentiment_score)
+
+    engine = mcx_options_engine.run_mcx_options_engine(data_service, direction)
+    if engine is None:
+        msg = ("MCX options catch-up: no opening-range candle was available for any MCX "
+               "commodity today (or the MCX options symbol master is empty/unreadable) - "
+               "nothing to track.")
+        logger.warning(msg)
+        return BootstrapResult(phase, None, message=msg, direction=direction,
+                                sentiment_label=sentiment_label, sentiment_score=sentiment_score)
+
+    resolution = str(config.MCX_CANDLE_INTERVAL_MINUTES)
+
+    # Seed volume-MA windows from the prior session, BEFORE replay - same reasoning as MCX
+    # futures' own step 4, at MCX's own candle resolution. Fully generic over engine.trackers,
+    # same as every other engine - see mcx_options_engine.MCXOptionsEngine.trackers' own docstring.
+    fetch_and_seed_volume_windows(engine, data_service, reference_date=now.date(), resolution=resolution)
+
+    # Replay MCX_MARKET_OPEN_TIME -> now for every tracked commodity (backfill-flagged) -
+    # engine.trackers/.feed_candle() has the exact same shape every other engine's does (see
+    # mcx_options_engine.py's module docstring), so this generic helper needs no special-casing.
+    _replay_intraday_history(engine, data_service, list(engine.trackers), now,
+                              market_open_time=config.MCX_MARKET_OPEN_TIME,
+                              candle_interval_minutes=config.MCX_CANDLE_INTERVAL_MINUTES,
+                              resolution=resolution)
+
+    # No _reconcile_broker_state() call here - see this function's own docstring, "KNOWN
+    # LIMITATION", for why.
+
+    open_count = engine.open_positions_count()
+    msg = (f"MCX options catch-up complete: tracking {len(engine.trackers)} commodity "
+           f"contract(s) ({direction.value} commodity bias), {open_count} with an open option "
+           f"position reconstructed from today so far.")
     logger.info(msg)
     return BootstrapResult(phase, engine, message=msg, direction=direction,
                             sentiment_label=sentiment_label, sentiment_score=sentiment_score)

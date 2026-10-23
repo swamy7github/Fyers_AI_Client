@@ -115,18 +115,26 @@ class FakeQuoteDataService:
 
 
 class FakeCandleDataService:
-    """Implements only get_5min_candle - enough for fetch_index_opening_range /
-    NiftyOptionsEngine.check_all(). `candles_by_symbol` maps symbol -> the ONE candle
-    (a list) to return for ANY window requested for that symbol."""
+    """Implements get_5min_candle AND get_candle - enough for fetch_index_opening_range /
+    NiftyOptionsEngine.check_all() (which, since NiftyOptionsEngine grew a configurable
+    `candle_resolution` for MCX options' sake, now calls the generic get_candle(symbol,
+    resolution, ...) instead of the old 5-min-only convenience wrapper - see
+    options_engine.NiftyOptionsEngine._fetch_latest_candle - mirroring how the real
+    fyers_service.FyersDataService.get_5min_candle is itself just a thin wrapper around its own
+    get_candle()). `candles_by_symbol` maps symbol -> the ONE candle (a list) to return for ANY
+    window/resolution requested for that symbol."""
 
     def __init__(self, candles_by_symbol: dict[str, list]):
         self._candles_by_symbol = candles_by_symbol
         self.calls = []
 
-    def get_5min_candle(self, symbol, date_str, from_epoch, to_epoch):
-        self.calls.append((symbol, date_str, from_epoch, to_epoch))
+    def get_candle(self, symbol, resolution, date_str, from_epoch, to_epoch):
+        self.calls.append((symbol, resolution, date_str, from_epoch, to_epoch))
         candle = self._candles_by_symbol.get(symbol)
         return [candle] if candle else []
+
+    def get_5min_candle(self, symbol, date_str, from_epoch, to_epoch):
+        return self.get_candle(symbol, "5", date_str, from_epoch, to_epoch)
 
 
 class FakeFullDataService(FakeQuoteDataService, FakeCandleDataService):

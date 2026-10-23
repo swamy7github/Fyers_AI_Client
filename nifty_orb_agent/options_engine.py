@@ -124,35 +124,42 @@ _VALID_STRIKE_MODES = ("ITM", "ATM", "OTM")
 # F&O symbol master (option contract resolution) - unchanged responsibility
 # from before this rewrite.
 # ----------------------------------------------------------------------------
-def load_fo_symbol_master(csv_path: str | None = None) -> pd.DataFrame:
+def load_fo_symbol_master(csv_path: str | None = None,
+                           master_columns: dict | None = None) -> pd.DataFrame:
     """
-    Loads Fyers' NSE F&O instrument master CSV from disk - download/refresh
-    it yourself periodically (see README) and point
-    config.NIFTY_FO_SYMBOL_MASTER_CSV at it. Column names are normalised
-    via config.NIFTY_FO_MASTER_COLUMNS, a best-effort {logical name: actual
-    column name} mapping you MUST verify against your own downloaded
-    file's real header before relying on this.
+    Loads an F&O instrument master CSV from disk - download/refresh it yourself periodically
+    (see README) and point the right config CSV path at it. Column names are normalised via
+    `master_columns`, a best-effort {logical name: actual column name} mapping you MUST verify
+    against your own downloaded file's real header before relying on this.
 
-    Returns an empty DataFrame (never raises) if the file doesn't exist
-    yet or is missing an expected column, so a misconfigured/missing
-    master file degrades to "no options traded today" rather than
-    crashing the whole agent.
+    Generic over WHICH master file/column-mapping, not just NSE's: `csv_path`/`master_columns`
+    both default to config.NIFTY_FO_SYMBOL_MASTER_CSV/config.NIFTY_FO_MASTER_COLUMNS (NSE F&O -
+    unchanged behaviour for every existing NIFTY/BANKNIFTY caller, which share that one combined
+    file, filtered by underlying_symbol - see config.py's comment on
+    ENABLE_BANKNIFTY_OPTIONS_TRADING), but mcx_options_engine.load_mcx_fo_symbol_master() passes
+    config.MCX_FO_SYMBOL_MASTER_CSV/MCX_FO_MASTER_COLUMNS instead, since MCX options are a
+    SEPARATE exchange segment with their own, differently-shaped instrument master file - this
+    function stayed generic specifically so that module didn't need to duplicate it.
+
+    Returns an empty DataFrame (never raises) if the file doesn't exist yet or is missing an
+    expected column, so a misconfigured/missing master file degrades to "no options traded
+    today" rather than crashing the whole agent.
     """
     path = csv_path or config.NIFTY_FO_SYMBOL_MASTER_CSV
+    cols = master_columns or config.NIFTY_FO_MASTER_COLUMNS
     try:
         df = pd.read_csv(path)
     except (FileNotFoundError, OSError) as exc:
-        logger.error("NIFTY F&O symbol master not found at %s (%s) - options trading disabled "
-                      "for today. Download/refresh it and set config.NIFTY_FO_SYMBOL_MASTER_CSV.",
+        logger.error("F&O symbol master not found at %s (%s) - options trading disabled for "
+                      "today. Download/refresh it and check the config CSV path pointed at it.",
                       path, exc)
         return pd.DataFrame()
 
-    cols = config.NIFTY_FO_MASTER_COLUMNS
     missing = [logical for logical, actual in cols.items() if actual not in df.columns]
     if missing:
-        logger.error("NIFTY F&O symbol master at %s is missing expected column(s) %s (looked for "
-                      "%s) - check config.NIFTY_FO_MASTER_COLUMNS against this file's real header "
-                      "(columns found: %s). Options trading disabled for today.",
+        logger.error("F&O symbol master at %s is missing expected column(s) %s (looked for %s) - "
+                      "check its column-mapping config against this file's real header (columns "
+                      "found: %s). Options trading disabled for today.",
                       path, missing, {m: cols[m] for m in missing}, list(df.columns))
         return pd.DataFrame()
     return df
@@ -174,7 +181,8 @@ def resolve_option_symbol(data_service: FyersDataService, option_type: str,
                            strikes_away: int | None = None,
                            underlying: str = "NIFTY",
                            index_symbol: str | None = None,
-                           spot: float | None = None) -> tuple[str, int] | None:
+                           spot: float | None = None,
+                           master_columns: dict | None = None) -> tuple[str, int] | None:
     """
     option_type: "CE" or "PE". strike_mode: "ITM", "ATM", or "OTM"
     (config.OPTION_STRIKE_MODE if not given explicitly - ONE shared knob for
@@ -208,6 +216,12 @@ def resolve_option_symbol(data_service: FyersDataService, option_type: str,
     warning rather than failing outright) - callers must treat None as
     "skip this entry", not retry indefinitely. lot_size is read straight
     from the master file, never hard-coded.
+
+    master_columns: the {logical name: actual column name} mapping to read `symbol_master`
+    with - defaults to config.NIFTY_FO_MASTER_COLUMNS (NSE F&O, unchanged for NIFTY/BANKNIFTY
+    callers). mcx_options_engine.py passes config.MCX_FO_MASTER_COLUMNS instead, since MCX's
+    options instrument master is a differently-shaped file - see load_fo_symbol_master()'s
+    own docstring for why this stayed a parameter instead of a hard-coded config read.
     """
     strike_mode = (strike_mode or config.OPTION_STRIKE_MODE).upper()
     if strike_mode not in _VALID_STRIKE_MODES:
@@ -221,11 +235,11 @@ def resolve_option_symbol(data_service: FyersDataService, option_type: str,
         logger.error("strikes_away must be >= 1 (got %d) - treating as 1.", strikes_away)
         strikes_away = 1
 
-    master = symbol_master if symbol_master is not None else load_fo_symbol_master()
+    cols = master_columns or config.NIFTY_FO_MASTER_COLUMNS
+    master = symbol_master if symbol_master is not None else load_fo_symbol_master(master_columns=cols)
     if master.empty:
         return None
 
-    cols = config.NIFTY_FO_MASTER_COLUMNS
     underlying_col, opttype_col = cols["underlying"], cols["option_type"]
     expiry_col, strike_col = cols["expiry"], cols["strike"]
     symbol_col, lot_col = cols["trading_symbol"], cols["lot_size"]
@@ -373,20 +387,40 @@ class NiftyOptionsEngine:
                  or_high: float, or_low: float, capital_allocated: float, *,
                  index_symbol: str, underlying: str = "NIFTY",
                  strikes_away: int | None = None, strike_mode: str | None = None,
-                 symbol_master: pd.DataFrame | None = None):
+                 symbol_master: pd.DataFrame | None = None,
+                 master_columns: dict | None = None,
+                 candle_resolution: str = "5"):
         self.data_service = data_service
-        self.underlying = underlying  # "NIFTY" or "BANKNIFTY" - purely cosmetic, used in log/reason
-                                       # strings below; the actual signal source is futures_symbol.
+        # The Fyers resolution string this engine's OWN live candle checks (_fetch_latest_candle/
+        # check_all) use - "5" (unchanged) for NIFTY/BANKNIFTY, which ride NSE's fixed 5-min
+        # equity session. mcx_options_engine.MCXOptionsEngine passes
+        # str(config.MCX_CANDLE_INTERVAL_MINUTES) instead, mirroring signal_engine.SignalEngine's
+        # own `candle_resolution` parameter - without this, this engine's live loop would always
+        # fetch 5-min bars regardless of MCX's own configured candle width (replay/backfill is
+        # unaffected either way - bootstrap._replay_intraday_history() feeds candles directly via
+        # feed_candle(), it never calls this).
+        self.candle_resolution = candle_resolution
+        self.underlying = underlying  # "NIFTY"/"BANKNIFTY", or an MCX commodity's own
+                                       # option_underlying code (see mcx_options_engine.py) -
+                                       # purely cosmetic/filtering, used in log/reason strings
+                                       # below AND to filter symbol_master rows; the actual
+                                       # signal source is futures_symbol.
         self.index_symbol = index_symbol  # strike-resolution spot source ONLY - see module docstring
         self.capital_allocated = capital_allocated
         self.strikes_away = strikes_away  # None -> resolve_option_symbol() falls back to
                                            # config.NIFTY_OTM_STRIKES_AWAY itself
         self.strike_mode = strike_mode    # None -> resolve_option_symbol() falls back to
                                            # config.OPTION_STRIKE_MODE itself
+        # master_columns: None -> resolve_option_symbol()/load_fo_symbol_master() fall back to
+        # config.NIFTY_FO_MASTER_COLUMNS (NSE F&O, unchanged for NIFTY/BANKNIFTY) - MCX options
+        # (mcx_options_engine.py) pass config.MCX_FO_MASTER_COLUMNS instead, since MCX's
+        # options instrument master is a separate, differently-shaped file.
+        self.master_columns = master_columns
         # Loaded ONCE here (unless a caller already has one, e.g. run_index_options_engine or a
         # test) rather than re-reading the CSV from disk on every single entry this engine
         # might take today.
-        self.symbol_master = symbol_master if symbol_master is not None else load_fo_symbol_master()
+        self.symbol_master = (symbol_master if symbol_master is not None
+                               else load_fo_symbol_master(master_columns=master_columns))
 
         # `direction=TradeDirection.LONG` below is an unused placeholder, not a real bias: this
         # engine watches BOTH breakout directions itself (see _check_entry) and never reads
@@ -419,8 +453,9 @@ class NiftyOptionsEngine:
     # Candle intake
     # ------------------------------------------------------------------
     def _fetch_latest_candle(self, symbol: str, window_start_epoch: int, window_end_epoch: int):
-        candles = self.data_service.get_5min_candle(symbol, datetime.now().strftime("%Y-%m-%d"),
-                                                      window_start_epoch, window_end_epoch)
+        candles = self.data_service.get_candle(symbol, self.candle_resolution,
+                                                 datetime.now().strftime("%Y-%m-%d"),
+                                                 window_start_epoch, window_end_epoch)
         return candles[0] if candles else None
 
     def check_all(self, window_start_epoch: int, window_end_epoch: int):
@@ -500,7 +535,8 @@ class NiftyOptionsEngine:
         option_type = "CE" if entry_direction == TradeDirection.LONG else "PE"
         resolved = resolve_option_symbol(self.data_service, option_type, strike_mode=self.strike_mode,
                                           symbol_master=self.symbol_master, strikes_away=self.strikes_away,
-                                          underlying=self.underlying, index_symbol=self.index_symbol)
+                                          underlying=self.underlying, index_symbol=self.index_symbol,
+                                          master_columns=self.master_columns)
         if resolved is None:
             logger.error("%s breakout confirmed by %s (2 consecutive candles, VWAP & volume-MA "
                           "all aligned), but couldn't resolve a %s option symbol at signal time "
@@ -516,9 +552,9 @@ class NiftyOptionsEngine:
             return
         qty = position_sizing.calculate_quantity(self.capital_allocated, option_price, lot_size)
         if qty == 0:
-            logger.warning(" @ %s Entry signal confirmed for %s @ %.2f, but capital_allocated=%.2f "
+            logger.warning("Entry signal confirmed for %s @ %.2f, but capital_allocated=%.2f "
                             "(lot_size=%d) can't afford even one lot - SKIPPING this entry.",
-                            now_str, option_symbol, option_price, self.capital_allocated, lot_size)
+                            option_symbol, option_price, self.capital_allocated, lot_size)
             return
 
         self.option = _OptionPosition(symbol=option_symbol, lot_size=lot_size, is_open=True,
@@ -526,8 +562,8 @@ class NiftyOptionsEngine:
         self.trade_book.record_entry(option_symbol, now_str, option_price, entry_type="INITIAL",
                                       is_backfill=is_backfill, direction=TradeDirection.LONG, qty=qty)
         logger.info("@ %s BUY OPTION %s qty=%d @ %.2f (%s %s breakout confirmed by its own volume > "
-                    "20-period MA; strike resolved AT SIGNAL TIME, mode=%s)%s",
-                    now_str, option_symbol, qty, option_price, self.futures_tracker.symbol,
+                    "20-period MA; strike resolved AT SIGNAL TIME, mode=%s)%s", now_str,
+                    option_symbol, qty, option_price, self.futures_tracker.symbol,
                     entry_direction.value, (self.strike_mode or config.OPTION_STRIKE_MODE),
                     " [BACKFILL]" if is_backfill else "")
         place_or_log_order(self.data_service, option_symbol, "BUY", qty, option_price, is_backfill)
@@ -590,7 +626,9 @@ def run_index_options_engine(data_service: FyersDataService, bias_direction: Tra
                               underlying: str, index_symbol: str, futures_symbol: str,
                               capital_allocated: float, otm_strikes_away: int | None = None,
                               strike_mode: str | None = None,
-                              symbol_master: pd.DataFrame | None = None) -> NiftyOptionsEngine | None:
+                              symbol_master: pd.DataFrame | None = None,
+                              master_columns: dict | None = None,
+                              candle_resolution: str = "5") -> NiftyOptionsEngine | None:
     """
     Generic version of run_nifty_options_engine()/run_banknifty_options_engine() - both are
     thin wrappers around this, supplying their own underlying's config values. Builds and
@@ -610,7 +648,7 @@ def run_index_options_engine(data_service: FyersDataService, bias_direction: Tra
     callers should treat that like equities' "empty shortlist" case: skip this market for
     today, other markets keep going independently.
     """
-    master = symbol_master if symbol_master is not None else load_fo_symbol_master()
+    master = symbol_master if symbol_master is not None else load_fo_symbol_master(master_columns=master_columns)
     if master.empty:
         return None
 
@@ -639,7 +677,8 @@ def run_index_options_engine(data_service: FyersDataService, bias_direction: Tra
     engine = NiftyOptionsEngine(data_service, futures_symbol, or_high, or_low, capital_allocated,
                                  index_symbol=index_symbol, underlying=underlying,
                                  strikes_away=otm_strikes_away, strike_mode=strike_mode,
-                                 symbol_master=master)
+                                 symbol_master=master, master_columns=master_columns,
+                                 candle_resolution=candle_resolution)
 
     # Seed the futures tracker's VWAP from its own opening-range candle (see
     # signal_engine.seed_opening_range_candle's docstring for why this is necessary and why

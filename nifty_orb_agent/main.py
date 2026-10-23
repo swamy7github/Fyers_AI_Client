@@ -41,18 +41,22 @@ Startup flow
    (needed for step 4's exit decision and NIFTY/BANKNIFTY options' shared
    session), but skips all the catch-up work above and returns a None
    signal_engine when disabled - see bootstrap_and_catchup()'s own gate.
-3b. bootstrap.bootstrap_mcx_catchup() - the SAME idea as step 3, but for MCX
-    commodities (config.ENABLE_MCX_COMMODITY_TRADING), run UNCONDITIONALLY
-    alongside step 3, not gated by it. MCX's own session (09:00-23:30 IST by
-    default) is far longer than, and completely independent of, NSE's
-    09:15-15:30 equity session - so starting this process at, say, 17:51 IST
-    (NSE already closed, MCX still open) must still bootstrap and run MCX.
-    Before this existed, a single equity-only market-phase check gated the
-    WHOLE process's early exit, which silently prevented MCX from ever being
-    scheduled on exactly this kind of late start - see bootstrap.py's
-    bootstrap_mcx_catchup()/detect_mcx_market_phase() for the fix.
+3b. bootstrap.bootstrap_mcx_catchup() / bootstrap_mcx_options_catchup() - the SAME idea as
+    step 3, but for MCX commodity FUTURES (config.ENABLE_MCX_COMMODITY_TRADING) and MCX
+    commodity OPTIONS (config.ENABLE_MCX_OPTIONS_TRADING - mcx_options_engine.py; EACH
+    commodity watches its OWN futures candles for a breakout in EITHER direction and buys
+    that SAME commodity's own CE/PE, exactly like NIFTY/BANKNIFTY options - see that
+    module's docstring), run UNCONDITIONALLY alongside step 3, not gated by it and not
+    gated by each other (two completely independent engines/capital buckets/trade books,
+    same as every other pair of strategies here). MCX's own session (09:00-23:30 IST by
+    default) is far longer than, and completely independent of, NSE's 09:15-15:30 equity
+    session - so starting this process at, say, 17:51 IST (NSE already closed, MCX still
+    open) must still bootstrap and run MCX. Before bootstrap_mcx_catchup() existed, a single
+    equity-only market-phase check gated the WHOLE process's early exit, which silently
+    prevented MCX from ever being scheduled on exactly this kind of late start - see
+    bootstrap.py's bootstrap_mcx_catchup()/detect_mcx_market_phase() for the fix.
 3c. bootstrap.bootstrap_nifty_options_catchup() / bootstrap_banknifty_options_catchup() -
-    the SAME idea as step 3, but for the two options engines
+    the SAME idea as step 3, but for the two INDEX options engines
     (config.ENABLE_NIFTY_OPTIONS_TRADING / config.ENABLE_BANKNIFTY_OPTIONS_TRADING), run
     UNCONDITIONALLY alongside steps 3/3b. These two share the NSE EQUITY session (no
     separate phase concept of their own - see bootstrap._bootstrap_options_catchup()'s
@@ -61,15 +65,18 @@ Startup flow
     fixed 09:20 cron job - a process started any time after that (even seconds after, let
     alone mid-session) silently never ran them for the rest of the day, since APScheduler
     resolves an already-passed cron time to "tomorrow". KNOWN LIMITATION (see
-    bootstrap.py's _bootstrap_options_catchup() docstring): unlike steps 3/3b, this does NOT
-    reconcile broker-held positions/orders - NiftyOptionsEngine's shape (single `.option`
-    leg, not the `.trackers` dict bootstrap._reconcile_broker_state() walks) doesn't support
-    it yet.
-4. Exit only if BOTH sessions are done for the day (equity POST_CLOSE AND
-   (MCX disabled OR MCX also POST_CLOSE)) - log why and return. An equity
-   POST_CLOSE alone is no longer sufficient to exit while MCX might still be
-   open. (NIFTY/BANKNIFTY options ride on the equity session and have no
-   separate say in this - see step 3c.)
+    bootstrap.py's _bootstrap_options_catchup()/bootstrap_mcx_options_catchup() docstrings):
+    unlike steps 3/3b's FUTURES catch-up, none of the three OPTIONS catch-ups reconcile
+    broker-held positions/orders - NiftyOptionsEngine's shape (single `.option` leg per
+    market; mcx_options_engine.MCXOptionsEngine is N of those, one per commodity) isn't the
+    flat `.trackers` dict bootstrap._reconcile_broker_state() walks, and doesn't support it yet.
+4. Exit only once ALL THREE session-phase checks say POST_CLOSE for the day - equity
+   (`result`), MCX futures (`mcx_result`), AND MCX options (`mcx_options_result`) - log why
+   and return. An equity POST_CLOSE alone is no longer sufficient to exit while MCX might
+   still be open, and (see bootstrap_mcx_options_catchup()'s own docstring) MCX futures being
+   disabled/POST_CLOSE-faked alone is no longer sufficient either, if MCX options is enabled
+   and the MCX session is genuinely still open. (NIFTY/BANKNIFTY options ride on the equity
+   session and have no separate say in this - see step 3c.)
 5. Schedule the recurring/remaining jobs. Because bootstrap already handled
    catch-up as a one-time synchronous step, there's no next_run_time
    trickery needed here anymore - the one-off jobs just use their normal
@@ -78,10 +85,11 @@ Startup flow
    job_banknifty_options_scan() are now ALSO guarded the same way
    job_opening_range_scan() always was - only cron-scheduled if step 3c didn't already
    produce an engine today (see the guard right before scheduler.add_job(job_nifty_options_scan...)
-   below). MCX's own candle checks run on a SEPARATE cron job/trigger
-   (job_check_commodity_signals) from equities'/options' (job_check_signals), so MCX can run
-   at its own configurable candle resolution (config.MCX_CANDLE_INTERVAL_MINUTES - see
-   config.py) independent of equities' fixed CANDLE_INTERVAL_MINUTES.
+   below); job_mcx_options_scan() gets the same treatment, mirroring job_mcx_commodity_scan()'s
+   own guard. MCX's own candle checks (BOTH futures and options) run on a SEPARATE cron
+   job/trigger (job_check_commodity_signals) from equities'/options' (job_check_signals), so
+   MCX can run at its own configurable candle resolution (config.MCX_CANDLE_INTERVAL_MINUTES -
+   see config.py) independent of equities' fixed CANDLE_INTERVAL_MINUTES.
 """
 
 from __future__ import annotations
@@ -97,8 +105,10 @@ from apscheduler.triggers.cron import CronTrigger
 
 import commodity_engine
 import config
+import mcx_options_engine
 import options_engine
 from bootstrap import (MarketPhase, _time_from_hms, bootstrap_and_catchup, bootstrap_mcx_catchup,
+                        bootstrap_mcx_options_catchup,
                         bootstrap_nifty_options_catchup, bootstrap_banknifty_options_catchup,
                         decide_todays_direction, decide_todays_commodity_direction,
                         fetch_and_seed_volume_windows)
@@ -133,16 +143,19 @@ TZ = pytz.timezone(config.TIMEZONE)
 
 # Shared mutable state the scheduled jobs read/write. "signal_engine" is the original
 # NSE-equity engine; "options_signal_engine" / "banknifty_options_signal_engine" /
-# "commodity_signal_engine" are the opt-in (config.ENABLE_NIFTY_OPTIONS_TRADING /
-# config.ENABLE_BANKNIFTY_OPTIONS_TRADING / config.ENABLE_MCX_COMMODITY_TRADING) parallel
-# engines from options_engine.py (NIFTY and BANKNIFTY are two independent instances of the
-# SAME NiftyOptionsEngine class, just constructed with different underlying/index/futures
-# config) / commodity_engine.py - all four run completely independently (separate engine
-# instances, separate trade books), so a failure or empty shortlist in one never affects
-# the others.
+# "commodity_signal_engine" / "mcx_options_signal_engine" are the opt-in
+# (config.ENABLE_NIFTY_OPTIONS_TRADING / config.ENABLE_BANKNIFTY_OPTIONS_TRADING /
+# config.ENABLE_MCX_COMMODITY_TRADING / config.ENABLE_MCX_OPTIONS_TRADING) parallel engines
+# from options_engine.py (NIFTY and BANKNIFTY are two independent instances of the SAME
+# NiftyOptionsEngine class, just constructed with different underlying/index/futures config)
+# / commodity_engine.py / mcx_options_engine.py - all five run completely independently
+# (separate engine instances, separate trade books), so a failure or empty shortlist in one
+# never affects the others. MCX futures and MCX options share the same MCX session clock (see
+# job_check_commodity_signals()/job_mcx_square_off_and_report() below) but are still two
+# completely separate engines/capital buckets/trade books, exactly like every other pair here.
 state = {"data_service": None, "signal_engine": None,
          "options_signal_engine": None,          "banknifty_options_signal_engine": None,
-         "commodity_signal_engine": None,
+         "commodity_signal_engine": None, "mcx_options_signal_engine": None,
          "top5_gaining_sectors": None, "top5_losing_sectors": None,
          "global_sentiment": {}, "live_tick_stream": None}
 
@@ -440,6 +453,48 @@ def job_mcx_commodity_scan():
     print(list(engine.trackers))
 
 
+def job_mcx_options_scan():
+    """Opt-in (config.ENABLE_MCX_OPTIONS_TRADING) - the OPTIONS counterpart to
+    job_mcx_commodity_scan() above, same MCX session/scan time, but builds
+    mcx_options_engine.MCXOptionsEngine instead of a commodity_engine.SignalEngine: EVERY
+    commodity in config.MCX_COMMODITY_UNIVERSE watches its OWN futures candles for a breakout
+    in EITHER direction (not today's shared bias) and buys that SAME commodity's own CE/PE -
+    see mcx_options_engine.py's module docstring for the full rule set (identical to NIFTY/
+    BANKNIFTY options, just run independently per commodity instead of once for one index).
+    Reuses the SAME decide_todays_commodity_direction() read job_mcx_commodity_scan() uses
+    (never recomputed separately) only to gate each contract's own opening-range quality
+    filter - it does NOT pick CE/PE for any commodity. Runs completely independently of
+    job_mcx_commodity_scan() - both can be enabled at once, each with its own capital bucket
+    and trade book."""
+    if not config.ENABLE_MCX_OPTIONS_TRADING:
+        return
+    direction, sentiment_label, sentiment_score = decide_todays_commodity_direction(state["data_service"])
+    if sentiment_label == "WAITING_FOR_CANDLES":
+        logger.error("MCX options scan fired but candle-based direction says it's STILL waiting "
+                      "for its deciding candle(s) - check config.MCX_CANDLE_DIRECTION_SCAN_TIME "
+                      "against config.MCX_CANDLE_DIRECTION_NUM_CANDLES/MCX_MARKET_OPEN_TIME.")
+        return
+    if direction is None:
+        logger.warning("No clear direction today (%s) - skipping MCX options for today.",
+                        sentiment_label)
+        return
+    engine = mcx_options_engine.run_mcx_options_engine(state["data_service"], direction)
+    if engine is None:
+        logger.warning("No opening-range candle was available for any MCX commodity today (or "
+                        "the MCX options symbol master is empty/unreadable) - nothing tracked "
+                        "today.")
+        return
+    # Seed at MCX's own candle resolution, same reasoning as job_mcx_commodity_scan() above.
+    fetch_and_seed_volume_windows(engine, state["data_service"],
+                                   resolution=str(config.MCX_CANDLE_INTERVAL_MINUTES))
+    state["mcx_options_signal_engine"] = engine
+    print(f"\n=== MCX Options Universe ({direction.value}, commodity sentiment: {sentiment_label}) ===")
+    print(f"Watching BOTH directions per commodity; buys that commodity's own CE on an upside "
+          f"breakout, PE on a downside one, whichever fires first (today's {direction.value} "
+          f"bias only gated each contract's own opening-range quality filter).")
+    print(list(engine.trackers))
+
+
 def job_check_signals():
     """Checks the equity engine (always) plus the NIFTY/BANKNIFTY options engines (if the
     opt-in scans above produced one) every CANDLE_INTERVAL_MINUTES, all sharing the NSE
@@ -474,11 +529,13 @@ def job_check_commodity_signals():
     keeps running (09:00 up to MCX_SIGNAL_ENGINE_LAST_RUN, typically 23:14:30) long after
     equities'/options' own job_check_signals has stopped for the day - see main()'s scheduler
     wiring and bootstrap.bootstrap_mcx_catchup()/detect_mcx_market_phase() for why MCX's
-    session is treated as fully independent of NSE's throughout this codebase."""
-    engine = state["commodity_signal_engine"]
-    if engine is None:
-        return  # MCX's opening-range scan/catch-up hasn't run or found nothing yet today
+    session is treated as fully independent of NSE's throughout this codebase.
 
+    Drives BOTH MCX engines - futures (commodity_signal_engine) AND options
+    (mcx_options_signal_engine) - since they share this exact same session clock and candle
+    resolution (mirrors job_check_signals()'s own equity/NIFTY-options/BANKNIFTY-options
+    tuple-loop above); either, both, or neither may be active today depending on
+    config.ENABLE_MCX_COMMODITY_TRADING/ENABLE_MCX_OPTIONS_TRADING."""
     now = datetime.now(TZ)
     if now.time() > _time_from_hms(config.MCX_SIGNAL_ENGINE_LAST_RUN):
         return  # past MCX's own "keep checking" window
@@ -486,7 +543,14 @@ def job_check_commodity_signals():
     window_end = now.replace(second=0, microsecond=0)
     window_start = window_end - timedelta(minutes=config.MCX_CANDLE_INTERVAL_MINUTES)
     start_epoch, end_epoch = int(window_start.timestamp()), int(window_end.timestamp())
-    engine.check_all(start_epoch, end_epoch)
+
+    for label, engine in (
+        ("mcx_futures", state["commodity_signal_engine"]),
+        ("mcx_options", state["mcx_options_signal_engine"]),
+    ):
+        if engine is None:
+            continue  # that MCX engine's opening-range scan hasn't run / found nothing yet today
+        engine.check_all(start_epoch, end_epoch)
 
 
 def _report_and_save(engine: SignalEngine, label: str, csv_suffix: str = ""):
@@ -525,16 +589,23 @@ def job_square_off_and_report():
 
 
 def job_mcx_square_off_and_report():
-    """Opt-in (config.ENABLE_MCX_COMMODITY_TRADING) - fires at config.MCX_SQUARE_OFF_TIME,
-    well after NSE/equity close, since MCX's own session runs much later in the day."""
-    if not config.ENABLE_MCX_COMMODITY_TRADING:
-        return
+    """Fires at config.MCX_SQUARE_OFF_TIME, well after NSE/equity close, since MCX's own
+    session runs much later in the day. Squares off BOTH MCX engines - futures
+    (config.ENABLE_MCX_COMMODITY_TRADING) and options (config.ENABLE_MCX_OPTIONS_TRADING) -
+    independently (mirrors job_square_off_and_report()'s own per-engine pattern above, rather
+    than one shared top-level gate): either, both, or neither may be active today, and one
+    being absent never skips reporting the other."""
     engine = state["commodity_signal_engine"]
     if engine is None:
         logger.info("No MCX commodity engine was active today - nothing to square off.")
-        return
-    _report_and_save(engine, "MCX Commodity", csv_suffix="_mcx")
+    else:
+        _report_and_save(engine, "MCX Commodity", csv_suffix="_mcx")
 
+    options_eng = state["mcx_options_signal_engine"]
+    if options_eng is None:
+        logger.info("No MCX options engine was active today - nothing to square off.")
+    else:
+        _report_and_save(options_eng, "MCX Options", csv_suffix="_mcx_options")
 
 # ----------------------------------------------------------------------------
 # Bootstrap + scheduler wiring
@@ -578,6 +649,17 @@ def main():
     mcx_result = bootstrap_mcx_catchup(state["data_service"])
     logger.info("MCX bootstrap result: phase=%s | %s", mcx_result.phase.value, mcx_result.message)
 
+    # MCX OPTIONS - same MCX session/clock as mcx_result above, but a SEPARATE engine/flag
+    # (config.ENABLE_MCX_OPTIONS_TRADING) - see bootstrap.bootstrap_mcx_options_catchup()'s own
+    # docstring for why its phase genuinely needs to be checked separately below (rather than
+    # assumed identical to mcx_result's): if MCX futures is disabled but MCX options is enabled,
+    # mcx_result.phase is faked POST_CLOSE (futures' own "disabled" gate) even while MCX is
+    # genuinely still open - mcx_options_result.phase is what correctly keeps the process alive
+    # in exactly that case.
+    mcx_options_result = bootstrap_mcx_options_catchup(state["data_service"])
+    logger.info("MCX options bootstrap result: phase=%s | %s",
+                mcx_options_result.phase.value, mcx_options_result.message)
+
     # NIFTY/BANKNIFTY options - same NSE equity session as `result` above (no separate phase
     # concept, see bootstrap._bootstrap_options_catchup()'s docstring), so these don't affect
     # the exit decision below at all; they just mean a late start (any time after 09:20:02, not
@@ -592,21 +674,27 @@ def main():
                 banknifty_options_result.phase.value, banknifty_options_result.message)
 
     # Equities/NIFTY-options/BANKNIFTY-options all run on the NSE session - once it's
-    # POST_CLOSE there's nothing left for THEM to do today. MCX runs an entirely separate,
-    # much longer session (09:00-23:30 by default) - so the whole process only exits here
-    # once BOTH sessions are done for the day (or MCX isn't enabled at all, in which case
-    # bootstrap_mcx_catchup() already reported it as POST_CLOSE above). An equity POST_CLOSE
-    # at, say, 17:51 IST must NOT by itself stop a still-open MCX session from being
-    # scheduled - that was exactly the bug this decoupling fixes.
-    if result.phase == MarketPhase.POST_CLOSE and mcx_result.phase == MarketPhase.POST_CLOSE:
-        logger.info("Exiting - both the equity session and MCX are closed (or MCX is disabled); "
-                    "nothing left to do today.")
+    # POST_CLOSE there's nothing left for THEM to do today. MCX (futures AND options) runs an
+    # entirely separate, much longer session (09:00-23:30 by default) - so the whole process
+    # only exits here once ALL THREE phases are done for the day (or each MCX engine isn't
+    # enabled at all, in which case its own bootstrap call already reported it as POST_CLOSE
+    # above - see bootstrap_mcx_options_catchup()'s docstring for exactly why checking BOTH mcx_
+    # result.phase AND mcx_options_result.phase here, not just one, is what keeps this correct
+    # for every combination of config.ENABLE_MCX_COMMODITY_TRADING/ENABLE_MCX_OPTIONS_TRADING).
+    # An equity POST_CLOSE at, say, 17:51 IST must NOT by itself stop a still-open MCX session
+    # from being scheduled - that was exactly the bug this decoupling fixes.
+    if (result.phase == MarketPhase.POST_CLOSE and mcx_result.phase == MarketPhase.POST_CLOSE
+            and mcx_options_result.phase == MarketPhase.POST_CLOSE):
+        logger.info("Exiting - the equity session and MCX (futures and options) are all closed "
+                    "(or disabled); nothing left to do today.")
         return
 
     if result.signal_engine is not None:
         state["signal_engine"] = result.signal_engine
     if mcx_result.signal_engine is not None:
         state["commodity_signal_engine"] = mcx_result.signal_engine
+    if mcx_options_result.signal_engine is not None:
+        state["mcx_options_signal_engine"] = mcx_options_result.signal_engine
     if nifty_options_result.signal_engine is not None:
         state["options_signal_engine"] = nifty_options_result.signal_engine
     if banknifty_options_result.signal_engine is not None:
@@ -684,6 +772,18 @@ def main():
         scheduler.add_job(job_mcx_commodity_scan, _cron_from_hms(mcx_scan_time),
                            id="mcx_commodity_scan", misfire_grace_time=30, **common_kwargs)
 
+    # MCX OPTIONS counterpart to the guard immediately above - same reasoning, same
+    # mcx_scan_time (MCX options share MCX futures' own opening-range/direction-decision
+    # timing - there's no separate MCX_OPTIONS_OPENING_RANGE_SCAN_TIME, they read the exact
+    # same opening-range candle(s) via the exact same commodity_engine.
+    # fetch_mcx_universe_opening_ranges() call - see mcx_options_engine.run_mcx_options_engine()'s
+    # docstring), self-gated on config.ENABLE_MCX_OPTIONS_TRADING inside job_mcx_options_scan()
+    # itself, independent of the futures guard above (one engine's state being None never
+    # affects whether the other gets (re)scheduled).
+    if state["mcx_options_signal_engine"] is None:
+        scheduler.add_job(job_mcx_options_scan, _cron_from_hms(mcx_scan_time),
+                           id="mcx_options_scan", misfire_grace_time=30, **common_kwargs)
+
     # Equity/options candle-check cron - covers just the NSE session now (equities' own
     # MARKET_OPEN_TIME-to-SIGNAL_ENGINE_LAST_RUN hour span); job_check_signals() itself
     # already skips any engine that's None or past the NSE session's own cutoff.
@@ -699,8 +799,12 @@ def main():
     # (config.MCX_CANDLE_INTERVAL_MINUTES) and its OWN, much later hour span - completely
     # independent of the equity trigger above, which is exactly what lets MCX run any time
     # between MCX_MARKET_OPEN_TIME and MCX_SIGNAL_ENGINE_LAST_RUN regardless of what the NSE
-    # equity session is doing. Only scheduled when MCX trading is enabled at all.
-    if config.ENABLE_MCX_COMMODITY_TRADING:
+    # equity session is doing. job_check_commodity_signals() drives BOTH MCX engines (futures
+    # AND options - see that job's own docstring), so this is scheduled whenever EITHER is
+    # enabled, not just futures - a futures-disabled/options-enabled setup (or vice versa)
+    # would otherwise never get this cron job at all, silently leaving whichever one IS enabled
+    # un-checked for the entire day.
+    if config.ENABLE_MCX_COMMODITY_TRADING or config.ENABLE_MCX_OPTIONS_TRADING:
         mcx_start_hour = int(config.MCX_MARKET_OPEN_TIME.split(":")[0])
         mcx_last_hour = int(config.MCX_SIGNAL_ENGINE_LAST_RUN.split(":")[0])
         mcx_check_signals_trigger = CronTrigger(minute=f"*/{config.MCX_CANDLE_INTERVAL_MINUTES}", second=2,

@@ -1,0 +1,3 @@
+symbol,entry_type,direction,entry_time,entry_price,qty,exit_time,exit_price,points,pnl_pct,pnl_amount,is_backfill,exit_is_backfill
+NSE:NIFTY26OCT22500PE,INITIAL,LONG,09:35:00,99.65,1950,13:40:00,99.35,-0.3,-0.3,-585.0,True,True
+NSE:NIFTY26OCT22450PE,INITIAL,LONG,14:45:02,108.6,1820,15:11:30,92.0,-16.6,-15.29,-30212.0,False,False
