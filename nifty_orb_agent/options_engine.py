@@ -118,6 +118,57 @@ from trade_direction import TradeDirection
 logger = logging.getLogger("orb_agent.options")
 
 _VALID_STRIKE_MODES = ("ITM", "ATM", "OTM")
+_VALID_EXPIRY_SELECTS = ("NEAREST", "MONTHLY")
+
+
+def _select_expiry(expiry_series: pd.Series, expiry_select: str):
+    """
+    Picks WHICH expiry date, among every expiry listed for a given underlying+option_type,
+    resolve_option_symbol() should trade:
+
+      "NEAREST" (this repo's ORIGINAL/default behaviour, unchanged): the single soonest
+            upcoming expiry in the whole series - this IS "current week" for an underlying
+            that still lists weekly contracts (NIFTY), and simply the one-and-only listed
+            expiry for an underlying that only lists monthlies (BANKNIFTY, since NSE retired
+            its weekly contract, and every MCX commodity).
+      "MONTHLY": the LAST expiry (NSE's monthly contracts expire on the final Thursday of
+            the month, which IS also that week's own weekly expiry - they're literally the
+            same listed contract) within the EARLIEST calendar month that still has any
+            expiry left in the series. For NIFTY mid-month this is a DIFFERENT, later-dated
+            contract than "NEAREST" (this month's final Thursday, not this week's nearer
+            one); for BANKNIFTY/MCX (monthly-only) it collapses to the exact same contract
+            "NEAREST" already picks - included anyway so backtest_options.py's weekly-vs-
+            monthly comparison still runs cleanly for those underlyings (both legs just end
+            up identical, which is the correct, expected answer for a monthly-only
+            instrument, not a bug).
+
+    Added for backtest_options.py (see that module), which wants BOTH contracts per signal
+    to compare how a weekly vs. a monthly leg would each have performed - live trading
+    (run_nifty_options_engine/run_banknifty_options_engine) still always passes "NEAREST"
+    (unchanged behaviour), so this is purely additive.
+
+    Returns the chosen expiry value in whatever dtype `expiry_series` already holds (a plain
+    equality filter against the ORIGINAL column follows this call, exactly as before this
+    function existed) - parsed to a real date ONLY internally, for month-grouping, via
+    pandas' own flexible date parser. This repo's expiry columns are "YYYY-MM-DD" strings,
+    which sort correctly as plain strings too, but this function doesn't require any
+    particular format beyond what pd.to_datetime can parse.
+    """
+    if expiry_select == "NEAREST":
+        return expiry_series.min()
+
+    parsed = pd.to_datetime(expiry_series, unit="s", errors="coerce")
+    valid_mask = parsed.notna()
+    if not valid_mask.any():
+        logger.error("expiry_select=\"MONTHLY\" couldn't parse ANY value in the expiry column "
+                      "as a date - falling back to NEAREST (plain min()).")
+        return expiry_series.min()
+
+    months = parsed.dt.to_period("M")
+    earliest_month = months[valid_mask].min()
+    in_earliest_month = valid_mask & (months == earliest_month)
+    monthly_idx = parsed[in_earliest_month].idxmax()  # the LATEST (final-Thursday) date in that month
+    return expiry_series.loc[monthly_idx]
 
 
 # ----------------------------------------------------------------------------
@@ -182,7 +233,8 @@ def resolve_option_symbol(data_service: FyersDataService, option_type: str,
                            underlying: str = "NIFTY",
                            index_symbol: str | None = None,
                            spot: float | None = None,
-                           master_columns: dict | None = None) -> tuple[str, int] | None:
+                           master_columns: dict | None = None,
+                           expiry_select: str = "NEAREST") -> tuple[str, int] | None:
     """
     option_type: "CE" or "PE". strike_mode: "ITM", "ATM", or "OTM"
     (config.OPTION_STRIKE_MODE if not given explicitly - ONE shared knob for
@@ -222,6 +274,11 @@ def resolve_option_symbol(data_service: FyersDataService, option_type: str,
     callers). mcx_options_engine.py passes config.MCX_FO_MASTER_COLUMNS instead, since MCX's
     options instrument master is a differently-shaped file - see load_fo_symbol_master()'s
     own docstring for why this stayed a parameter instead of a hard-coded config read.
+
+    expiry_select: "NEAREST" (default, unchanged behaviour) or "MONTHLY" - see
+    _select_expiry()'s own docstring above for exactly what each one picks. Every LIVE
+    caller in this codebase leaves this at "NEAREST"; backtest_options.py is the one caller
+    that passes "MONTHLY" too, to resolve a second, monthly-expiry leg for the same signal.
     """
     strike_mode = (strike_mode or config.OPTION_STRIKE_MODE).upper()
     if strike_mode not in _VALID_STRIKE_MODES:
@@ -253,8 +310,13 @@ def resolve_option_symbol(data_service: FyersDataService, option_type: str,
     if candidates.empty:
         logger.error("No %s %s option rows found in the symbol master.", option_type, underlying)
         return None
-
-    nearest_expiry = candidates[expiry_col].min()
+    logger.info(f"===>  expiry_select = {expiry_select} spot = {spot} ")
+    expiry_select = (expiry_select or "NEAREST").upper()
+    if expiry_select not in _VALID_EXPIRY_SELECTS:
+        logger.error("expiry_select=%r is not one of %s - treating as NEAREST (this repo's "
+                      "original default).", expiry_select, _VALID_EXPIRY_SELECTS)
+        expiry_select = "NEAREST"
+    nearest_expiry = _select_expiry(candidates[expiry_col], expiry_select)
     candidates = candidates[candidates[expiry_col] == nearest_expiry]
 
     if strike_mode == "ATM":
@@ -389,7 +451,8 @@ class NiftyOptionsEngine:
                  strikes_away: int | None = None, strike_mode: str | None = None,
                  symbol_master: pd.DataFrame | None = None,
                  master_columns: dict | None = None,
-                 candle_resolution: str = "5"):
+                 candle_resolution: str = "5",
+                 expiry_select: str = "NEAREST"):
         self.data_service = data_service
         # The Fyers resolution string this engine's OWN live candle checks (_fetch_latest_candle/
         # check_all) use - "5" (unchanged) for NIFTY/BANKNIFTY, which ride NSE's fixed 5-min
@@ -416,6 +479,12 @@ class NiftyOptionsEngine:
         # (mcx_options_engine.py) pass config.MCX_FO_MASTER_COLUMNS instead, since MCX's
         # options instrument master is a separate, differently-shaped file.
         self.master_columns = master_columns
+        # "NEAREST" (unchanged default - current week for a weekly-listing underlying, the
+        # only listed expiry otherwise) for every LIVE caller. backtest_options.py is the
+        # one caller that builds a SECOND engine instance per underlying/day with this set to
+        # "MONTHLY" instead, to resolve a monthly-expiry leg alongside the weekly one - see
+        # resolve_option_symbol()'s own expiry_select docs.
+        self.expiry_select = expiry_select
         # Loaded ONCE here (unless a caller already has one, e.g. run_index_options_engine or a
         # test) rather than re-reading the CSV from disk on every single entry this engine
         # might take today.
@@ -536,7 +605,8 @@ class NiftyOptionsEngine:
         resolved = resolve_option_symbol(self.data_service, option_type, strike_mode=self.strike_mode,
                                           symbol_master=self.symbol_master, strikes_away=self.strikes_away,
                                           underlying=self.underlying, index_symbol=self.index_symbol,
-                                          master_columns=self.master_columns)
+                                          master_columns=self.master_columns,
+                                          expiry_select=self.expiry_select)
         if resolved is None:
             logger.error("%s breakout confirmed by %s (2 consecutive candles, VWAP & volume-MA "
                           "all aligned), but couldn't resolve a %s option symbol at signal time "
@@ -628,7 +698,8 @@ def run_index_options_engine(data_service: FyersDataService, bias_direction: Tra
                               strike_mode: str | None = None,
                               symbol_master: pd.DataFrame | None = None,
                               master_columns: dict | None = None,
-                              candle_resolution: str = "5") -> NiftyOptionsEngine | None:
+                              candle_resolution: str = "5",
+                              expiry_select: str = "NEAREST") -> NiftyOptionsEngine | None:
     """
     Generic version of run_nifty_options_engine()/run_banknifty_options_engine() - both are
     thin wrappers around this, supplying their own underlying's config values. Builds and
@@ -678,7 +749,7 @@ def run_index_options_engine(data_service: FyersDataService, bias_direction: Tra
                                  index_symbol=index_symbol, underlying=underlying,
                                  strikes_away=otm_strikes_away, strike_mode=strike_mode,
                                  symbol_master=master, master_columns=master_columns,
-                                 candle_resolution=candle_resolution)
+                                 candle_resolution=candle_resolution, expiry_select=expiry_select)
 
     # Seed the futures tracker's VWAP from its own opening-range candle (see
     # signal_engine.seed_opening_range_candle's docstring for why this is necessary and why

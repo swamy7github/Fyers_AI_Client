@@ -119,6 +119,8 @@ def fetch_mcx_universe_opening_ranges(data_service: FyersDataService,
     symbols = [row["symbol"] for row in config.MCX_COMMODITY_UNIVERSE]
     from_epoch, to_epoch = _mcx_915_window_epochs()
     today_str = datetime.now(pytz.timezone(config.TIMEZONE)).strftime("%Y-%m-%d")
+    #from utilities import get_last_traded_day
+    #today_str = get_last_traded_day()
     resolution = str(config.MCX_CANDLE_INTERVAL_MINUTES)
     candles_by_symbol = data_service.get_candles_bulk(symbols, resolution, today_str, today_str)
 

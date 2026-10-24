@@ -10,16 +10,12 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            //"args": [
-            //    "--start",
-            //    "2026-10-07",
-            //    "--end",
-            //    "2026-10-07",
-            //    "--direction",
-            //    "LONG",
-            //    "--out",
-            //    "backtest_trades.csv"
-            //]
+            "args": [
+                "--start",
+                "2026-10-18",
+                "--end",
+                "2026-10-24",
+            ]
         }
     ]
 }

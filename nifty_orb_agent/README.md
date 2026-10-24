@@ -56,6 +56,8 @@ scoring with an optional Claude-powered read on qualitative news.
 | `live_tick_stream.py` | WebSocket tick feed wrapper — NOT currently used by `main.py` (no tick-level exit exists to feed); kept for a possible future use, see the module docstring |
 | `main.py` | Wires it all together with APScheduler; calls `bootstrap_and_catchup()` once at startup, then runs the ongoing 5-min candle checks |
 | `backtest.py` | Replays the same live strategy against historical data over a date range; run with `python backtest.py --start ... --end ...` |
+| `backtest_options.py` | Backtests NIFTY/BANKNIFTY/MCX **OPTIONS** signals, resolving BOTH a current-week and a current-month expiry contract per signal, and ALWAYS writing every simulated trade to a CSV — see "Backtesting NIFTY/BANKNIFTY/MCX options" below |
+| `test_backtest_options.py` | Tests for the above: the historical-quote stand-in, the weekly/monthly expiry split, the per-underlying config factories, and a full end-to-end run |
 | `backtest_strategy_picks.py` | Separate tool: backtests an external daily stock-picks CSV (buy-at-open/sell-at-close, equal-weight) — see "Backtesting an external daily stock-picks strategy" below |
 | `test_backtest_strategy_picks.py` | Tests for the above, including hand-verified tear-sheet math |
 | `test_signal_engine.py` | Tests for broker position adoption, the `is_backfill` gate, and capital-based sizing/qty/pnl_amount (`TestCapitalBasedPositionSizing`) (the candle-level entry/weakness logic they sit on top of is covered by `TestFeedCandle*` elsewhere in the same file) |
@@ -787,6 +789,105 @@ day's entry fire on just 2 replayed candles rather than needing 22. Plus the
 original end-to-end coverage: sector filtering feeding into the shortlist,
 a BUY trigger, EOD square-off with a correctly-timestamped exit, a day with
 no qualifying stocks, and a symbol with no returned data.
+
+## Backtesting NIFTY/BANKNIFTY/MCX options
+
+`backtest_options.py` is a **separate tool** from `backtest.py` above —
+`backtest.py` only replays the equity/MCX-futures strategy, where the
+traded instrument and the signal instrument are the same thing (the
+replayed candle's own close is the fill price). Options are different: the
+*signal* always comes from the underlying's FUTURES candles
+(`options_engine.NiftyOptionsEngine`, completely **unmodified** here — see
+below), but the instrument actually bought is a **separate, separately-priced
+option contract**. This tool makes that unmodified live engine produce
+historically-correct fills anyway, by handing it a small stand-in
+`data_service` whose `get_quotes()` answers from pre-fetched (or lazily
+fetched, for whichever option symbol actually gets resolved) historical
+candle data instead of the broker.
+
+**Run with no arguments to backtest just today** — the common case this was
+built for:
+
+```bash
+python backtest_options.py
+```
+
+Run it any time after today's candles have formed (after market close, or
+the next morning) and it replays today's NIFTY, BANKNIFTY, and every MCX
+commodity's options signals end-to-end and **always** writes the resulting
+trade log to `logs/options_backtest_<date>.csv` — this isn't an opt-in flag,
+a file is written every run, empty or not. Running it *during* market hours
+instead replays whatever candles exist up to that moment (a partial day) —
+useful as a progress check, not the final word until the session closes.
+
+```bash
+# a date range, one market, one leg, a forced direction, a custom output path
+python backtest_options.py --start 2026-10-01 --end 2026-10-23 \
+    --market nifty --legs weekly --direction LONG --out my_trades.csv
+```
+
+**Current-WEEK *and* current-MONTH expiry, both, for every signal.** The
+entry/exit *signal* depends only on the futures tracker, never on which
+option ends up resolved — so a weekly-expiry engine and a monthly-expiry
+engine, fed the exact same futures candles in the exact same order, always
+enter and exit at the exact same candles; they can only ever disagree on
+*which contract* (and therefore what price) each leg actually traded. This
+tool exploits that: for every (underlying, day) it builds **two** full
+`NiftyOptionsEngine` instances — one resolving the current-week contract
+(`expiry_select="NEAREST"`, options_engine.py's unchanged original
+behaviour), one the current-month contract (`expiry_select="MONTHLY"`, new —
+see `options_engine._select_expiry()`) — and replays the identical candle
+stream through both, each with its **own full capital allocation** (as if
+you'd run either strategy alone, not split between them, so the comparison
+isn't muddied by a capital-split effect neither single-leg strategy would
+actually have). `--legs weekly,monthly` (the default, both) can be narrowed
+to just one. For BANKNIFTY and every MCX commodity (monthly-only listings,
+no weekly contract exists), both selectors resolve to the exact same
+contract — both legs come out identical, which is the *correct* answer for
+an underlying with nothing to compare against, not a bug.
+
+**Direction is decided fresh for each day**, exactly matching live: NIFTY/
+BANKNIFTY options from historical *equity* sentiment
+(`bootstrap.decide_direction_for_date()` — the same read
+`job_nifty_options_scan()`/`job_banknifty_options_scan()` use live), MCX
+options from historical *commodity* sentiment
+(`decide_commodity_direction_for_date()` — the same read
+`job_mcx_options_scan()` uses live). `--direction LONG`/`SHORT` forces one
+fixed side across the whole range instead, same opt-in semantics as
+`backtest.py`'s own `--direction`.
+
+**Read this before trusting a result beyond "today" or the last few days**:
+the F&O symbol master (`NIFTY_FO_SYMBOL_MASTER_CSV`/`MCX_FO_SYMBOL_MASTER_CSV`)
+is a **snapshot of whatever's currently listed** — it has no row for a
+contract that's already expired and rolled off the exchange. A backtested
+day whose needed weekly/monthly contract isn't in today's snapshot resolves
+to nothing for that leg (logged, not crashed) and contributes zero trades.
+In practice: today, and days within the *current* weekly/monthly expiry
+cycle, resolve correctly; a date from several expiry cycles ago generally
+will not. This is a structural limit of resolving historical option symbols
+from a current-only instrument master, not a config value to tune — it's
+exactly why this tool's sweet spot is "including the current day," not an
+afterthought. As always: no slippage/brokerage/spread modeled either (same
+simplifying assumption `backtest.py` makes), and a backtest should **never**
+place a real order — it passes `is_backfill=True` on every replayed candle
+(belt-and-suspenders beyond `config.DRY_RUN`, since a second real,
+brokered instrument — the option itself — is involved here).
+
+The console output shows a per-day summary, a **by-underlying-and-leg**
+breakdown table (this is the weekly-vs-monthly comparison — `trades`,
+`total_points`, `total_pnl_amount`, `win_rate_pct`, grouped), and the
+overall totals — then the CSV (with `date`/`underlying`/`expiry_leg`
+columns on every row) gets saved regardless.
+
+Tested (`test_backtest_options.py`) covering: the historical-quote stand-in
+(preload vs. lazy per-symbol fetch-and-cache, the "as of this candle's
+timestamp" lookup, and that it refuses anything other than `get_quotes()`
+by design), the per-underlying config factories (including MCX's
+"split capital only across commodities that actually have an
+`option_underlying` configured"), the opening-range wick filter, a genuine
+weekly-vs-monthly divergence (two different resolved symbols/prices for the
+identical signal), the aggregation/grouping math, the CSV path helpers, and
+a full end-to-end `run_options_backtest()` run.
 
 ## Volume-MA warm-up and prior-session seeding
 

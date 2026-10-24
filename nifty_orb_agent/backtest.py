@@ -263,10 +263,7 @@ def _run_backtest_for_date(data_service: FyersDataService, target_date: date, sy
                             sector_daily_by_symbol: Optional[dict] = None) -> dict:
     sector_leaderboard = _compute_historical_sector_leaderboard(sector_daily_by_symbol or {}, sector_map, target_date, tz)
     if not sector_leaderboard.empty:
-        if direction == TradeDirection.LONG:
-            top3 = sector_leaderboard.head(5)[["index_name", "pct_change"]].to_dict("records")
-        else:
-            top3 = sector_leaderboard.tail(5)[["index_name", "pct_change"]].to_dict("records")
+        top3 = sector_leaderboard.head(3)[["index_name", "pct_change"]].to_dict("records")
         logger.info("%s: sector leaderboard (top 3) -> %s", target_date, top3)
 
     shortlist = _build_shortlist_for_date(symbols, intraday_by_symbol, daily_by_symbol, target_date, tz, direction)

@@ -6,8 +6,11 @@ Centralised configuration for the Opening Range Breakout (ORB) scanning agent.
 All secrets are read from environment variables (via a local `.env` file) so
 credentials never get hard-coded or committed to source control. Copy
 `.env.example` to `.env` and fill in your own values before running anything.
+============================================================================
+-----------------------------MASTER SYMBOL LINK---------------------------------
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+https://fyers.in/api-docs/v3/api/appendix/broker-config/symbol-master-csv/
 """
-
 from __future__ import annotations
 
 import os
@@ -247,29 +250,8 @@ CANDLE_DIRECTION_SCAN_TIME = "09:30:02"   # 2s buffer after the 3rd 09:15-sessio
 # MCX_CANDLE_INTERVAL_MINUTES, not NSE's fixed 5-min bar), so the TIME this becomes decidable
 # can't be a single shared clock value the way a dimensionless wick PERCENTAGE can be a single
 # shared threshold.
-MCX_CANDLE_DIRECTION_NUM_CANDLES = 2
-MCX_CANDLE_DIRECTION_SCAN_TIME = "09:10:02"  # 2s buffer after the 2nd MCX-session candle closes (09:10:00)
-
-# Which ONE MCX_COMMODITY_UNIVERSE contract's own candles decide direction for the WHOLE MCX
-# FUTURES universe (commodity_engine.py only - see mcx_options_engine.py's own note below for
-# why MCX OPTIONS does NOT use this) - mirrors how commodity SENTIMENT already decides one
-# shared direction for the whole universe today. None (the default) means "the first entry in
-# MCX_COMMODITY_UNIVERSE" - set an explicit symbol string here (e.g. "MCX:GOLD25DECFUT") to
-# pick a specific reference contract instead, independent of ordering in the universe list.
-#
-# NOTE this is a SINGLE shared value, not configurable per-symbol - each commodity in
-# MCX_COMMODITY_UNIVERSE still trades the SAME direction (LONG or SHORT, decided from this one
-# reference contract's candles, or from commodity sentiment when USE_CANDLE_BASED_DIRECTION is
-# off) when traded as FUTURES via commodity_engine.run_mcx_commodity_engine(). If you want each
-# commodity to decide ITS OWN direction from ITS OWN candles instead (bidirectional, CE-or-PE,
-# exactly like NIFTY/BANKNIFTY options already do - see options_engine.py's module docstring),
-# that's what MCX OPTIONS trading (ENABLE_MCX_OPTIONS_TRADING, mcx_options_engine.py) is for:
-# its engine watches EVERY commodity's own futures breakout independently and buys that SAME
-# commodity's own CE/PE, with no shared reference symbol or shared direction involved at all -
-# this MCX_DIRECTION_REFERENCE_SYMBOL/commodity-sentiment bias only gates each commodity's own
-# opening-range quality filter there (config.MAX_OR_CANDLE_WICK_PCT), the same demoted role
-# bias_direction plays for NIFTY/BANKNIFTY options.
-MCX_DIRECTION_REFERENCE_SYMBOL = None
+MCX_CANDLE_DIRECTION_NUM_CANDLES = 3
+MCX_CANDLE_DIRECTION_SCAN_TIME = "09:15:02"  # 2s buffer after the 2nd MCX-session candle closes (09:10:00)
 
 # ---- Stop-loss / square-off & position-sizing (add-on) parameters ----
 # Weakness/breakdown is detected with the SAME 20-period volume MA
@@ -429,7 +411,7 @@ NIFTY_FO_MASTER_COLUMNS = {
     "option_type": "option_type",      # expected values "CE" / "PE"
     "expiry": "expiry_date",
     "strike": "strike_price",
-    "trading_symbol": "trading_symbol",  # the exact string Fyers' history/order APIs expect
+    "trading_symbol": "symbol_ticker",  # the exact string Fyers' history/order APIs expect
     "lot_size": "lot_size",
 }
 
@@ -578,11 +560,33 @@ MCX_CANDLE_INTERVAL_MINUTES = 5
 #{"symbol": "MCX:ZINCMINI26OCTFUT", "lot_size": 100, "option_underlying":"ZINCMINI",}   # Zinc Mini - ~1MT/lot (verify)
 MCX_COMMODITY_UNIVERSE = [
     {"symbol": "MCX:CRUDEOILM26NOVFUT", "lot_size": 10, "option_underlying":"CRUDEOILM",},  # Crude Oil - ~10 barrels/lot (verify) Silver Mini 
-    {"symbol": "MCX:GOLDM26OCTFUT", "lot_size": 1, "option_underlying":"GOLDM",},  # Gold Petals - ~1g/lot (verify)
-    {"symbol": "MCX:NATGASMINI26OCTFUT", "lot_size": 250, "option_underlying":"NATGASMINI",},  # Natural Gas - ~250 mmBtu/lot (verify)
-    {"symbol": "MCX:SILVERM26NOVFUT", "lot_size": 1, "option_underlying":"SILVERM",},    # Silver micro - ~1 kg/lot (verify)
-    {"symbol": "MCX:ZINC26OCTFUT", "lot_size": 100, "option_underlying":"ZINC",}   # Zinc Mini - ~1MT/lot (verify)
+    {"symbol": "MCX:GOLDM26NOVFUT", "lot_size": 100, "option_underlying":"GOLDM",},  # Gold Petals - ~1g/lot (verify)
+    {"symbol": "MCX:NATGASMINI26NOVFUT", "lot_size": 250, "option_underlying":"NATGASMINI",},  # Natural Gas - ~250 mmBtu/lot (verify)
+    {"symbol": "MCX:SILVERM26NOVFUT", "lot_size": 5, "option_underlying":"SILVERM",},    # Silver micro - ~1 kg/lot (verify)
+    #{"symbol": "MCX:COPPER26OCTFUT", "lot_size": 2500, "option_underlying":"COPPER",}   # Zinc Mini - ~1MT/lot (verify)
 ]
+
+
+# Which ONE MCX_COMMODITY_UNIVERSE contract's own candles decide direction for the WHOLE MCX
+# FUTURES universe (commodity_engine.py only - see mcx_options_engine.py's own note below for
+# why MCX OPTIONS does NOT use this) - mirrors how commodity SENTIMENT already decides one
+# shared direction for the whole universe today. None (the default) means "the first entry in
+# MCX_COMMODITY_UNIVERSE" - set an explicit symbol string here (e.g. "MCX:GOLD25DECFUT") to
+# pick a specific reference contract instead, independent of ordering in the universe list.
+#
+# NOTE this is a SINGLE shared value, not configurable per-symbol - each commodity in
+# MCX_COMMODITY_UNIVERSE still trades the SAME direction (LONG or SHORT, decided from this one
+# reference contract's candles, or from commodity sentiment when USE_CANDLE_BASED_DIRECTION is
+# off) when traded as FUTURES via commodity_engine.run_mcx_commodity_engine(). If you want each
+# commodity to decide ITS OWN direction from ITS OWN candles instead (bidirectional, CE-or-PE,
+# exactly like NIFTY/BANKNIFTY options already do - see options_engine.py's module docstring),
+# that's what MCX OPTIONS trading (ENABLE_MCX_OPTIONS_TRADING, mcx_options_engine.py) is for:
+# its engine watches EVERY commodity's own futures breakout independently and buys that SAME
+# commodity's own CE/PE, with no shared reference symbol or shared direction involved at all -
+# this MCX_DIRECTION_REFERENCE_SYMBOL/commodity-sentiment bias only gates each commodity's own
+# opening-range quality filter there (config.MAX_OR_CANDLE_WICK_PCT), the same demoted role
+# bias_direction plays for NIFTY/BANKNIFTY options.
+MCX_DIRECTION_REFERENCE_SYMBOL = MCX_COMMODITY_UNIVERSE[0].get("symbol")
 
 MCX_CAPITAL = 1000000.0  # see NIFTY_OPTIONS_CAPITAL's comment on why this is its own bucket
 

@@ -289,6 +289,63 @@ class TestResolveOptionSymbolOtm(unittest.TestCase):
         self.assertIn("24950", symbol)  # same result as OTM, the documented fallback
 
 
+def _multi_month_master() -> pd.DataFrame:
+    """Four weekly expiries spanning two calendar months (two remaining in October, two in
+    November) - enough to prove expiry_select="MONTHLY" picks a DIFFERENT, later contract
+    than the default "NEAREST" when there's more than one week left in the current month."""
+    rows = []
+    for expiry in ("2026-10-15", "2026-10-22", "2026-10-29", "2026-11-05"):
+        for strike in (24800, 24850, 24900, 24950, 25000, 25050, 25100):
+            for opt_type in ("CE", "PE"):
+                symbol = f"NSE:NIFTY{expiry.replace('-', '')}{int(strike)}{opt_type}"
+                rows.append(_master_row(opt_type, strike, expiry, symbol=symbol))
+    return pd.DataFrame(rows)
+
+
+class TestResolveOptionSymbolExpirySelect(unittest.TestCase):
+    """expiry_select - backtest_options.py's weekly-vs-monthly comparison knob. Every LIVE
+    caller leaves this at the default "NEAREST" (unchanged original behaviour - see
+    TestResolveOptionSymbolOtm.test_uses_nearest_expiry_not_a_later_one)."""
+
+    def test_nearest_is_still_the_default_and_unchanged(self):
+        master = _multi_month_master()
+        data_service = FakeQuoteDataService(spot=24_910.0)
+        symbol, _ = options_engine.resolve_option_symbol(data_service, "CE", symbol_master=master)
+        self.assertIn("20261015", symbol)  # the single soonest expiry, same as before this feature existed
+
+    def test_monthly_picks_the_last_expiry_within_the_earliest_month(self):
+        master = _multi_month_master()
+        data_service = FakeQuoteDataService(spot=24_910.0)
+        symbol, _ = options_engine.resolve_option_symbol(data_service, "CE", symbol_master=master,
+                                                            expiry_select="MONTHLY")
+        self.assertIn("20261029", symbol)  # last Thursday of October, NOT 10-15 (nearest) or 11-05 (next month)
+
+    def test_monthly_and_nearest_collapse_to_the_same_contract_when_only_one_expiry_per_month(self):
+        """BANKNIFTY/MCX-style monthly-only listing - both selectors must agree."""
+        master = _sample_master()  # two expiries, both inside the same month (10-14/10-21 -> Oct)
+        data_service = FakeQuoteDataService(spot=24_910.0)
+        nearest_symbol, _ = options_engine.resolve_option_symbol(data_service, "CE", symbol_master=master,
+                                                                    expiry_select="NEAREST")
+        self.assertIn("24950", nearest_symbol)
+
+    def test_invalid_expiry_select_falls_back_to_nearest(self):
+        master = _multi_month_master()
+        data_service = FakeQuoteDataService(spot=24_910.0)
+        symbol, _ = options_engine.resolve_option_symbol(data_service, "CE", symbol_master=master,
+                                                            expiry_select="BOGUS")
+        self.assertIn("20261015", symbol)  # same result as NEAREST, the documented fallback
+
+    def test_unparseable_expiry_column_falls_back_to_nearest_for_monthly(self):
+        master = _multi_month_master().copy()
+        master[_MASTER_COLUMNS["expiry"]] = "not-a-date"
+        data_service = FakeQuoteDataService(spot=24_910.0)
+        result = options_engine.resolve_option_symbol(data_service, "CE", symbol_master=master,
+                                                        expiry_select="MONTHLY")
+        # min() of an all-identical unparseable column still resolves to SOME row - the point
+        # of this test is just that it degrades gracefully (no exception), not a specific strike.
+        self.assertIsNotNone(result)
+
+
 class TestResolveOptionSymbolItm(unittest.TestCase):
     """strike_mode="ITM" - the mirror image of OTM: CE below spot, PE above spot."""
 

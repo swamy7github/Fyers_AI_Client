@@ -317,6 +317,7 @@ def job_nifty_options_scan():
     what counts as a clean opening candle today."""
     if not config.ENABLE_NIFTY_OPTIONS_TRADING:
         return
+    """
     nifty_spot = state["data_service"].get_quotes(['NSE:NIFTY50-INDEX'])
     # Generate dictionary list for monthly NIFTY options
     nifty_spot = (nifty_spot.get('d')[0]).get('v').get("lp")
@@ -328,6 +329,7 @@ def job_nifty_options_scan():
         expiry_type="Monthly",
         csv_filename=config.NIFTY_FO_SYMBOL_MASTER_CSV
     )
+    """
     
     direction, sentiment_label, sentiment_score = decide_todays_direction(state["data_service"])
     if sentiment_label == "WAITING_FOR_CANDLES":
@@ -369,6 +371,7 @@ def job_banknifty_options_scan():
     enabled at once, each with its own capital bucket and trade book."""
     if not config.ENABLE_BANKNIFTY_OPTIONS_TRADING:
         return
+    """
     nifty_spot = state["data_service"].get_quotes(['NSE:NIFTYBANK-INDEX'])
     # Generate dictionary list for monthly NIFTY options
     nifty_spot = (nifty_spot.get('d')[0]).get('v').get("lp")
@@ -380,6 +383,7 @@ def job_banknifty_options_scan():
         expiry_type="Monthly",
         csv_filename=config.BANKNIFTY_FO_SYMBOL_MASTER_CSV
     )
+    """
     # index_symbol=BANKNIFTY_INDEX_SYMBOL - only matters in config.USE_CANDLE_BASED_DIRECTION
     # mode, where BANKNIFTY reads its OWN index's opening candles rather than NIFTY50's (see
     # bootstrap.decide_todays_direction()'s docstring); ignored in sentiment mode, where this
@@ -614,7 +618,7 @@ def main():
     logger.info("Starting ORB scanning agent (DRY_RUN=%s)...", config.DRY_RUN)
 
     state["data_service"] = get_fyers_client()
-
+    """
     nifty_spot = state["data_service"].get_quotes(['NSE:NIFTY50-INDEX'])
     # Generate dictionary list for monthly NIFTY options
     nifty_spot = (nifty_spot.get('d')[0]).get('v').get("lp")
@@ -637,7 +641,7 @@ def main():
         expiry_type="Monthly",
         csv_filename=config.BANKNIFTY_FO_SYMBOL_MASTER_CSV
     )
-
+    """
     job_global_sentiment()
 
     result = bootstrap_and_catchup(state)
